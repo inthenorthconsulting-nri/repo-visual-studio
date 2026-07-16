@@ -1,0 +1,48 @@
+version: 1
+project:
+  name: repo-visual-studio
+sources:
+  include:
+    - README.md
+    - docs/**
+    - src/**
+    - .github/workflows/**
+    - package.json
+    - pnpm-workspace.yaml
+    - pyproject.toml
+    - requirements.txt
+    - go.mod
+    - Cargo.toml
+    - pom.xml
+    - build.gradle
+    - Gemfile
+    - packages/*/package.json
+    - packages/*/src/**
+  exclude:
+    - node_modules/**
+    - dist/**
+    - .git/**
+    - "**/*.lock"
+    - "**/*.secret"
+    - .env
+    - .env.*
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/*.p12"
+    - "**/*.pfx"
+    - .aws/credentials
+    - .rvs/cache/**
+    - artifacts/**
+    - "**/node_modules/**"
+    - "**/dist/**"
+security:
+  redact_patterns: true
+  allow_external_upload: false
+defaults:
+  audience: executive
+  design_system: executive-dark
+  output_dir: artifacts/visuals
+quality:
+  fail_on_overflow: true
+  fail_on_missing_evidence: true
+  minimum_contrast: AA

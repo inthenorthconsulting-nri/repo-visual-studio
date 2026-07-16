@@ -1,0 +1,445 @@
+{
+  "$ref": "#/definitions/VisualDoc",
+  "definitions": {
+    "VisualDoc": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "document": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "presentation"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "const": "16:9",
+              "default": "16:9"
+            },
+            "audience": {
+              "type": "string"
+            },
+            "theme": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "title",
+            "audience",
+            "theme"
+          ],
+          "additionalProperties": false
+        },
+        "scenes": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "headline": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "description": "A claim_id from the evidence manifest this content traces back to"
+                    },
+                    "default": []
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "title"
+                  },
+                  "subheadline": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "section-divider"
+                  },
+                  "index": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "headline"
+                  },
+                  "body": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "metric"
+                  },
+                  "metrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "value": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "metrics"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "architecture"
+                  },
+                  "nodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "group": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  },
+                  "edges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "to": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "nodes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "workflow"
+                  },
+                  "graph_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "detail_level": {
+                    "type": "string",
+                    "enum": [
+                      "summary",
+                      "jobs",
+                      "jobs-and-key-steps",
+                      "full"
+                    ],
+                    "default": "jobs"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "left-to-right",
+                      "top-to-bottom"
+                    ],
+                    "default": "top-to-bottom"
+                  },
+                  "highlight": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  },
+                  "annotations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "A node or edge id within the referenced WorkflowGraph"
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "target",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "default": []
+                  },
+                  "focus_nodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "graph_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "topology"
+                  },
+                  "topology_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "detail_level": {
+                    "type": "string",
+                    "enum": [
+                      "modules",
+                      "modules-and-key-resources",
+                      "modules-and-resources",
+                      "full"
+                    ],
+                    "default": "modules-and-key-resources"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "left-to-right",
+                      "top-to-bottom"
+                    ],
+                    "default": "top-to-bottom"
+                  },
+                  "highlight": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  },
+                  "part_index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "topology_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "minItems": 1
+        },
+        "stamp": {
+          "type": "object",
+          "properties": {
+            "generator_version": {
+              "type": "string"
+            },
+            "git_commit": {
+              "type": "string"
+            },
+            "design_system": {
+              "type": "string"
+            },
+            "content_spec_hash": {
+              "type": "string"
+            },
+            "generated_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "generator_version",
+            "git_commit",
+            "design_system",
+            "content_spec_hash",
+            "generated_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "document",
+        "scenes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

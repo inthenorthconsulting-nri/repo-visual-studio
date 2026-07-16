@@ -1,0 +1,12 @@
+name: Reusable Call
+on: push
+jobs:
+  call-shared-build:
+    uses: ./.github/workflows/shared-build.yml
+    with:
+      environment: staging
+  deploy:
+    needs: call-shared-build
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run deploy

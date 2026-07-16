@@ -1,0 +1,17 @@
+name: Multiple Triggers
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: staging
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm test

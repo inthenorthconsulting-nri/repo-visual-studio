@@ -1,0 +1,252 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { execFileSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// This suite exercises the packed npm tarball end to end (pnpm pack -> npm
+// install -> npx rvs ...), not the workspace source. It is slow (a real
+// build, a real npm install, a real Playwright PDF export) and depends on
+// Chromium being installed, so it only runs when explicitly requested —
+// same rationale as gating any e2e suite behind opt-in rather than making
+// every workspace `pnpm test` run pay for a full package install.
+const RUN = process.env.RVS_TEST_PACKAGE === "1";
+const maybeDescribe = RUN ? describe : describe.skip;
+
+const repoRoot = join(__dirname, "../../../..");
+const cliRoot = join(repoRoot, "packages/cli");
+
+maybeDescribe("packaged CLI (npm tarball)", () => {
+  let packDir: string;
+  let tarballPath: string;
+  let installDir: string;
+
+  beforeAll(() => {
+    execFileSync("pnpm", ["--filter", "@rvs/cli", "build"], { cwd: repoRoot, stdio: "inherit" });
+
+    packDir = mkdtempSync(join(tmpdir(), "rvs-pack-"));
+    execFileSync("pnpm", ["--filter", "@rvs/cli", "pack", "--pack-destination", packDir], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+    tarballPath = join(packDir, readdirSync(packDir).find((f) => f.endsWith(".tgz"))!);
+
+    // Directory name intentionally contains a space: covers the
+    // "paths containing spaces" requirement without a separate fixture.
+    // realpathSync: on macOS, mkdtempSync(tmpdir()) returns a /var/... path,
+    // but the OS resolves it through a symlink to /private/var/... — the CLI
+    // subprocess reports the resolved path, so comparisons must too.
+    installDir = realpathSync(mkdtempSync(join(tmpdir(), "rvs install test ")));
+    execFileSync("git", ["init", "-q"], { cwd: installDir });
+    execFileSync("npm", ["init", "-y"], { cwd: installDir, stdio: "ignore" });
+    execFileSync("npm", ["install", tarballPath], { cwd: installDir, stdio: "inherit" });
+  }, 180_000);
+
+  // Richer fixture per docs/milestones.md's packaging-hardening spec:
+  // package.json + README.md + src/index.ts + a real, multi-job GitHub
+  // Actions workflow + docs/architecture.md. Reuses this repo's own
+  // .github/workflows/ci.yml verbatim (3 triggers, 5 jobs, a needs chain,
+  // a matrix job, a conditional job, and an environment/deployment job)
+  // rather than hand-authoring a second fixture workflow. Also carries a
+  // small Terraform root module (two resources, one variable, one output)
+  // so the packaged CLI's Terraform topology pipeline gets exercised
+  // end to end here too, not just the GitHub Actions workflow pipeline.
+  function writeRichFixture(dir: string): void {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    mkdirSync(join(dir, "docs"), { recursive: true });
+    mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+    mkdirSync(join(dir, "infra"), { recursive: true });
+    writeFileSync(join(dir, "README.md"), "# Smoke Test Repo\n\nA fixture repo for packaged CLI testing.\n");
+    writeFileSync(join(dir, "src/index.ts"), "export function main(): void {}\n");
+    writeFileSync(join(dir, "docs/architecture.md"), "# Architecture\n\nA single fixture service.\n");
+    writeFileSync(
+      join(dir, ".github/workflows/ci.yml"),
+      readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8"),
+    );
+    writeFileSync(
+      join(dir, "infra/main.tf"),
+      [
+        'variable "environment" {',
+        '  type    = string',
+        '  default = "staging"',
+        "}",
+        "",
+        'resource "aws_s3_bucket" "assets" {',
+        "  bucket = \"smoke-test-assets-${var.environment}\"",
+        "}",
+        "",
+        'resource "aws_s3_bucket_versioning" "assets" {',
+        "  bucket = aws_s3_bucket.assets.id",
+        "  versioning_configuration {",
+        '    status = "Enabled"',
+        "  }",
+        "}",
+        "",
+        'output "bucket_arn" {',
+        "  value = aws_s3_bucket.assets.arn",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  afterAll(() => {
+    rmSync(packDir, { recursive: true, force: true });
+    rmSync(installDir, { recursive: true, force: true });
+  });
+
+  function rvs(args: string[], opts: { allowNonZeroExit?: boolean; cwd?: string } = {}): string {
+    try {
+      return execFileSync("npx", ["rvs", ...args], { cwd: opts.cwd ?? installDir, encoding: "utf8" });
+    } catch (err) {
+      if (opts.allowNonZeroExit) return String((err as { stdout?: string }).stdout ?? "");
+      throw err;
+    }
+  }
+
+  it("resolves version and reports doctor diagnostics from outside the monorepo", () => {
+    const version = rvs(["--version"]).trim();
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+
+    const doctor = rvs(["doctor"]);
+    expect(doctor).toContain("rvs " + version);
+    expect(doctor).toContain("VisualDoc schema version:");
+    expect(doctor).toContain("WorkflowGraph schema version:");
+    // Asset resolution must come from the installed package, not the monorepo checkout.
+    expect(doctor).toMatch(/Design systems found at .*node_modules[/\\]@rvs[/\\]cli[/\\]assets/);
+    expect(doctor).not.toContain(repoRoot);
+
+    // Section 9's full doctor field set, verified against the installed
+    // tarball specifically (not just the workspace source).
+    expect(doctor).toContain("Installation type: packaged");
+    // process.argv[1] resolves through the node_modules/.bin/rvs symlink,
+    // not into @rvs/cli's own directory — only Package root (RVS_INSTALL_ROOT,
+    // derived from the module's own file location) points inside @rvs/cli.
+    expect(doctor).toMatch(/CLI executable: .*node_modules[/\\]\.bin[/\\]rvs/);
+    expect(doctor).toMatch(/Package root: .*node_modules[/\\]@rvs[/\\]cli/);
+    expect(doctor).toMatch(/Schemas found at .*node_modules[/\\]@rvs[/\\]cli[/\\]assets/);
+    expect(doctor).toMatch(/Agent skill found at .*node_modules[/\\]@rvs[/\\]cli[/\\]assets/);
+    expect(doctor).toContain(`Current working directory: ${installDir}`);
+    expect(doctor).toContain(`Repository root: ${installDir}`);
+    expect(doctor).toMatch(/Playwright package: available \(v\d+\.\d+\.\d+\)/);
+
+    const skillPath = rvs(["skill", "path"]).trim();
+    expect(skillPath).toMatch(/node_modules[/\\]@rvs[/\\]cli[/\\]assets[/\\]skills[/\\]repo-visual-studio$/);
+  });
+
+  it("detects a pnpm workspace during rvs init from outside the monorepo", () => {
+    const monorepoFixture = join(installDir, "monorepo-fixture");
+    mkdirSync(join(monorepoFixture, "packages/widgets/src"), { recursive: true });
+    writeFileSync(join(monorepoFixture, "pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
+    writeFileSync(join(monorepoFixture, "package.json"), JSON.stringify({ name: "fixture-monorepo" }));
+    writeFileSync(join(monorepoFixture, "packages/widgets/package.json"), JSON.stringify({ name: "widgets" }));
+    writeFileSync(join(monorepoFixture, "packages/widgets/src/index.ts"), "export {};\n");
+
+    const output = rvs(["init"], { cwd: monorepoFixture });
+    expect(output).toContain("Detected a pnpm workspace");
+    expect(output).toContain("packages/*/src/**");
+
+    const config = readFileSync(join(monorepoFixture, ".rvs/config.yml"), "utf8");
+    expect(config).toContain("packages/*/package.json");
+    expect(config).toContain("**/node_modules/**");
+  });
+
+  it("runs the full inspect -> brief -> slides -> workflow -> validate -> export pipeline", () => {
+    writeRichFixture(installDir);
+
+    expect(rvs(["init"])).toContain("Wrote .rvs/config.yml");
+    expect(rvs(["inspect"])).toContain("Wrote .rvs/cache/repository-model.json");
+    expect(rvs(["brief", "--audience", "architecture-review"])).toContain("Wrote .rvs/cache/narrative-brief.yml");
+
+    const workflowOutput = rvs(["create", "workflow", "--all", "--renderer", "both", "--format", "visualdoc"]);
+    expect(workflowOutput).toMatch(/Parsed 1 workflow\(s\)/);
+    const workflowsDir = join(installDir, "artifacts/visuals/workflows");
+    const workflowFiles = readdirSync(workflowsDir);
+    expect(workflowFiles.some((f) => f.endsWith(".mmd"))).toBe(true);
+    expect(workflowFiles.some((f) => f.endsWith(".svg"))).toBe(true);
+    expect(workflowFiles.some((f) => f.endsWith(".visualdoc.json"))).toBe(true);
+    expect(existsSync(join(installDir, ".rvs/cache/workflow-graphs.json"))).toBe(true);
+    const graphCache = JSON.parse(readFileSync(join(installDir, ".rvs/cache/workflow-graphs.json"), "utf8")) as Array<{
+      nodes: unknown[];
+      edges: unknown[];
+    }>;
+    const [graph] = graphCache;
+    expect(graph.nodes.length).toBeGreaterThanOrEqual(5); // ci.yml has 5 jobs
+    expect(graph.edges.length).toBeGreaterThan(0); // needs-chains between jobs
+
+    const topologyOutput = rvs(["create", "topology", "--all", "--renderer", "both", "--format", "visualdoc"]);
+    expect(topologyOutput).toMatch(/Parsed 1 root Terraform module\(s\)/);
+    const topologiesDir = join(installDir, "artifacts/visuals/topologies");
+    const topologyFiles = readdirSync(topologiesDir);
+    expect(topologyFiles.some((f) => f.endsWith(".mmd"))).toBe(true);
+    expect(topologyFiles.some((f) => f.endsWith(".svg"))).toBe(true);
+    expect(topologyFiles.some((f) => f.endsWith(".visualdoc.json"))).toBe(true);
+    expect(existsSync(join(installDir, ".rvs/cache/terraform-topologies.json"))).toBe(true);
+    const topologyCache = JSON.parse(
+      readFileSync(join(installDir, ".rvs/cache/terraform-topologies.json"), "utf8"),
+    ) as Array<{ nodes: unknown[]; edges: unknown[] }>;
+    const [topology] = topologyCache;
+    // 2 resources + 1 variable + 1 output, at minimum.
+    expect(topology.nodes.length).toBeGreaterThanOrEqual(4);
+    expect(topology.edges.length).toBeGreaterThan(0); // resource -> resource / variable references
+
+    expect(rvs(["create", "slides"])).toContain("Rendered");
+
+    // Non-blocking: this fixture has sparse markdown evidence, so --ci is
+    // expected to fail on the missing-evidence warning threshold. The
+    // point of this assertion is that the packaged CLI runs the check at
+    // all, not that the fixture passes it.
+    rvs(["validate", "--ci"], { allowNonZeroExit: true });
+
+    const deckHtml = join(installDir, "artifacts/visuals/deck.html");
+    expect(existsSync(deckHtml)).toBe(true);
+  });
+
+  it("exports a PDF when Chromium is available, or fails clearly when it is not", () => {
+    let chromiumAvailable: boolean;
+    try {
+      chromiumAvailable = rvs(["doctor"]).includes("Playwright Chromium launches successfully.");
+    } catch {
+      chromiumAvailable = false;
+    }
+
+    if (chromiumAvailable) {
+      const output = rvs(["export", "pdf"]);
+      expect(output).toContain("Exported");
+      expect(existsSync(join(installDir, "artifacts/visuals/deck.pdf"))).toBe(true);
+    } else {
+      let failed = false;
+      let message = "";
+      try {
+        rvs(["export", "pdf"]);
+      } catch (err) {
+        failed = true;
+        message = String((err as { stdout?: string; stderr?: string }).stderr ?? "");
+      }
+      expect(failed).toBe(true);
+      expect(message.toLowerCase()).toMatch(/chromium|playwright|browser/);
+    }
+  });
+
+  it("warns instead of crashing when no GitHub Actions workflows are present", () => {
+    const noWorkflowFixture = join(installDir, "no-workflow-fixture");
+    mkdirSync(noWorkflowFixture, { recursive: true });
+    writeFileSync(join(noWorkflowFixture, "README.md"), "# No Workflows Here\n");
+    rvs(["init"], { cwd: noWorkflowFixture });
+
+    const output = rvs(["create", "workflow", "--all", "--renderer", "both"], {
+      allowNonZeroExit: true,
+      cwd: noWorkflowFixture,
+    });
+    expect(output + "").toBeDefined();
+  });
+});

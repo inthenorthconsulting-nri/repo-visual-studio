@@ -1,0 +1,141 @@
+name: Large Workflow
+on: push
+jobs:
+  job01:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 1
+  job02:
+    needs: job01
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 2
+  job03:
+    needs: job01
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 3
+  job04:
+    needs: job01
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 4
+  job05:
+    needs: job02
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 5
+  job06:
+    needs: job02
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 6
+  job07:
+    needs: job03
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 7
+  job08:
+    needs: job03
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 8
+  job09:
+    needs: job04
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 9
+  job10:
+    needs: job04
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 10
+  job11:
+    needs: job05
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 11
+  job12:
+    needs: job06
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 12
+  job13:
+    needs: job07
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 13
+  job14:
+    needs: job08
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 14
+  job15:
+    needs: job09
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 15
+  job16:
+    needs: job10
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 16
+  job17:
+    needs:
+      - job11
+      - job12
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 17
+  job18:
+    needs:
+      - job13
+      - job14
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 18
+  job19:
+    needs:
+      - job15
+      - job16
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 19
+  job20:
+    needs:
+      - job17
+      - job18
+      - job19
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 20
+  job21:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 21
+  job22:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 22
+  job23:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 23
+  job24:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 24
+  job25:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 25
+  job26:
+    needs: job20
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 26

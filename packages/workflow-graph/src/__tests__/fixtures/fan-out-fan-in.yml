@@ -1,0 +1,27 @@
+name: Fan Out Fan In
+on: push
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo prepare
+  unit-tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test:unit
+  integration-tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test:integration
+  lint:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run lint
+  publish:
+    needs: [unit-tests, integration-tests, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm publish

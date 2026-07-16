@@ -1,0 +1,22 @@
+{
+  "name": "repo-visual-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-neutral CLI that inspects a Git repository and generates evidence-traceable presentations, diagrams, and documentation canvases.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "vitest run",
+    "rvs": "tsx packages/cli/src/bin.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

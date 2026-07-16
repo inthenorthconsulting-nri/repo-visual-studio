@@ -1,0 +1,12 @@
+name: Invalid Needs
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  broken-needs:
+    needs: buidl
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "typo in needs reference"

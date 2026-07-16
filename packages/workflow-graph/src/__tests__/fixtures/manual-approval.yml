@@ -1,0 +1,19 @@
+name: Manual Approval
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  approve-release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: release-approval
+    steps:
+      - run: echo "awaiting manual approval via environment protection rules"
+  release:
+    needs: approve-release
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run release

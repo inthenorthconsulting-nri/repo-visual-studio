@@ -1,0 +1,22 @@
+{
+  "design_systems": [
+    {
+      "id": "executive-dark",
+      "version": "1.0.0",
+      "summary": "High-contrast dark theme for executive and board-level decision decks.",
+      "best_for": ["executive", "status"]
+    },
+    {
+      "id": "editorial-light",
+      "version": "1.0.0",
+      "summary": "Warm, editorial light theme for narrative-driven walkthroughs and onboarding.",
+      "best_for": ["onboarding", "product-demonstration"]
+    },
+    {
+      "id": "technical-grid",
+      "version": "1.0.0",
+      "summary": "Dense, grid-aligned light theme for architecture and code-heavy technical reviews.",
+      "best_for": ["architecture-review", "design-review"]
+    }
+  ]
+}

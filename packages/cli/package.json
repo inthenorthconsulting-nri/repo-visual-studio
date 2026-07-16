@@ -1,0 +1,44 @@
+{
+  "name": "@rvs/cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "rvs": "dist/bin.cjs"
+  },
+  "files": [
+    "dist/**",
+    "assets/**",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@cdktf/hcl2json": "^0.21.0",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@rvs/core": "workspace:*",
+    "@rvs/exporter": "workspace:*",
+    "@rvs/narrative-planner": "workspace:*",
+    "@rvs/renderer-html": "workspace:*",
+    "@rvs/repository-model": "workspace:*",
+    "@rvs/terraform-graph": "workspace:*",
+    "@rvs/terraform-mermaid": "workspace:*",
+    "@rvs/terraform-svg": "workspace:*",
+    "@rvs/validator": "workspace:*",
+    "@rvs/visualdoc-schema": "workspace:*",
+    "@rvs/workflow-graph": "workspace:*",
+    "@rvs/workflow-mermaid": "workspace:*",
+    "@rvs/workflow-svg": "workspace:*",
+    "@types/node": "^24.0.0",
+    "commander": "^12.1.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

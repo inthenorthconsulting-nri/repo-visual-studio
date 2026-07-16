@@ -1,0 +1,26 @@
+{
+  "name": "@rvs/validator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rvs/architecture-graph": "workspace:*",
+    "@rvs/terraform-graph": "workspace:*",
+    "@rvs/workflow-graph": "workspace:*",
+    "@rvs/workflow-svg": "workspace:*",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@rvs/terraform-mermaid": "workspace:*",
+    "@rvs/terraform-svg": "workspace:*",
+    "@rvs/workflow-mermaid": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

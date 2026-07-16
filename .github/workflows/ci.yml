@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r exec tsc --noEmit
+
+  test:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r exec vitest run
+
+  build-deck:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      - run: pnpm rvs inspect
+      - run: pnpm rvs brief --audience architecture-review
+      - run: pnpm rvs create workflow --all --renderer both
+      - run: pnpm rvs create slides
+      - run: pnpm rvs validate --ci
+      - run: pnpm rvs export pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deck
+          path: artifacts/visuals/
+
+  request-approval:
+    needs: build-deck
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - run: echo "Awaiting manual approval before production deploy"
+
+  deploy-production:
+    needs: request-approval
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deck
+          path: artifacts/visuals/
+      - run: echo "Publish artifacts/visuals/deck.html and deck.pdf to production hosting"

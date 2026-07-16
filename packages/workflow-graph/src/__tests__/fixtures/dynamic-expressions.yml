@@ -1,0 +1,25 @@
+name: Dynamic Expressions
+on:
+  workflow_call:
+    inputs:
+      previous_job:
+        type: string
+        required: false
+      workflow_name:
+        type: string
+        required: false
+jobs:
+  dynamic-needs:
+    needs: ${{ inputs.previous_job }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo dynamic needs
+  dynamic-runner:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        runner: [ubuntu-latest]
+    steps:
+      - run: echo dynamic runner
+  dynamic-call:
+    uses: ./.github/workflows/${{ inputs.workflow_name }}.yml

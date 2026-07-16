@@ -1,0 +1,19 @@
+node_modules/
+.pnpm-store/
+dist/
+artifacts/
+.rvs/cache/
+packages/cli/assets/
+*.log
+.DS_Store
+test-results/
+playwright-report/
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/credentials
