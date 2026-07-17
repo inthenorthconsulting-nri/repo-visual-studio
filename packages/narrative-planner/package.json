@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/repository-model": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",

@@ -1,4 +1,4 @@
-import { selectSceneSubgraph, type WorkflowDetailLevel, type WorkflowGraph, type WorkflowNodeType } from "@rvs/workflow-graph";
+import { humanizeDisplayLabel, selectSceneSubgraph, type WorkflowDetailLevel, type WorkflowGraph, type WorkflowNodeType } from "@rvs/workflow-graph";
 import { escapeSvgText } from "./escape.js";
 import {
   DEFAULT_LAYOUT_OPTIONS,
@@ -83,7 +83,7 @@ export function renderWorkflowSvg(graph: WorkflowGraph, options: RenderSvgOption
 
   const layoutInputNodes: LayoutInputNode[] = sortedNodes.map((n) => ({
     id: n.id,
-    width: estimateLabelWidth(n.label),
+    width: estimateLabelWidth(humanizeDisplayLabel(n.label)),
     height: NODE_TYPE_HEIGHTS[n.type],
   }));
   const layoutInputEdges: LayoutInputEdge[] = sortedEdges.map((e) => ({ id: e.id, from: e.from, to: e.to }));
@@ -136,9 +136,14 @@ export function renderWorkflowSvg(graph: WorkflowGraph, options: RenderSvgOption
       strokeWidth: isHighlighted ? 3.5 : 1.5,
     });
 
-    const rawLabel = isDynamic ? `${node.label} [${node.confidence}]` : node.label;
-    const displayLabel = escapeSvgText(truncateLabelForWidth(rawLabel, pos.width));
-    const fullLabel = escapeSvgText(rawLabel);
+    const humanizedLabel = humanizeDisplayLabel(node.label);
+    const visibleLabel = isDynamic ? `${humanizedLabel} [${node.confidence}]` : humanizedLabel;
+    const displayLabel = escapeSvgText(truncateLabelForWidth(visibleLabel, pos.width));
+    // The <title>/data-full-label tooltip always carries the raw source label
+    // (plus confidence) so the original trigger name/expression is never lost
+    // to humanization or truncation — only the on-canvas text is simplified.
+    const sourceLabel = isDynamic ? `${node.label} [${node.confidence}]` : node.label;
+    const fullLabel = escapeSvgText(node.label === humanizedLabel ? sourceLabel : `${sourceLabel} (${humanizedLabel})`);
     const evidence = evidenceAttr(node.evidence);
     const textY = pos.y + pos.height / 2 + 4;
     const textX = pos.x + pos.width / 2;
@@ -163,7 +168,10 @@ export function renderWorkflowSvg(graph: WorkflowGraph, options: RenderSvgOption
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}" role="img" aria-label="${escapeSvgText(title)}" font-family="${FONT_STACK}">`,
     `<title>${escapeSvgText(title)}</title>`,
     `<desc>${escapeSvgText(desc)}</desc>`,
-    `<rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff" />`,
+    // No opaque background rect here on purpose: this SVG is embedded inside
+    // a slide whose own background may be light or dark, and an opaque white
+    // canvas behind it reads as a mismatched "white box" on dark themes. Node
+    // shapes and their own fills/strokes already provide sufficient contrast.
     ...body,
     legend.markup,
     `</svg>`,

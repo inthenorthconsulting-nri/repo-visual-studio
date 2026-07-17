@@ -7,6 +7,8 @@ export interface TechStack {
   packageManagers: string[];
   frameworks: string[];
   manifestFile?: string;
+  /** The package manifest's own short description field (e.g. package.json "description"), when present and non-empty. Evidence for system-identity fallback — not a generated summary. */
+  manifestDescription?: string;
 }
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
@@ -78,6 +80,7 @@ export function detectTechStack(repoRoot: string, inventory: FileInventory): Tec
   }
 
   const frameworks = new Set<string>();
+  let manifestDescription: string | undefined;
   const packageJsonEntry = inventory.files.find((f) => f.path === "package.json");
   if (packageJsonEntry) {
     try {
@@ -85,6 +88,7 @@ export function detectTechStack(repoRoot: string, inventory: FileInventory): Tec
       const parsed = JSON.parse(contents) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
+        description?: string;
       };
       const allDeps = { ...parsed.dependencies, ...parsed.devDependencies };
       for (const dep of Object.keys(allDeps)) {
@@ -94,8 +98,11 @@ export function detectTechStack(repoRoot: string, inventory: FileInventory): Tec
           }
         }
       }
+      if (typeof parsed.description === "string" && parsed.description.trim().length > 0) {
+        manifestDescription = parsed.description.trim();
+      }
     } catch {
-      // malformed package.json — skip framework detection, not fatal
+      // malformed package.json — skip framework/description detection, not fatal
     }
   }
 
@@ -105,5 +112,6 @@ export function detectTechStack(repoRoot: string, inventory: FileInventory): Tec
     packageManagers: [...packageManagers],
     frameworks: [...frameworks],
     manifestFile,
+    manifestDescription,
   };
 }

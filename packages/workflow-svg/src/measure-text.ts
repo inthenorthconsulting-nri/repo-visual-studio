@@ -5,7 +5,7 @@
 const AVG_CHAR_WIDTH = 7.2; // px, for a 14px sans-serif label
 const HORIZONTAL_PADDING = 24; // px, both sides combined
 const MIN_NODE_WIDTH = 96;
-const MAX_NODE_WIDTH = 280;
+const MAX_NODE_WIDTH = 320;
 
 export function estimateLabelWidth(label: string): number {
   const raw = HORIZONTAL_PADDING + label.length * AVG_CHAR_WIDTH;

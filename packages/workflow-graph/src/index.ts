@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./ids.js";
 export * from "./expressions.js";
+export * from "./humanize.js";
 export * from "./discover.js";
 export * from "./parse-workflow.js";
 export * from "./validate-structure.js";

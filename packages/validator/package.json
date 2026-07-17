@@ -10,12 +10,17 @@
   },
   "dependencies": {
     "@rvs/architecture-graph": "workspace:*",
+    "@rvs/architecture-intelligence": "workspace:*",
+    "@rvs/repository-model": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",
+    "@rvs/visualdoc-schema": "workspace:*",
     "@rvs/workflow-graph": "workspace:*",
     "@rvs/workflow-svg": "workspace:*",
     "playwright": "^1.48.0"
   },
   "devDependencies": {
+    "@rvs/core": "workspace:*",
+    "@rvs/renderer-html": "workspace:*",
     "@rvs/terraform-mermaid": "workspace:*",
     "@rvs/terraform-svg": "workspace:*",
     "@rvs/workflow-mermaid": "workspace:*",

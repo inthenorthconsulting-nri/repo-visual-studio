@@ -7,7 +7,7 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@11.13.1",
+  "packageManager": "pnpm@10.9.0",
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "vitest run",

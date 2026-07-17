@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
 import { GENERATOR_VERSION, type EvidenceManifest, type GeneratorStamp } from "@rvs/core";
 import type { TerraformTopology } from "@rvs/terraform-graph";
 import type { VisualDoc } from "@rvs/visualdoc-schema";
@@ -21,9 +22,11 @@ export function renderVisualDocToHtml(
   options: RenderOptions,
   workflowGraphs: WorkflowGraph[] = [],
   terraformTopologies: TerraformTopology[] = [],
+  architectureArtifacts: ArchitectureIntelligence[] = [],
 ): string {
   const workflowGraphsById = new Map(workflowGraphs.map((g) => [g.id, g]));
   const terraformTopologiesById = new Map(terraformTopologies.map((t) => [t.id, t]));
+  const architectureArtifactsById = new Map(architectureArtifacts.map((a) => [a.identity.id, a]));
   const contentHash = createHash("sha256").update(JSON.stringify(doc)).digest("hex");
   const stamp: GeneratorStamp = {
     generator_version: GENERATOR_VERSION,
@@ -35,7 +38,7 @@ export function renderVisualDocToHtml(
 
   const scenesHtml = doc.scenes
     .map((scene, index) => {
-      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById);
+      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById, architectureArtifactsById);
       const citations = renderCitations(scene.evidence, evidence);
       return `
       <section class="scene" id="scene-${index}" data-scene-index="${index}" data-scene-id="${escapeHtml(scene.id)}" data-scene-type="${scene.type}" role="group" aria-roledescription="slide" aria-label="${escapeHtml(scene.headline)}">

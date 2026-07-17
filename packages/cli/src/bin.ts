@@ -10,6 +10,7 @@ import { runExportPdf } from "./commands/export-pdf.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
 import { runSkillPath } from "./commands/skill.js";
+import { runSynthesizeArchitecture } from "./commands/synthesize-architecture.js";
 import { runValidate } from "./commands/validate.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -48,8 +49,12 @@ create
   .command("slides")
   .description("Render the narrative brief to a standalone HTML deck")
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
-  .action(async (opts: { designSystem?: string }) => {
-    await runCreateSlides(process.cwd(), opts.designSystem, logger);
+  .option(
+    "--profile <id>",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit); default: repository-inventory",
+  )
+  .action(async (opts: { designSystem?: string; profile?: string }) => {
+    await runCreateSlides(process.cwd(), opts.designSystem, logger, opts.profile);
   });
 
 create
@@ -106,6 +111,14 @@ create
       },
       logger,
     );
+  });
+
+const synthesize = program.command("synthesize").description("Synthesize higher-level artifacts from cached evidence");
+synthesize
+  .command("architecture")
+  .description("Synthesize an ArchitectureIntelligence artifact from cached repository/workflow/Terraform evidence")
+  .action(async () => {
+    await runSynthesizeArchitecture(process.cwd(), logger);
   });
 
 program

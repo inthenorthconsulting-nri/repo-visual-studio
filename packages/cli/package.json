@@ -23,6 +23,7 @@
     "playwright": "^1.48.0"
   },
   "devDependencies": {
+    "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/exporter": "workspace:*",
     "@rvs/narrative-planner": "workspace:*",

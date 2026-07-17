@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",
     "@rvs/terraform-svg": "workspace:*",
@@ -17,6 +18,7 @@
     "@rvs/workflow-svg": "workspace:*"
   },
   "devDependencies": {
+    "@rvs/repository-model": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
