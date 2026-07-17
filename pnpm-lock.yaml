@@ -33,6 +33,34 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@24.13.3)
 
+  packages/architecture-intelligence:
+    dependencies:
+      '@rvs/architecture-graph':
+        specifier: workspace:*
+        version: link:../architecture-graph
+      '@rvs/core':
+        specifier: workspace:*
+        version: link:../core
+      '@rvs/repository-model':
+        specifier: workspace:*
+        version: link:../repository-model
+      '@rvs/terraform-graph':
+        specifier: workspace:*
+        version: link:../terraform-graph
+      '@rvs/workflow-graph':
+        specifier: workspace:*
+        version: link:../workflow-graph
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@24.13.3)
+
   packages/cli:
     dependencies:
       '@cdktf/hcl2json':
@@ -42,6 +70,9 @@ importers:
         specifier: ^1.48.0
         version: 1.61.1
     devDependencies:
+      '@rvs/architecture-intelligence':
+        specifier: workspace:*
+        version: link:../architecture-intelligence
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
@@ -125,6 +156,9 @@ importers:
 
   packages/narrative-planner:
     dependencies:
+      '@rvs/architecture-intelligence':
+        specifier: workspace:*
+        version: link:../architecture-intelligence
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
@@ -156,6 +190,9 @@ importers:
 
   packages/renderer-html:
     dependencies:
+      '@rvs/architecture-intelligence':
+        specifier: workspace:*
+        version: link:../architecture-intelligence
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
@@ -175,6 +212,9 @@ importers:
         specifier: workspace:*
         version: link:../workflow-svg
     devDependencies:
+      '@rvs/repository-model':
+        specifier: workspace:*
+        version: link:../repository-model
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -293,9 +333,18 @@ importers:
       '@rvs/architecture-graph':
         specifier: workspace:*
         version: link:../architecture-graph
+      '@rvs/architecture-intelligence':
+        specifier: workspace:*
+        version: link:../architecture-intelligence
+      '@rvs/repository-model':
+        specifier: workspace:*
+        version: link:../repository-model
       '@rvs/terraform-graph':
         specifier: workspace:*
         version: link:../terraform-graph
+      '@rvs/visualdoc-schema':
+        specifier: workspace:*
+        version: link:../visualdoc-schema
       '@rvs/workflow-graph':
         specifier: workspace:*
         version: link:../workflow-graph
@@ -306,6 +355,12 @@ importers:
         specifier: ^1.48.0
         version: 1.61.1
     devDependencies:
+      '@rvs/core':
+        specifier: workspace:*
+        version: link:../core
+      '@rvs/renderer-html':
+        specifier: workspace:*
+        version: link:../renderer-html
       '@rvs/terraform-mermaid':
         specifier: workspace:*
         version: link:../terraform-mermaid

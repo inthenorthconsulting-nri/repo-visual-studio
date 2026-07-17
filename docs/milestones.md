@@ -726,3 +726,415 @@ explicitly forbid absent a genuine defect):
   sequence simply reflects what narrative sections the deterministic brief
   builder actually populates for a given repository's content, the same
   behavior the workflow slice already relies on.
+
+## Milestone 3 — Architecture Intelligence Engine
+
+**Status: complete, within the milestone's explicitly bounded scope.** The
+Architecture Intelligence Engine — `@rvs/architecture-intelligence`'s pure
+synthesis pipeline, its `ArchitectureIntelligence` contract, six narrative
+profiles, the `architecture-intelligence` VisualDoc scene and its
+renderer-html templates, `rvs synthesize architecture`, and two new tiers of
+validator checks (9 structural codes + 5 rendered-output codes, 14 total) —
+converts the `RepositoryModel`/`WorkflowGraph[]`/`TerraformTopology[]`
+evidence Milestones 1-2 already produce into a coherent, audience-aware,
+four-level architecture narrative, never lowering the level of evidence
+behind a raised level of abstraction: every synthesized statement carries an
+inference class (`confirmed`/`derived`/`suggested`/`unresolved`), and
+`suggested`/`unresolved` claims are rendered with an explicit "Likely" /
+"Unconfirmed" qualifier rather than presented as fact. Model-assisted
+synthesis (`--assist`) was explicitly out of scope and was not built — every
+narrated statement is deterministic, rule-based synthesis. See
+[`docs/architecture-intelligence.md`](architecture-intelligence.md) for the
+full design.
+
+### 1. Fixture and unit-test coverage
+
+`packages/architecture-intelligence/src/__tests__/` covers the synthesis
+pipeline (`synthesize.test.ts`, 16 tests, including confirmed/derived/
+suggested/unresolved classification, capability-domain grouping, and
+outcome quantification refusing to fabricate numbers without evidence),
+label normalization (`label.test.ts`, 9 tests), workflow-family synthesis
+(`workflow-families.test.ts`, 4 tests), deterministic ID generation
+(`ids.test.ts`, 4 tests), and the shared `collectStatements`/qualifier
+helpers (`inference.test.ts`, 5 tests) — 38 tests in the core package alone,
+all against hand-built deterministic fixtures, no model dependency anywhere.
+`packages/narrative-planner/src/__tests__/architecture-visualdoc-builder.test.ts`
+(10 tests) covers all six profiles' scene sequencing.
+`packages/renderer-html/src/__tests__/architecture-intelligence-scene.test.ts`
+(4 tests) covers the new scene templates.
+`packages/validator/src/__tests__/architecture-intelligence-checks.test.ts`
+(16 tests) covers all 5 Tier 2 codes; the existing `validate-structure.ts`
+Tier 1 codes were already covered by `synthesize.test.ts`'s assertions on
+the synthesized artifact's `metadata.confidence_summary` and per-entity
+evidence.
+
+### 2. Defects found and fixed
+
+A flow-ID collision was found and fixed during the self-hosting proof
+against `looker-admin-repo` (surfaced only once synthesis ran against a
+real repository with many workflows sharing similar trigger/job shapes, not
+against the smaller unit-test fixtures) — flow IDs are now derived from a
+collision-resistant composite key rather than a name-only slug. No other
+genuine defects were found during this closure pass; one factual
+inaccuracy was found and corrected in this closure's own documentation
+draft before it was finalized (see §6), which is a documentation-process
+correction, not a product defect.
+
+### 3. Self-hosting example and comparison
+
+`rvs create slides --profile architecture-review` was run against a real
+external repository clone (`looker-admin-repo`, an internal Looker
+administration platform with 65 checked-in GitHub Actions workflows) and
+compared against the same repository's legacy `rvs create slides`
+(`repository-inventory` profile) output:
+
+| | `repository-inventory` (legacy) | `architecture-review` (new) |
+| --- | --- | --- |
+| Total scenes | 74 | 22 |
+| Workflow diagram scenes | 65 (one per workflow, undifferentiated) | 11 (representative, grouped into capability domains) |
+| Narrative scenes | title/headline/metric/section-divider only | 11 architecture-intelligence scenes (executive framing, system-context, logical-architecture, capability map, key flows, operating model, workflow-family map, outcomes, risks, evidence-confidence) |
+| Evidence citations | present, per-scene | 66 `arch-evidence` citations, still resolving to real file paths/line ranges |
+
+The 65 near-identical raw workflow diagrams collapse into 11 labeled
+capability domains without losing traceability to any individual workflow —
+directly the "raise the level of abstraction, never lower the level of
+evidence" behavior the design mandate requires. A third, independently
+hand-built "gold standard" comparison artifact was also reviewed; the
+remaining stylistic gap versus that artifact was confirmed to be the
+deferred `--assist` model-assisted synthesis path, not a defect in the
+deterministic engine.
+
+### 4. Self-hosting pipeline proof
+
+Running the new Tier 2 checks against the `architecture-review` deck
+produced exactly one warning —
+`ARCH_INTEL_SCENE_WORD_BUDGET_EXCEEDED` on the `outcomes` scene (153 words
+against a 120-word budget) — a genuine, non-spurious finding. `rvs
+validate`'s existing Playwright checks separately flagged `min-font-size`
+(13.0px against a 14px floor) on two unrelated scenes: `boundary-map` (an
+SVG diagram scene, dense with 11 capability domains' worth of boundary
+nodes via the shared `renderBoxDiagram` grid layout) and
+`evidence-confidence` (a CSS confidence-bar-and-legend scene, not a diagram
+— its legend text shrinks independently). Both are pre-existing
+rendering-density issues in `renderer-html`'s architecture-intelligence
+scene templates, documented in "Remaining limitations" below rather than
+fixed, since fixing either means redesigning the shared diagram/legend
+layout code, out of scope for this milestone.
+
+### 5. Packaged CLI re-proof
+
+`RVS_TEST_PACKAGE=1 npx vitest run packages/cli` — which independently
+packs the CLI, installs it into a clean temporary repository, and runs the
+full init→inspect→brief→workflow→topology→slides→validate→export pipeline
+plus a source-vs-package structural equivalence check — passed **6/6**
+tests (`source-vs-package-equivalence.test.ts`, 1 test;
+`package-smoke.test.ts`, 5 tests), confirming the new
+`@rvs/architecture-intelligence` package and its CLI wiring
+(`rvs synthesize architecture`, `rvs create slides --profile <id>`) survive
+packaging with no `workspace:*` dependency leakage and no TypeScript
+runtime dependency, matching the packaging guarantees established in
+Milestone 2 Slice 2.
+
+### 6. Documentation
+
+- [`docs/architecture-intelligence.md`](architecture-intelligence.md)
+  (new): design mandate, the full `ArchitectureIntelligence` contract, the
+  synthesis pipeline module-by-module, all six narrative profiles, the
+  `architecture-intelligence` VisualDoc scene and its rendering, both
+  validator-check tiers with full warning-code tables, CLI usage, the
+  self-hosting proof above, and known limitations. One factual
+  inaccuracy in the first draft — misattributing both `min-font-size`
+  failures to the same diagram-density cause — was caught during a
+  source-code verification pass (re-checking the rendered HTML's
+  `aria-label`s and `renderEvidenceConfidence()`'s actual implementation)
+  and corrected before this entry was written, consistent with this
+  milestone's instruction not to overstate findings.
+- Root [`README.md`](../README.md): a new paragraph introducing Milestone
+  3 in the intro; two new CLI walkthrough commands
+  (`rvs synthesize architecture`, `rvs create slides --profile
+  architecture-review`); a new "Architecture Intelligence" subsection
+  mirroring the existing "Terraform topology" subsection's structure; the
+  "Repository layout" package tree updated with
+  `packages/architecture-intelligence/`; "Current limitations" updated
+  with the new package's explicit scope boundary.
+
+### 7. Full workspace re-verification
+
+`pnpm -r exec tsc --noEmit`: clean, 0 errors. `npx vitest run`: **338
+tests passed, 6 skipped** across 34 passed test files (2 skipped files are
+the `RVS_TEST_PACKAGE`-gated packaging suites, independently confirmed
+passing below) — includes every `@rvs/architecture-intelligence`,
+architecture-intelligence-scene, and architecture-intelligence-checks test
+file listed in §1, alongside every pre-existing Milestone 1/2 test, zero
+regressions. `RVS_TEST_PACKAGE=1 npx vitest run packages/cli`: **6 tests
+passed, 0 failed**.
+
+### 8. Confirmation nothing was committed
+
+Unlike Milestones 1-2's closure entries above, this milestone's work was
+done on a dedicated branch on top of one pre-existing commit, not on a
+zero-commit `main`: `git branch --show-current` reports
+`feature/architecture-intelligence-engine`; `git log --oneline -5` shows a
+single commit, `748b500 Initial commit: Milestone 1 MVP + Milestone 2
+workflow/Terraform engines`, present before this milestone's work began.
+`git status --short` shows **14 modified files** (existing package.json/
+index.ts/schema.ts/bin.ts wiring plus `README.md` and `pnpm-lock.yaml`)
+and **9 untracked entries** (`docs/architecture-intelligence.md`, the new
+`packages/architecture-intelligence/` package, and the new
+architecture-intelligence-specific files inside `cli`, `narrative-planner`,
+`renderer-html`, and `validator`) — 23 changed/untracked entries in total,
+all uncommitted. `git diff --check` reported no whitespace errors (exit
+0). Nothing was committed during this closure pass, per the explicit
+instruction.
+
+### 9. Remaining limitations
+
+Documented in full, with the same "tested, actual limitations, not
+aspirational ones" framing as the milestones above, in
+[`docs/architecture-intelligence.md#known-limitations`](architecture-intelligence.md#known-limitations).
+In summary: no model-assisted synthesis (`--assist` was explicitly
+deferred, not built); no new evidence adapters (Kubernetes, LookML, dbt,
+OpenAPI, Databricks, Python AST, TypeScript AST all remain out of scope);
+the `focus_ids` narrowing mechanism is mechanically supported by the schema
+and renderer but never triggered by any current profile; the shared
+`renderBoxDiagram` grid layout and the `evidence-confidence` scene's legend
+text are both not density-aware and can fail the Playwright `min-font-size`
+check on repositories with many capability domains (observed directly in
+§4 above, on a repository with 11 domains); and the Level 1 implementation-
+detail-leak check is a heuristic file-path-like-substring regex, not a
+full static analysis.
+
+## Milestone 3.1 — Architecture Presentation Quality Remediation
+
+**Status: complete, within an explicitly bounded "Phase 1" slice of the
+26-section remediation spec.** Objective: improve the generated
+architecture-review presentation so it reads like an architect-authored
+design review rather than a repository inventory, without lowering the
+level of evidence, adding new source adapters, starting any deferred
+milestone's scope (Kubernetes/LookML/dbt/OpenAPI/Databricks/repository-
+dependency-graphs/model-assisted-synthesis), or committing anything. This
+pass deliberately scoped to a high-value, repository-agnostic slice of the
+spec — sharper labeling/identity/purpose synthesis, a coarser capability
+model, better representative-workflow selection, conclusion-oriented
+headlines, a logical-architecture scene that filters out noise, and three
+new validator codes — rather than attempting all 26 sections literally; see
+"What was not attempted" below for an honest accounting of the gap between
+this slice and the full spec.
+
+### 1. Renderer correctness fixes (shared SVG renderers)
+
+`packages/workflow-svg` and `packages/terraform-svg`: fixed raw (non-
+normalized) label text being truncated blindly instead of measured, and an
+opaque background rect that could occlude adjacent diagram content. Both
+predate this milestone's synthesis-layer work and were caught during
+reconnaissance before any new feature work began.
+
+### 2. Type extensions
+
+`packages/architecture-intelligence/src/types.ts`: `NormalizedLabel.basis`
+(optional — tags *how* a label was derived: `"readme-title"`,
+`"environment-heuristic"`, `"dynamic-expression"`, etc. — presentation
+traceability, not evidence) and `LogicalComponentOrigin` (`"repository-
+directory" | "terraform-module" | "workflow-family"`, added to
+`LogicalComponent.origin`, distinguishing real automation/infra-derived
+components from raw top-level-directory groupings).
+`packages/repository-model/src/tech-stack.ts`: `TechStack.manifestDescription`
+(optional, sourced from `package.json`'s `description` field) — a fallback
+evidence source for the system's one-line description.
+
+### 3. Label, identity, and purpose synthesis
+
+`packages/architecture-intelligence/src/label.ts`: `normalizeEnvironmentLabel()`
+detects a leading/trailing deployment-tier keyword (prod/dev/staging/qa/uat/
+test/sandbox) and reorders it into a readable form (e.g. `"admin-prod"` →
+`"Production Admin"`); wired into boundary synthesis
+(`synthesize/flows-boundaries.ts`).
+`packages/architecture-intelligence/src/synthesize/identity-purpose.ts`:
+system-name fallback chain (distinctive README H1 title, filtered against
+the markdown adapter's path-as-title quirk and against matching the raw
+slug → else the raw slug, tagged `basis: "readme-title"` when a real title
+is used) and one-line-description fallback chain (README lead paragraph →
+`manifestDescription` → `unresolved`).
+`packages/architecture-intelligence/src/text.ts`: `compressToAtomicClaim()`,
+a word/sentence-boundary-aware compressor for the purpose/outcome slides,
+replacing a blind `.slice(0, 240)` truncation that could cut mid-word or
+mid-sentence.
+
+### 4. Capability model and representative selection
+
+`packages/architecture-intelligence/src/synthesize/responsibilities-capabilities.ts`:
+a `CAPABILITY_DOMAIN_ROLLUP` map coarsens ~11 fine-grained workflow-family
+labels into ~6-7 generic business-capability domains (unmapped labels fall
+back to standalone domains) — proven on real evidence in §8 below, not just
+a synthetic fixture.
+`packages/architecture-intelligence/src/synthesize/workflow-families.ts`:
+`pickRepresentative()` ranks candidate workflows for supplementary detail
+scenes by (1) has an approval node, (2) is `workflow_call`/reusable, (3)
+most complex graph (most nodes), (4) first alphabetically by id — replacing
+an unranked/arbitrary pick.
+
+### 5. Presentation layer
+
+`packages/narrative-planner/src/architecture-visualdoc-builder.ts`:
+`headlineFor()` derives conclusion-oriented headlines from real structural
+counts (component/domain/family/risk/boundary/outcome/question counts)
+under a 14-word budget, replacing static per-kind labels.
+`packages/renderer-html/src/scenes/architecture-intelligence/diagrams.ts`:
+`renderLogicalArchitecture()` excludes `"repository-directory"`-origin
+components from the diagram when real architectural components exist (with
+a safe empty-fallback to showing directories when nothing else is
+available) — `repository-map` is unaffected and still shows everything.
+`packages/renderer-html/src/styles.ts`: `.arch-card-kind`/`.arch-card-meta`
+raised from 13px to 14px, fixing a `min-font-size` policy violation that
+Milestone 3's own self-hosting proof had documented as an open, out-of-
+scope issue (see §8 below and the corrected
+[`docs/architecture-intelligence.md`](architecture-intelligence.md#self-hosting-proof)).
+
+### 6. Validator codes
+
+Three new Tier 1 structural codes added to
+`packages/architecture-intelligence/src/validate-structure.ts`
+(`ARCH_INTEL_GENERIC_SYSTEM_NAME`, `ARCH_INTEL_CAPABILITY_DOMAIN_TOO_GRANULAR`,
+`ARCH_INTEL_WORKFLOW_FAMILY_NO_REPRESENTATIVE`), bringing the combined
+Tier 1 + Tier 2 code count from 14 to 17. Separately, while investigating
+the `min-font-size` finding above, found and fixed a real Tier 2 coverage
+gap in `packages/validator/src/architecture-intelligence-checks.ts`:
+`boundary-map` was grouped with the three genuinely SVG-diagram scene
+kinds and exempted from the label-integrity/word-budget checks, but it
+actually renders as an `.arch-card` prose grid (the same mechanism
+`capability-map`/`workflow-family-map` use) — meaning a `suggested` or
+`unresolved` boundary claim could have rendered without its qualifier and
+nothing would have caught it. Moved `boundary-map` into the checked set and
+gave it a 150-word budget; this is a correctness fix in service of the
+"never lower the level of evidence" mandate, not a new feature.
+
+### 7. Test coverage
+
+Eight new/updated test files this pass:
+`packages/architecture-intelligence/src/__tests__/label.test.ts` (+4 tests,
+`normalizeEnvironmentLabel`), `text.test.ts` (new, 6 tests,
+`compressToAtomicClaim`), `identity-purpose.test.ts` (new, 6 tests,
+`buildSystemIdentity`), `workflow-families.test.ts` (+4 tests,
+representative selection — including a self-caught test-fixture bug where a
+workflow named "Release Approval" was itself misclassified into the
+"Review and approval" family by the production `FAMILY_RULES` keyword-order
+logic before family lookup even ran, unrelated to the representative-
+selection logic under test; renamed the fixture and documented the
+precedence trap in a code comment), `capability-domains.test.ts` (new, 5
+tests, 11-fixture rollup-to-7-domains proof),
+`validate-structure.test.ts` (new, 6 tests, all three new codes),
+`packages/narrative-planner/src/__tests__/architecture-visualdoc-builder.test.ts`
+(+4 tests, headline word-budget/determinism/content), and
+`packages/renderer-html/src/__tests__/logical-architecture-diagram.test.ts`
+(new, 2 tests, directory-exclusion and empty-fallback). Plus 2 new tests in
+`packages/validator/src/__tests__/architecture-intelligence-checks.test.ts`
+for the boundary-map coverage fix in §6. `pnpm -r --if-present run
+typecheck`: clean, 0 errors, across all 17 packages. `npx vitest run`:
+**377 tests passed, 6 skipped** across 39 passed test files (2 skipped
+files are the `RVS_TEST_PACKAGE`-gated packaging suites, unaffected by this
+milestone's changes and not re-run this pass since no CLI-packaging-
+relevant code changed) — up from Milestone 3's 338 passed.
+
+### 8. Self-hosting proof
+
+Re-run against the same real external repository as Milestone 3
+(`looker-admin-ops`, 65 checked-in GitHub Actions workflows, no Terraform),
+via an isolated `rsync` copy in the session scratchpad rather than the
+user's actual working tree, since that tree has unrelated in-progress
+untracked work and no `.gitignore` entry for `.rvs`/`artifacts/visuals`
+yet — a safety precaution, not a correction. Full pipeline run through the
+packaged CLI (`node packages/cli/dist/bin.cjs`, rebuilt fresh via
+`node packages/cli/scripts/build.mjs`, proving the esbuild bundle reflects
+this milestone's changes, not just source): `init` → `inspect` (1092
+files, 44 evidence claims) → `create workflow --all` (65 workflows, 0
+errors) → `synthesize architecture` → `brief` → `create slides` (both
+profiles) → `validate`.
+
+Concrete, on real evidence: 11 workflow families roll up into 7 capability
+domains (General Automation, Governance and Approval, Identity and Access
+Governance, Migration and Enablement, Operational Diagnostics, Query and
+Data Reliability, Release and Maintenance); 15 total logical components, 11
+of them architectural (workflow-family-derived; no Terraform in this repo)
+and correctly excluded-then-shown per the origin filter; 128 synthesized
+statements (59 confirmed, 67 derived, 0 suggested, 2 unresolved); every
+architecture-intelligence scene headline is under the 14-word budget and
+states a real count (e.g. "11 components make up the architecture",
+"Capabilities group into 7 domains", "14 deployment boundaries separate
+environments"). `ARCH_INTEL_GENERIC_SYSTEM_NAME` fires honestly on this
+repository — its README H1 ("Looker Admin Ops") is identical to its
+normalized slug, so there genuinely is no more distinctive name to prefer.
+
+Both `--profile repository-inventory` (74 scenes) and `--profile
+architecture-review` (22 scenes) decks now pass `rvs validate --ci` with 0
+failures and 0 warnings (the architecture-review deck previously failed on
+the 13px `min-font-size` bug fixed in §5; an earlier pass of this
+self-hosting proof, before all of this milestone's fixes had landed, had
+also recorded a `missing-evidence` warning on the repository-inventory deck
+that a later re-run no longer reproduces — this milestone does not touch
+the `repository-inventory` profile's `buildVisualDoc` template path, so
+that warning's disappearance was incidental, not a deliberate fix, and is
+recorded here for accuracy rather than claimed as a fix). Extending the
+boundary-map check coverage (§6) surfaced its first real finding on this
+repository:
+`ARCH_INTEL_SCENE_WORD_BUDGET_EXCEEDED` on `boundary-map` (235 words
+against a 150-word budget, driven by 14 evidenced deployment boundaries) —
+a genuine, non-spurious finding, previously silently missed. Full details,
+including the corrected root-cause analysis of the `min-font-size` bug (a
+static CSS rule, not diagram density as Milestone 3 had assumed), are in
+[`docs/architecture-intelligence.md`](architecture-intelligence.md#self-hosting-proof).
+
+### 9. What was not attempted
+
+This pass scoped to a generic, high-value slice of the 26-section
+remediation spec rather than every literal section. Not attempted: any
+spec item requiring a new evidence source or repository-specific tuning
+beyond what the existing `RepositoryModel`/`WorkflowGraph[]`/
+`TerraformTopology[]` inputs already support; any redesign of the
+`renderBoxDiagram` shared SVG layout engine itself (still not density-aware
+— a sufficiently dense repository could still trip `min-font-size` on the
+three true diagram-kind scenes, just not via the two fixed causes above);
+`focus_ids`-based scene splitting for oversized capability/boundary views
+(mechanically supported by the schema, still never triggered by any
+profile); and model-assisted synthesis, still explicitly deferred. Nothing
+in this section is a claim that the full spec is satisfied — it is an
+honest record of the boundary of this pass's scope.
+
+### 10. Documentation
+
+[`docs/architecture-intelligence.md`](architecture-intelligence.md):
+updated in place rather than duplicated — added a Milestone 3.1 amendment
+note at the top, three new validator codes to the Tier 1 table, corrected
+the Self-hosting proof section's numbers and root-cause analysis (including
+retracting the earlier, incorrect claim that `boundary-map` renders as an
+SVG diagram), corrected the Tier 2 scope-limitation paragraph to reflect
+`boundary-map`'s inclusion, and removed the two Known-limitations bullets
+that described the now-fixed `min-font-size` issue. This entry.
+
+### 11. Confirmation nothing was committed
+
+Same branch as Milestone 3, still zero new commits:
+`git branch --show-current` reports
+`feature/architecture-intelligence-engine`; `git log --oneline` still shows
+only `748b500`. `git status --short` shows the same modified/untracked
+files Milestone 3's own closure entry listed (§8 above), since neither
+milestone committed — this pass's changes are layered into that same
+uncommitted working tree, not separable from it via `git diff` alone.
+Nothing was committed during this closure pass, per the explicit
+instruction.
+
+### 12. Remaining limitations
+
+All of Milestone 3's remaining limitations (§9 above) still apply
+unchanged, except the `min-font-size` bullets, which are resolved (§5
+above) and removed from
+[`docs/architecture-intelligence.md#known-limitations`](architecture-intelligence.md#known-limitations).
+Additionally: the capability-domain rollup map and the workflow-family
+representative-selection ranking are both hand-authored heuristics tuned
+against this milestone's fixtures and the one real self-hosting repository
+available — a repository with a very different shape of automation could
+expose rollup gaps (unmapped labels falling back to standalone domains
+rather than being silently wrong) or representative-selection ties this
+pass's fixtures didn't cover. The `ARCH_INTEL_CAPABILITY_DOMAIN_TOO_GRANULAR`
+threshold (>8 domains) is a fixed constant, not derived from repository
+size. And per §9 above, this remains a bounded slice of the full
+remediation spec, not a complete implementation of it.

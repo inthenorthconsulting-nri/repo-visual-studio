@@ -1,7 +1,9 @@
+import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
 import type { TerraformTopology } from "@rvs/terraform-graph";
 import type { Scene } from "@rvs/visualdoc-schema";
 import type { WorkflowGraph } from "@rvs/workflow-graph";
 import { renderArchitectureScene } from "./architecture.js";
+import { renderArchitectureIntelligenceScene } from "./architecture-intelligence/index.js";
 import { renderHeadlineScene } from "./headline.js";
 import { renderMetricScene } from "./metric.js";
 import { renderSectionDividerScene } from "./section-divider.js";
@@ -14,6 +16,7 @@ export function renderSceneInner(
   index: number,
   workflowGraphs: Map<string, WorkflowGraph>,
   terraformTopologies: Map<string, TerraformTopology>,
+  architectureArtifacts: Map<string, ArchitectureIntelligence>,
 ): string {
   switch (scene.type) {
     case "title":
@@ -30,6 +33,8 @@ export function renderSceneInner(
       return renderWorkflowScene(scene, workflowGraphs.get(scene.graph_id));
     case "topology":
       return renderTopologyScene(scene, terraformTopologies.get(scene.topology_id));
+    case "architecture-intelligence":
+      return renderArchitectureIntelligenceScene(scene, architectureArtifacts.get(scene.artifact_id));
     default: {
       const exhaustive: never = scene;
       throw new Error(`Unhandled scene type: ${JSON.stringify(exhaustive)}`);

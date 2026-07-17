@@ -25,6 +25,33 @@ dependency mapping are still out of scope. No Canvas renderer, animation,
 plugin registry, or other specialized language adapters (Kubernetes, OpenAPI,
 etc.) yet.
 
+**Milestone 3** adds the Architecture Intelligence Engine: it synthesizes the
+`RepositoryModel`/`WorkflowGraph[]`/`TerraformTopology[]` evidence Milestones
+1-2 already produce into a coherent, audience-aware, four-level architecture
+narrative — system identity, responsibilities, capability domains, logical
+components, flows, boundaries, operating model, outcomes, risks — without
+ever lowering the level of evidence: every synthesized statement is tagged
+`confirmed`/`derived`/`suggested`/`unresolved`, and `suggested`/`unresolved`
+claims are never silently presented as fact. Deterministic and offline, like
+everything else here — no model-assisted synthesis is built yet. The
+pre-Milestone-3 deck remains available unchanged via `rvs create slides`'s
+default `repository-inventory` profile. See
+[`docs/architecture-intelligence.md`](docs/architecture-intelligence.md) for
+the full design, the six narrative profiles, and the new validator checks.
+
+**Milestone 3.1** remediates presentation quality on top of Milestone 3's
+contract, without changing it: sharper system-identity/purpose fallback
+chains, a coarser capability-domain rollup (fine-grained workflow families
+group into a handful of business-capability domains), ranked
+representative-workflow selection, conclusion-oriented scene headlines
+driven by real structural counts, a logical-architecture diagram that
+excludes raw directory groupings once real architectural components exist,
+three new Tier 1 validator codes, and a fix for a `min-font-size` validator
+failure. No new source adapters, no new CLI commands, same evidence and
+inference-class guarantees. See
+[`docs/milestones.md`](docs/milestones.md#milestone-31--architecture-presentation-quality-remediation)
+for the full closure record.
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -47,7 +74,9 @@ pnpm rvs inspect                                      # scans the repo
 pnpm rvs brief --audience executive                   # or: architecture-review
 pnpm rvs create workflow --all --renderer both         # optional: GitHub Actions -> WorkflowGraph
 pnpm rvs create topology --all --renderer both         # optional: Terraform -> TerraformTopology
+pnpm rvs synthesize architecture                        # optional: synthesize ArchitectureIntelligence
 pnpm rvs create slides --design-system executive-dark # or: editorial-light | technical-grid
+pnpm rvs create slides --profile architecture-review   # requires `synthesize architecture` first; see below
 pnpm rvs validate --ci                                # overflow/contrast/evidence checks
 pnpm rvs export pdf
 ```
@@ -144,6 +173,39 @@ its WASM parser asset (`main.wasm.gz`) is loaded via a `path.join(__dirname,
 normally, so esbuild treats it as `external` (see
 [`docs/packaging.md`](docs/packaging.md)).
 
+### Architecture Intelligence
+
+`rvs synthesize architecture` reads the three cached artifacts above
+(`repository-model.json` required; `workflow-graphs.json`/
+`terraform-topologies.json` optional — synthesis degrades gracefully without
+them) and combines them into a single `ArchitectureIntelligence` artifact,
+cached to `.rvs/cache/architecture-intelligence.json`. See
+[`docs/architecture-intelligence.md`](docs/architecture-intelligence.md) for
+the full design. In short:
+
+**What it does**: identifies the system, its purpose, responsibilities, and
+capability domains; extracts logical components, actors, external systems,
+flows, and boundaries; summarizes the operating model, outcomes, risks, and
+dependencies; groups workflows into named families. Every statement carries
+an explicit inference class (`confirmed`/`derived`/`suggested`/`unresolved`)
+and its own evidence reference — nothing is asserted without one.
+
+**`rvs create slides --profile <id>`** then builds a deck from that artifact
+instead of the legacy narrative brief. Six profiles are available:
+`repository-inventory` (default, unchanged pre-Milestone-3 behavior, no
+synthesis required), `executive-overview`, `architecture-review`,
+`engineering-onboarding`, `operating-review`, `repository-audit` — each a
+different fixed sequence of scenes over the same underlying artifact, from an
+8-scene executive narrative up to a full 60-scene audit.
+
+**Explicit limitations**: no model-assisted synthesis (`--assist`) — every
+statement is deterministic, rule-based synthesis over already-parsed
+evidence; no new repository adapters (Kubernetes, LookML, dbt, OpenAPI,
+Databricks, Python/TypeScript AST) — only the existing three cached inputs
+are consumed. See
+[`docs/architecture-intelligence.md#known-limitations`](docs/architecture-intelligence.md#known-limitations)
+for the complete list.
+
 Run `pnpm rvs doctor` (or `npx rvs doctor` for a standalone install) if
 anything fails unexpectedly. It reports the CLI version, Node
 version/OS/architecture, installation type (packaged vs. workspace
@@ -190,9 +252,10 @@ packages/
   terraform-graph/     Terraform HCL -> renderer-neutral TerraformTopology (parser, validator, ids)
   terraform-mermaid/   TerraformTopology -> Mermaid flowchart text
   terraform-svg/       TerraformTopology -> native SVG diagram (shared layout engine)
-  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder
+  architecture-intelligence/  RepositoryModel + WorkflowGraph[] + TerraformTopology[] -> synthesized ArchitectureIntelligence, narrative profiles
+  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence scenes)
   renderer-html/      VisualDoc + design tokens -> standalone HTML deck
-  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks
+  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks
   exporter/            Playwright-based PDF export
   cli/                the `rvs` command (Commander)
 design-systems/        token packs: executive-dark, editorial-light, technical-grid
@@ -234,6 +297,18 @@ network-touching step in the whole system is the one-time, user-initiated
   for the complete, tested list. Lerna/Nx-only repos without a standard
   workspace declaration aren't auto-detected by `--all`'s root-module
   discovery.
+- Architecture Intelligence (Milestone 3) synthesizes only from
+  `RepositoryModel`/`WorkflowGraph[]`/`TerraformTopology[]` — no Kubernetes,
+  LookML, dbt, OpenAPI, Databricks, Python AST, or TypeScript AST evidence
+  feeds it. No model-assisted synthesis (`--assist`) is built — every
+  narrated statement is deterministic, rule-based synthesis, never an LLM
+  call. See
+  [`docs/architecture-intelligence.md#known-limitations`](docs/architecture-intelligence.md#known-limitations)
+  for the complete list. Milestone 3.1 fixed the specific `min-font-size`
+  failure self-hosting had surfaced (a static CSS rule, not diagram
+  density), but the shared `renderBoxDiagram` layout engine is still not
+  density-aware in general — a sufficiently dense repository could still
+  trip the same check on the true SVG-diagram scenes.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see
   [`docs/packaging.md`](docs/packaging.md#current-limitations-before-npm-publication)

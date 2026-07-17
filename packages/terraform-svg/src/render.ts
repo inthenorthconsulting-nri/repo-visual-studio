@@ -188,7 +188,10 @@ export function renderTerraformSvg(topology: Pick<TerraformTopology, "name" | "r
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}" role="img" aria-label="${escapeSvgText(title)}" font-family="${FONT_STACK}">`,
     `<title>${escapeSvgText(title)}</title>`,
     `<desc>${escapeSvgText(desc)}</desc>`,
-    `<rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff" />`,
+    // No opaque background rect here on purpose: this SVG is embedded inside
+    // a slide whose own background may be light or dark, and an opaque white
+    // canvas behind it reads as a mismatched "white box" on dark themes. Node
+    // shapes and their own fills/strokes already provide sufficient contrast.
     ...body,
     legend.markup,
     `</svg>`,

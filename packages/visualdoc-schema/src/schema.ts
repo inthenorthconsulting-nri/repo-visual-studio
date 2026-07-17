@@ -100,6 +100,40 @@ export const TopologySceneSchema = BaseSceneSchema.extend({
   part_index: z.number().int().nonnegative().default(0),
 });
 
+// An architecture-intelligence scene never embeds synthesized data — it
+// points at an ArchitectureIntelligence artifact (built by
+// @rvs/architecture-intelligence and cached separately) by id, mirroring
+// WorkflowSceneSchema/TopologySceneSchema's graph_id/topology_id contract
+// exactly. `kind` selects which of the narrative-profile views this scene
+// renders over that single artifact; `focus_ids` optionally narrows a
+// diagram/list view to a subset of entity ids (empty means "all").
+export const ArchitectureSceneKindSchema = z.enum([
+  "executive-title",
+  "executive-summary",
+  "problem-and-response",
+  "platform-responsibilities",
+  "system-context",
+  "logical-architecture",
+  "capability-map",
+  "operating-model",
+  "architecture-flow",
+  "boundary-map",
+  "outcomes",
+  "risk-summary",
+  "risk-and-dependency-summary",
+  "workflow-family-map",
+  "repository-map",
+  "evidence-confidence",
+  "decision-or-next-step",
+]);
+
+export const ArchitectureIntelligenceSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("architecture-intelligence"),
+  artifact_id: z.string().min(1),
+  kind: ArchitectureSceneKindSchema,
+  focus_ids: z.array(z.string()).default([]),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -108,6 +142,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   ArchitectureSceneSchema,
   WorkflowSceneSchema,
   TopologySceneSchema,
+  ArchitectureIntelligenceSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -121,6 +156,8 @@ export type WorkflowDetailLevel = z.infer<typeof WorkflowDetailLevelSchema>;
 export type WorkflowAnnotation = z.infer<typeof WorkflowAnnotationSchema>;
 export type TopologyScene = z.infer<typeof TopologySceneSchema>;
 export type TerraformDetailLevel = z.infer<typeof TerraformDetailLevelSchema>;
+export type ArchitectureSceneKind = z.infer<typeof ArchitectureSceneKindSchema>;
+export type ArchitectureIntelligenceScene = z.infer<typeof ArchitectureIntelligenceSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

@@ -1,3 +1,4 @@
+export * from "./architecture-intelligence-checks.js";
 export * from "./checks.js";
 export * from "./terraform-checks.js";
 export * from "./validate.js";
