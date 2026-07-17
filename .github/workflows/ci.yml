@@ -46,7 +46,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: npx playwright install --with-deps chromium
+      - run: pnpm --filter @rvs/exporter exec playwright install --with-deps chromium
       - run: pnpm rvs inspect
       - run: pnpm rvs brief --audience architecture-review
       - run: pnpm rvs create workflow --all --renderer both
