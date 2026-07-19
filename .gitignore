@@ -7,6 +7,8 @@ packages/cli/assets/
 /CAPABILITIES.md
 /CAPABILITIES-full.md
 /capability-exclusions.json
+/product-identity.json
+/showcase-plan.json
 *.log
 .DS_Store
 test-results/

@@ -142,6 +142,53 @@ export const BASE_CSS = `
   .cap-gaps { margin-top: 12px; }
   .cap-limitations-note { margin-top: 16px; }
 
+  /* Executive Showcase (Milestone 5) — reuses the existing 1280x720 16:9
+     .stage-viewport/.stage/.scene pillarboxed-scaling mechanism above rather
+     than introducing a second fixed-stage system; "premium" is expressed
+     through generous whitespace, a restrained type scale, and low
+     information density (word budgets are enforced upstream by
+     @rvs/product-intelligence's validation.ts), not through new layout
+     infrastructure. */
+  .scene-showcase { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+  .showcase-eyebrow { font-family: var(--rvs-font-code); font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rvs-color-accent); margin-top: 28px; }
+  .showcase-hero { display: flex; flex-direction: column; gap: 4px; }
+  .showcase-hero .display { max-width: 900px; }
+  .showcase-descriptor { font-size: 26px; color: var(--rvs-color-text-secondary); margin-top: 8px; }
+
+  .showcase-causal h1, .showcase-closing h1 { max-width: 880px; }
+  .showcase-closing { text-align: center; align-items: center; display: flex; flex-direction: column; justify-content: center; }
+
+  .showcase-identity h1 { max-width: 820px; }
+  .showcase-purpose { font-size: 24px; max-width: 760px; margin-top: 8px; }
+
+  .showcase-layer-list { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-direction: column; gap: 16px; counter-reset: none; }
+  .showcase-layer { display: flex; align-items: center; gap: 16px; font-size: 22px; color: var(--rvs-color-text-primary); border-left: 3px solid var(--rvs-color-accent); padding-left: 16px; }
+  .showcase-layer-index { font-family: var(--rvs-font-heading); font-size: 20px; color: var(--rvs-color-accent); min-width: 28px; }
+
+  .showcase-pillar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-top: 20px; }
+  .showcase-pillar-card { border: 1px solid var(--rvs-color-border); border-radius: 10px; padding: 20px 22px; background: var(--rvs-color-surface); }
+  .showcase-pillar-title { font-family: var(--rvs-font-heading); font-size: 20px; margin: 0 0 8px; color: var(--rvs-color-text-primary); }
+  .showcase-pillar-explanation { font-size: 15px; margin: 0; }
+  .showcase-pillar-qualifier { font-size: 14px; font-style: italic; color: var(--rvs-color-text-secondary); opacity: 0.85; margin: 8px 0 0; }
+
+  .showcase-chip-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .showcase-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--rvs-color-border); background: var(--rvs-color-surface); color: var(--rvs-color-text-primary); }
+  .showcase-chip-qualified { border-color: var(--rvs-color-warning, #d9a441); }
+  .showcase-chip-badge { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 999px; background: rgba(220, 170, 60, 0.2); color: #ffcf70; }
+
+  .showcase-differentiator-list { list-style: none; margin: 20px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .showcase-differentiator { border-top: 2px solid var(--rvs-color-accent); padding-top: 10px; }
+  .showcase-differentiator-title { font-family: var(--rvs-font-heading); font-size: 19px; margin: 0 0 6px; color: var(--rvs-color-text-primary); }
+  .showcase-differentiator p { font-size: 15px; margin: 0; }
+
+  .showcase-proof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; margin-top: 20px; }
+  .showcase-proof-card { border-left: 3px solid var(--rvs-color-accent); padding-left: 16px; }
+  .showcase-proof-value { font-family: var(--rvs-font-heading); font-size: 40px; font-weight: 700; color: var(--rvs-color-text-primary); }
+  .showcase-proof-label { font-size: 16px; color: var(--rvs-color-text-secondary); }
+
+  .showcase-limitations .arch-statement-list { margin-top: 20px; }
+  .showcase-qualifier-note { font-size: 14px; font-style: italic; color: var(--rvs-color-text-secondary); opacity: 0.85; margin-top: 16px; }
+
   .citations {
     position: absolute;
     left: 96px;

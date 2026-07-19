@@ -9,11 +9,15 @@ import { runCreateWorkflow } from "./commands/create-workflow.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runExportCapabilities } from "./commands/export-capabilities.js";
 import { runExportPdf } from "./commands/export-pdf.js";
+import { runExportProductIdentity } from "./commands/export-product-identity.js";
+import { runExportShowcasePlan } from "./commands/export-showcase-plan.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
+import { runShowcaseExplain } from "./commands/showcase-explain.js";
 import { runSkillPath } from "./commands/skill.js";
 import { runSynthesizeArchitecture } from "./commands/synthesize-architecture.js";
 import { runSynthesizeCapabilities } from "./commands/synthesize-capabilities.js";
+import { runSynthesizeProductIdentity } from "./commands/synthesize-product-identity.js";
 import { runValidate } from "./commands/validate.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -54,10 +58,12 @@ create
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
   .option(
     "--profile <id>",
-    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit); default: repository-inventory",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase); default: repository-inventory",
   )
-  .action(async (opts: { designSystem?: string; profile?: string }) => {
-    await runCreateSlides(process.cwd(), opts.designSystem, logger, opts.profile);
+  .option("--audience <id>", "showcase audience (executive|product_leader|platform_leader|architect|engineering_leader|developer|operator|portfolio|conference); only used with --profile showcase")
+  .option("--theme <id>", "showcase theme id stamped into the ShowcasePlan; only used with --profile showcase (default: the --design-system id)")
+  .action(async (opts: { designSystem?: string; profile?: string; audience?: string; theme?: string }) => {
+    await runCreateSlides(process.cwd(), opts.designSystem, logger, opts.profile, { audience: opts.audience, theme: opts.theme });
   });
 
 create
@@ -131,6 +137,13 @@ synthesize
     await runSynthesizeCapabilities(process.cwd(), logger);
   });
 
+synthesize
+  .command("product-identity")
+  .description("Synthesize a ProductIdentityModel from the cached CapabilityModel and ArchitectureIntelligence artifact")
+  .action(async () => {
+    await runSynthesizeProductIdentity(process.cwd(), logger);
+  });
+
 program
   .command("validate")
   .description("Run deterministic visual-quality checks against the rendered deck")
@@ -161,6 +174,22 @@ exportCmd
     await runExportCapabilities(process.cwd(), opts, logger);
   });
 
+exportCmd
+  .command("product-identity")
+  .description("Write the synthesized ProductIdentityModel to product-identity.json")
+  .option("--output <path>", "output path (default: product-identity.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportProductIdentity(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("showcase-plan")
+  .description("Write the synthesized ShowcasePlan (including its ExecutiveNarrative and claims) to showcase-plan.json")
+  .option("--output <path>", "output path (default: showcase-plan.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportShowcasePlan(process.cwd(), opts, logger);
+  });
+
 const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");
 capabilities
   .command("explain")
@@ -168,6 +197,15 @@ capabilities
   .argument("<capability-id>", "capability id or display name")
   .action(async (capabilityId: string) => {
     await runCapabilitiesExplain(process.cwd(), capabilityId, logger);
+  });
+
+const showcase = program.command("showcase").description("Inspect the synthesized showcase plan");
+showcase
+  .command("explain")
+  .description("Print the text, status, qualifiers, rejection reasons, and evidence for a single showcase claim")
+  .argument("<claim-id>", "claim id")
+  .action(async (claimId: string) => {
+    await runShowcaseExplain(process.cwd(), claimId, logger);
   });
 
 program

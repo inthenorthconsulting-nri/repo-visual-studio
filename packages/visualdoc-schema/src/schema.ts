@@ -149,6 +149,20 @@ export const CapabilityIntelligenceOverviewSceneSchema = BaseSceneSchema.extend(
   model_id: z.string().min(1),
 });
 
+// A showcase scene never embeds a ShowcasePlan — it points at one (built by
+// @rvs/product-intelligence and cached separately) by plan_id, mirroring
+// CapabilityIntelligenceOverviewSceneSchema's model_id contract exactly, plus
+// scene_id to select which single ShowcaseScenePlan within that plan's own
+// `scenes` array this VisualDoc scene renders. A single pointer scene type
+// (rather than one schema member per ShowcaseSceneType) keeps the renderer
+// free to switch on ShowcasePlan.scenes[].type — the narrative-significant
+// ordering and per-scene content stay entirely owned by product-intelligence.
+export const ShowcaseSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("showcase-scene"),
+  plan_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -159,6 +173,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   TopologySceneSchema,
   ArchitectureIntelligenceSceneSchema,
   CapabilityIntelligenceOverviewSceneSchema,
+  ShowcaseSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -175,6 +190,7 @@ export type TerraformDetailLevel = z.infer<typeof TerraformDetailLevelSchema>;
 export type ArchitectureSceneKind = z.infer<typeof ArchitectureSceneKindSchema>;
 export type ArchitectureIntelligenceScene = z.infer<typeof ArchitectureIntelligenceSceneSchema>;
 export type CapabilityIntelligenceOverviewScene = z.infer<typeof CapabilityIntelligenceOverviewSceneSchema>;
+export type ShowcaseScene = z.infer<typeof ShowcaseSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

@@ -17,14 +17,41 @@ function writeJson(path: string, value: unknown): void {
 }
 
 describe("detectWorkspacePackages", () => {
-  it("finds no packages in a single-manifest repo (the repo root's own manifest is not a sub-package)", async () => {
+  it("promotes the repo root's own manifest to a workspace package when there is no nested package to prefer over it", async () => {
     repoRoot = mkdtempSync(join(tmpdir(), "rvs-wsp-"));
     writeJson(join(repoRoot, "package.json"), { name: "sample" });
     writeFileSync(join(repoRoot, "index.ts"), "export {};\n");
 
     const config = defaultConfig("sample");
     const inventory = await scanFiles(repoRoot, config.sources.include, config.sources.exclude);
-    expect(detectWorkspacePackages(repoRoot, inventory)).toEqual([]);
+    const packages = detectWorkspacePackages(repoRoot, inventory);
+    expect(packages).toHaveLength(1);
+    expect(packages[0]).toMatchObject({ path: "", manifestFile: "package.json", name: "sample", hasBinEntry: false });
+  });
+
+  it("classifies a root-level package.json's bin/dependency/export signals the same as a nested one", async () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "rvs-wsp-"));
+    writeJson(join(repoRoot, "package.json"), {
+      name: "root-cli",
+      description: "A CLI whose package.json lives at the repo root.",
+      bin: { "root-cli": "./bin/cli.js" },
+      dependencies: { commander: "^12.0.0" },
+    });
+    writeFileSync(join(repoRoot, "index.ts"), "export {};\n");
+
+    const config = defaultConfig("root-cli");
+    const inventory = await scanFiles(repoRoot, config.sources.include, config.sources.exclude);
+    const packages = detectWorkspacePackages(repoRoot, inventory);
+
+    expect(packages).toHaveLength(1);
+    expect(packages[0]).toMatchObject({
+      path: "",
+      name: "root-cli",
+      description: "A CLI whose package.json lives at the repo root.",
+      hasBinEntry: true,
+      binPaths: ["bin/cli.js"],
+    });
+    expect(packages[0].dependencyNames).toContain("commander");
   });
 
   it("detects a nested package.json as a distinct workspace package, classifying bin/dependency/export signals", async () => {
