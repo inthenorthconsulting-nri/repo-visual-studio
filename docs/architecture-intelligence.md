@@ -1,4 +1,4 @@
-# Architecture Intelligence Engine (Milestone 3, amended by Milestone 3.1)
+# Architecture Intelligence Engine (Milestone 3, amended by Milestone 3.1; consumed by Milestone 4)
 
 This document describes the Architecture Intelligence Engine: turning the
 evidence already produced by earlier milestones — `RepositoryModel`,
@@ -19,6 +19,21 @@ limitations sections previously described as an open, out-of-scope issue
 [`docs/milestones.md`](milestones.md#milestone-31--architecture-presentation-quality-remediation)
 for the full closure record. Everything else in this document describes
 Milestone 3's original, unchanged contract.
+
+**Milestone 4 note.** Milestone 4 — "Evidence-Gated Capability Intelligence"
+— added a new synthesis stage that consumes this document's
+`ArchitectureIntelligence` artifact as its primary input, without changing
+anything described here. It also surfaced a pre-existing characteristic of
+this engine's own component classifier worth noting alongside "Known
+limitations" below: for a large pnpm-style monorepo, `RUNTIME_COMPONENT`
+extraction currently resolves an entire multi-package directory tree (e.g.
+this repository's own `packages/`) into a single coarse `kind: "library"`,
+`origin: "repository-directory"` component with no `entryPoints`, rather
+than resolving each individual package as its own component — see
+[`docs/capability-intelligence.md#self-hosting-proof`](capability-intelligence.md#self-hosting-proof)
+for the downstream effect this has on Capability Intelligence's self-hosting
+result. This was not changed by Milestone 4; it is documented here as an
+open characteristic of Milestone 3's own component model.
 
 ```
 RepositoryModel + WorkflowGraph[] + TerraformTopology[]  (all already cached)

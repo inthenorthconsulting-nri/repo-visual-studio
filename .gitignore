@@ -4,6 +4,9 @@ dist/
 artifacts/
 .rvs/cache/
 packages/cli/assets/
+/CAPABILITIES.md
+/CAPABILITIES-full.md
+/capability-exclusions.json
 *.log
 .DS_Store
 test-results/

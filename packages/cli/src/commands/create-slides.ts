@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArchitectureIntelligence, NarrativeProfileId } from "@rvs/architecture-intelligence";
+import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { EvidenceManifest, Logger } from "@rvs/core";
 import { loadConfig } from "@rvs/core";
-import { buildArchitectureVisualDoc, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
+import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
 import { loadDesignTokens, renderVisualDocToHtml } from "@rvs/renderer-html";
 import type { RepositoryModel } from "@rvs/repository-model";
 import type { TerraformTopology } from "@rvs/terraform-graph";
@@ -52,7 +53,27 @@ export async function runCreateSlides(
     doc = buildArchitectureVisualDoc(artifact, profileId, themeId, workflowGraphs, terraformTopologies);
   }
 
-  const html = renderVisualDocToHtml(doc, tokens, evidence, { gitCommit: model.git.commit }, workflowGraphs, terraformTopologies, architectureArtifacts);
+  // Capability intelligence (Milestone 4) is entirely additive/optional: a
+  // repo that hasn't run `rvs synthesize capabilities` yet must still render
+  // an identical deck to before this feature existed. When the cache is
+  // present, append one capability-intelligence-overview scene and thread
+  // the model through to the renderer the same way architectureArtifacts is.
+  const capabilityModel = readCachedJsonOptional<CapabilityModel>(repoRoot, "capability-model.json");
+  const capabilityModels: CapabilityModel[] = capabilityModel ? [capabilityModel] : [];
+  if (capabilityModel) {
+    doc.scenes.push(...buildCapabilityIntelligenceScenes(capabilityModel));
+  }
+
+  const html = renderVisualDocToHtml(
+    doc,
+    tokens,
+    evidence,
+    { gitCommit: model.git.commit },
+    workflowGraphs,
+    terraformTopologies,
+    architectureArtifacts,
+    capabilityModels,
+  );
 
   const outputDir = resolve(repoRoot, config.defaults.output_dir);
   mkdirSync(outputDir, { recursive: true });

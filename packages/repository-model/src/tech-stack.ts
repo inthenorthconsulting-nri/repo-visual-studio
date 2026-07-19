@@ -27,7 +27,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   ".kt": "Kotlin",
 };
 
-const MANIFEST_DETECTORS: { file: string; packageManager: string; language: string }[] = [
+export const MANIFEST_DETECTORS: { file: string; packageManager: string; language: string }[] = [
   { file: "package.json", packageManager: "npm/pnpm/yarn", language: "JavaScript/TypeScript" },
   { file: "pnpm-workspace.yaml", packageManager: "pnpm", language: "JavaScript/TypeScript" },
   { file: "pyproject.toml", packageManager: "pip/poetry", language: "Python" },

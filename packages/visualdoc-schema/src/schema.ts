@@ -134,6 +134,21 @@ export const ArchitectureIntelligenceSceneSchema = BaseSceneSchema.extend({
   focus_ids: z.array(z.string()).default([]),
 });
 
+// A capability-intelligence-overview scene never embeds a CapabilityModel —
+// it points at one (built by @rvs/capability-intelligence and cached
+// separately) by id, mirroring ArchitectureIntelligenceSceneSchema's
+// artifact_id contract exactly. This is deliberately a DIFFERENT scene type
+// from "architecture-intelligence"'s "capability-map" kind: capability-map
+// renders ArchitectureIntelligence.capabilityDomains (a coarser, Milestone-3
+// rollup with no per-capability evidence gate), while this scene renders the
+// Milestone-4 evidence-gated CapabilityModel (status/inclusion/confidence per
+// capability, backed by an explicit evidence-and-maturity decision). The two
+// must never be conflated in name or in rendered output.
+export const CapabilityIntelligenceOverviewSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("capability-intelligence-overview"),
+  model_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -143,6 +158,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   WorkflowSceneSchema,
   TopologySceneSchema,
   ArchitectureIntelligenceSceneSchema,
+  CapabilityIntelligenceOverviewSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -158,6 +174,7 @@ export type TopologyScene = z.infer<typeof TopologySceneSchema>;
 export type TerraformDetailLevel = z.infer<typeof TerraformDetailLevelSchema>;
 export type ArchitectureSceneKind = z.infer<typeof ArchitectureSceneKindSchema>;
 export type ArchitectureIntelligenceScene = z.infer<typeof ArchitectureIntelligenceSceneSchema>;
+export type CapabilityIntelligenceOverviewScene = z.infer<typeof CapabilityIntelligenceOverviewSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

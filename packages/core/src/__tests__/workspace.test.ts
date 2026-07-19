@@ -111,8 +111,8 @@ describe("defaultConfig with workspace detection", () => {
     const config = defaultConfig("order-service");
     expect(config.sources.include).not.toContain("packages/*/src/**");
     expect(config.sources.exclude).toEqual([
-      "node_modules/**",
-      "dist/**",
+      "**/node_modules/**",
+      "**/dist/**",
       ".git/**",
       "**/*.lock",
       "**/*.secret",
@@ -137,7 +137,6 @@ describe("defaultConfig with workspace detection", () => {
     expect(config.sources.include).toContain("README.md");
     expect(config.sources.include).toContain("packages/*/package.json");
     expect(config.sources.include).toContain("packages/*/src/**");
-    expect(config.sources.exclude).toContain("node_modules/**");
     expect(config.sources.exclude).toContain("**/node_modules/**");
     expect(config.sources.exclude).toContain("**/dist/**");
   });

@@ -1138,3 +1138,463 @@ pass's fixtures didn't cover. The `ARCH_INTEL_CAPABILITY_DOMAIN_TOO_GRANULAR`
 threshold (>8 domains) is a fixed constant, not derived from repository
 size. And per §9 above, this remains a bounded slice of the full
 remediation spec, not a complete implementation of it.
+
+## Milestone 4 — Evidence-Gated Capability Intelligence
+
+**Status: core engine complete and self-hosting-proven; presentation
+integration, full test coverage, and cross-repository generic fixtures were
+delegated to parallel background agents whose results are appended to this
+entry as they land, per the same no-commit constraint as every milestone
+above.** Objective: a new synthesis stage — Capability Intelligence — on top
+of Milestone 3's `ArchitectureIntelligence`, deciding which capabilities are
+mature and evidence-backed enough to appear in a generated `CAPABILITIES.md`
+or an executive slide, under an explicit conservative-bias rule: "when
+evidence is incomplete, prefer exclude / include_with_qualification /
+gap_only / roadmap_only over incorrectly promoting a capability into the
+current platform narrative." No external model, no repository-specific
+hard-coded capability list, no manually authored Looker/Tableau/Looker-
+Doctor capabilities inside RVS, nothing committed.
+
+### 1. Package and contracts
+
+New package `packages/capability-intelligence`. `src/contracts.ts` defines
+the full `CapabilityModel` contract: `CapabilityStatus` (9 values),
+`CapabilityInclusion` (5-state conservative-bias policy: `include` /
+`include_with_qualification` / `exclude` / `roadmap_only` / `gap_only`),
+`CapabilityConfidence` (reuses Architecture Intelligence's own
+`InferenceClass` rather than inventing a second scale), `CapabilityEvidenceType`
+(13 values) with a base strength table (`CAPABILITY_EVIDENCE_STRENGTH`,
+workflow/runtime_entrypoint/deployment/release=5 down to
+deprecated_marker=-3), `CapabilityGranularity` (5 values), 18 incomplete-
+signal keywords, `CapabilityExclusionReasonCode` (17 values), default
+readiness weights (implementation 35/execution 25/verification
+20/documentation 10/adoption 10) and thresholds (operational 85/implemented
+70/partial 45/experimental 25/scaffolded 10), and the full `Capability`/
+`CapabilityDomain`/`ExcludedCapabilityCandidate`/`CapabilityModel`/
+`CapabilityCandidate` shapes, plus 21 `CapIntelWarningCode` structural
+validator codes. See
+[`docs/capability-intelligence.md`](capability-intelligence.md) for the
+complete contract reference.
+
+### 2. Pipeline
+
+Nine pure, single-responsibility modules mirroring
+`@rvs/architecture-intelligence`'s own synthesis-pipeline shape:
+`candidates.ts` (discovery from workflow families, `cli`/`service`-kind
+runtime components, Terraform modules, and README/markdown claims —
+documentation deliberately the weakest source; `mergeDuplicateCandidates()`
+folds a candidate found from two evidence angles into one), `evidence.ts`
+(aggregation into reasoning flags), `maturity.ts` (five independent
+scoring dimensions), `readiness.ts` (weighted 0-100 score plus hard gates
+applied independent of that score), `inclusion-policy.ts` (the
+conservative-bias decision — `include` reachable only through
+`implemented`/`operational` status with zero blocking evidence problems),
+`grouping.ts` (5-8 durable domains from included/qualified capabilities
+only), `outcomes.ts` (evidence-supported outcome statements, no invented
+savings, under a 24-word budget where possible), `label.ts` (display-name
+humanization that preserves the raw source label for traceability), and
+`validation.ts` (the 21-code structural validator, scoped inside this
+package the same way Architecture Intelligence's own Tier 1 validator is
+scoped inside its producing package rather than duplicated into
+`@rvs/validator`). `index.ts` wires all nine into one
+`synthesizeCapabilities()` pure function.
+
+### 3. Exporter and CLI
+
+`exporter.ts`: `exportCapabilitiesMarkdown()` (generation-provenance
+header, disaggregated summary table, one section per domain, "Available
+with limitations", "Known capability gaps", opt-in "Roadmap" and "Excluded
+candidates" sections), `exportCapabilityModelJson()`,
+`exportCapabilityCandidatesJson()`, `exportCapabilityExclusionsJson()`.
+Three new CLI commands wired into `packages/cli/src/bin.ts`: `rvs
+synthesize capabilities` (reads cached `architecture-intelligence.json` +
+`repository-model.json` + optional workflow/Terraform caches, runs the full
+pipeline, runs `validateCapabilityModelStructure()` inline, caches
+`.rvs/cache/capability-model.json` and a `capability-candidates.json`
+diagnostic dump), `rvs export capabilities [--output] [--include-partial]
+[--include-gaps] [--include-roadmap] [--include-excluded]` (pure formatting
+over the cache, makes no inclusion judgment of its own), and `rvs
+capabilities explain <id>` (full evidence/readiness/inclusion trail for one
+capability or excluded candidate, by id or display name).
+
+### 4. Build and packaging
+
+`packages/cli/scripts/build.mjs` re-run to bundle `@rvs/capability-
+intelligence` into `dist/bin.cjs` alongside every other workspace package —
+no new external dependency was introduced, so no change to the esbuild
+`external` list was needed.
+
+### 5. Self-hosting proof
+
+All 6 required commands run against `repo-visual-studio` itself through the
+rebuilt packaged CLI: `rvs inspect` (261 files, 44 evidence claims) → `rvs
+create workflow --all` (1 workflow, 5 warnings, 0 errors) → `rvs synthesize
+architecture` (6 components, 3 flows, 1 warning) → `rvs synthesize
+capabilities` → `rvs export capabilities` (both the default and
+`--include-roadmap --include-excluded` forms) → `rvs validate --ci` (48
+checks passed, 0 failed).
+
+**First-run result: 0 included, 0 qualified, 0 gaps, 10 roadmap-only, 4
+excluded (of 14 candidates), 0 errors, 1 warning**
+(`CAP_INTEL_DOMAIN_WITH_ONLY_ROADMAP_ITEMS`). This number was investigated
+rather than accepted at face value, by reading
+`.rvs/cache/capability-model.json` and
+`.rvs/cache/capability-candidates.json` directly, and cross-checked against
+the three independently generated cross-repository fixtures from §9, which
+*also* produced 0 included / 0 qualified — including one built specifically
+with a real CLI, tests, and a scheduled workflow. That cross-check
+overturned the initial read: this was **a real, in-scope Capability
+Intelligence defect, not a defensible conservative outcome**. Root cause:
+`candidates.ts` never emitted `implementation`/`configuration`/`test`-type
+evidence for any candidate from any repository, because its one nominal
+source (`component.implementation.entryPoints`) is hardcoded to `[]`
+throughout Architecture Intelligence — capping every candidate's readiness
+score below the 45-point "partial" threshold regardless of the strength of
+its underlying repository evidence. Fixed by emitting evidence grounded only
+in data the pipeline already had confirmed access to: each real workflow
+file as `implementation` evidence, workflow steps matching a test-invocation
+pattern as `test` evidence, `component.sourcePaths` beyond the runtime
+entrypoint as `implementation`/`test` evidence (split by filename
+convention), and each Terraform root module path as `configuration`
+evidence alongside its existing `deployment` evidence. Full root-cause and
+fix detail, including the two smaller bugs (`maturity.ts`'s `scoreAdoption()`
+double-counting `hasDeployment` against `scoreExecution()`, and the
+`CAP_INTEL_UNSUPPORTED_OUTCOME` regex missing multi-digit dollar amounts)
+that surfaced while reconciling with §8's test suite, is in
+[`docs/capability-intelligence.md#self-hosting-proof`](capability-intelligence.md#self-hosting-proof).
+
+**Corrected-run result (after the fix in "2. Defects found and fixed"): 0
+included, 1 qualified, 0 gaps, 14 roadmap-only, 6 excluded (of 21
+candidates), 0 errors, 1 warning.** RVS's own CI workflow family now
+correctly reaches readiness 62 ("partial" → `include_with_qualification`),
+backed by real `workflow` + `implementation` + `test` (from the CI
+workflow's own `test` job) + `runtime_entrypoint` evidence. The
+Terraform example-fixture module remains correctly excluded at readiness 15
+(`SCAFFOLD_ONLY`) even after the fix — confirming the fix promotes genuinely
+strong evidence without over-promoting weak evidence. Candidate count rose
+from 14 to 21 because this milestone's own in-progress design docs, cached
+in the repository while this section was being written, were themselves
+picked up as weak documentation-only candidates — correctly excluded at
+readiness 4, a harmless self-referential artifact of self-hosting against a
+repository that contains its own design docs.
+
+RVS's own real, working CLI capabilities (`rvs inspect`, `rvs create
+workflow`, etc.) still do not appear as candidates, for a separate,
+pre-existing, unfixed reason: Architecture Intelligence's own component
+classifier, scanning this specific 15-plus-package pnpm monorepo, rolls the
+entire `packages/` tree into one coarse `kind: "library"`, `origin:
+"repository-directory"` component — rather than resolving the individual
+`@rvs/cli` package (which has a real `bin` entrypoint) as its own `kind:
+"cli"` component — so `candidatesFromRuntimeComponents()`'s `kind === "cli" |
+"service"` filter matches nothing. This is a pre-existing Architecture
+Intelligence (Milestone 3) characteristic for this repository's own shape,
+not something this milestone introduced, and out of this milestone's scope
+to fix (it would mean changing Architecture Intelligence's component
+classifier). The three generic cross-repository fixtures, whose `cli/` and
+`server-connectors/` directories do classify as `kind: "cli"`/`"service"`,
+demonstrate the same candidate-discovery and evidence logic working
+correctly once that granularity exists.
+
+### 6. Source-vs-package equivalence
+
+Blocked by a pre-existing, unrelated environment issue: `pnpm --filter
+@rvs/cli pack --pack-destination <dir>` fails with `ERROR Unknown option:
+'recursive'` under the pnpm 10.9.0 installed in this environment,
+reproduced identically outside the test harness (a bug in pnpm's own `pack`
+implementation here, not in any RVS source). Not fixed — out of scope for
+this milestone. Mitigated: all 6 self-hosting proof commands above were run
+directly against the actual esbuild-packaged artifact (`dist/bin.cjs`, the
+same file that ships as `bin: {"rvs": "dist/bin.cjs"}`), not against `tsx`
+source, giving reasonable confidence in the packaged CLI's correctness for
+the new capability commands despite the blocked byte-for-byte tarball-diff
+test.
+
+### 7. Presentation integration (§17)
+
+New VisualDoc scene type `capability-intelligence-overview`
+(`packages/visualdoc-schema/src/schema.ts`), keyed by `model_id` and
+resolved against a `CapabilityModel[]` array threaded through
+`renderVisualDocToHtml()` — deliberately kept distinct from the pre-existing
+`capability-map` kind (Milestone 3's coarser `capabilityDomains` rollup,
+with no evidence-and-maturity gate); both schema and renderer carry comments
+warning against conflating the two.
+`packages/renderer-html/src/scenes/capability-intelligence/render.ts`:
+summary line, domain-grouped capability cards (included + qualified only,
+matching `exportCapabilitiesMarkdown()`'s conservative default), a "Known
+gaps" section, and a static limitations note — every card/gap item stamps
+`data-capability-status`, `data-capability-inclusion`, and
+`data-capability-confidence`.
+`packages/narrative-planner/src/capability-intelligence-visualdoc-builder.ts`:
+`buildCapabilityIntelligenceScenes()`.
+`packages/cli/src/commands/create-slides.ts`: optionally reads
+`.rvs/cache/capability-model.json` via `readCachedJsonOptional` and appends
+the scene only when present — a repository that hasn't run `rvs synthesize
+capabilities` renders identically to before this milestone. `pnpm -r exec
+tsc --noEmit`: clean, 0 errors, across all packages (re-verified directly,
+not just taken from the agent's own report). Pre-existing test suites for
+visualdoc-schema, renderer-html, narrative-planner, and validator all still
+pass. A live smoke test (`inspect` → `create workflow --all` → `synthesize
+architecture` → `synthesize capabilities` → `brief` → `create slides`, both
+profiles) rendered without crashing; at the time this integration was
+verified, this repository's own capability model was still the first-run
+0-included/0-qualified result documented in §5 above (the candidates.ts
+defect was found and fixed afterward), so the scene's empty-state path was
+what actually exercised in that smoke test — a
+separate hand-built fixture model was used to confirm the
+`data-capability-*` attributes render real, non-empty enum values for
+included, qualified, and gap capabilities alike.
+
+### 8. Test coverage (§18)
+
+Delegated to a background agent; results independently re-run and verified
+(not taken on the agent's own report). 11 test files under
+`packages/capability-intelligence/src/__tests__/`, 169 tests, all passing:
+`candidates.test.ts` (17 — one per candidate-discovery source plus the
+merge-duplicate-candidates scenarios), `evidence.test.ts` (13),
+`maturity.test.ts` (22, including the hard-gate blocker/qualifier scenarios),
+`readiness.test.ts` (26, including every status/threshold boundary and the
+execution/verification hard gates independent of score), `inclusion-
+policy.test.ts` (21, covering all 9 `CapabilityStatus` → inclusion-state
+transitions), `grouping.test.ts` (11), `outcomes.test.ts` (13),
+`label.test.ts` (6), `validation.test.ts` (20, one per most of the 21
+`CAP_INTEL_*` codes), `exporter.test.ts` (13), `ids.test.ts` (7). Running
+this suite against the corrected `candidates.ts`/`maturity.ts`/`validation.ts`
+(§ above) surfaced 2 test failures caused by the candidate-discovery fix
+itself (an evidence-count assertion in the Terraform test and the
+merge-duplicate-candidates test, both updated to the new, correct evidence
+counts) and, independently, 2 pre-existing bugs the new tests exposed in
+code untouched by that fix: `maturity.ts`'s `scoreAdoption()` double-counting
+`hasDeployment`, and the `CAP_INTEL_UNSUPPORTED_OUTCOME` validator's regex
+silently missing multi-digit dollar amounts (see "5. Self-hosting proof"
+above for both). All 3 fixes applied; full workspace suite re-run clean
+afterward: 546 passed, 6 skipped (the 2 pre-existing, documented
+`pnpm pack`-blocked skips from §6), 0 failed, across 52 test files.
+
+### 9. Cross-repository generic fixtures (§22)
+
+Delegated to a background agent; results independently re-run and verified.
+Three fixture repositories built from scratch (generic BI/analytics-admin
+product shapes, no product names or capability titles hard-coded into the
+engine — see the constraint in §22 of the governing spec), each with real
+git history, a CLI entrypoint, tests, and at least one scheduled GitHub
+Actions workflow, left on disk at
+`cap-intel-fixtures/{fixture-1-dashboard-governance,fixture-2-workbook-admin,fixture-3-bi-diagnostics}`
+in this session's scratchpad for review (not committed anywhere, not part of
+this repository):
+
+- **fixture-1-dashboard-governance** ("Beacon Board") — dashboard-sprawl
+  governance CLI.
+- **fixture-2-workbook-admin** ("Grid Forge") — workbook/data-source
+  administration CLI.
+- **fixture-3-bi-diagnostics** ("Pulse Check") — BI environment diagnostics
+  CLI.
+
+The agent's own run (before the candidates.ts fix) reported all three
+producing 0 included / 0 qualified despite fixture 1 being built
+specifically with a real CLI, tests, and a scheduled workflow — this was the
+finding that triggered the root-cause investigation in "5. Self-hosting
+proof" above, escalated as "senior-agent triage" rather than patched
+locally. Re-run against the fixed pipeline: all three now produce **2
+qualified capabilities each** (`partial` status, readiness 51 and 62 for
+fixture 1's Identity/Access and Observability domains; comparable results
+for fixtures 2 and 3), backed by real `workflow` + `implementation` +
+`runtime_entrypoint` evidence, plus `test` evidence where a workflow's `test`
+job label matched — while each fixture's scaffold-only and under-evidenced
+candidates (an `Api`/`Cli` stub, a `legacy-*-stub` directory) remained
+correctly excluded (`SCAFFOLD_ONLY` / `INSUFFICIENT_IMPLEMENTATION_EVIDENCE`,
+readiness 4-40). `CAPABILITIES.md` re-exported for all three with the
+corrected pipeline; sample output (fixture 1) is in
+[`docs/capability-intelligence.md#self-hosting-proof`](capability-intelligence.md#self-hosting-proof).
+No fixture ever moved a candidate all the way to `include` (unqualified) —
+consistent with the conservative-bias mandate, since none of the three
+fixtures' CLIs had verification evidence strong enough to clear the
+`operational`/`implemented` execution+verification hard gates, only the
+`partial` threshold.
+
+### 10. Documentation
+
+New [`docs/capability-intelligence.md`](capability-intelligence.md), full
+design document mirroring `docs/architecture-intelligence.md`'s structure.
+`README.md` updated in place: a new Milestone 4 paragraph, a new
+"Capability Intelligence" subsection (mirroring the existing "Architecture
+Intelligence" one), two new pipeline commands in the quickstart block, a
+new `capability-intelligence/` row in the repository-layout table, and a
+new "Current limitations" bullet documenting the self-hosting ceiling.
+[`docs/architecture-intelligence.md`](architecture-intelligence.md): a
+Milestone 4 amendment note added at the top (same pattern as the existing
+Milestone 3.1 amendment note), pointing at the component-classifier
+characteristic behind Capability Intelligence's self-hosting result,
+without changing anything else in that document. This entry.
+
+### 11. Confirmation nothing was committed
+
+Same branch as every prior milestone in this file, still zero new commits:
+`git branch --show-current` reports
+`feature/architecture-intelligence-engine`. This milestone's changes are
+layered into the same uncommitted working tree as Milestones 3 and 3.1's
+changes — new files (`packages/capability-intelligence/**`,
+`docs/capability-intelligence.md`) plus in-place edits to `README.md`,
+`docs/architecture-intelligence.md`, `docs/milestones.md`, and
+`packages/cli/src/**`. Nothing was committed during this pass, per the
+explicit instruction.
+
+### 12. Remaining limitations (as of the initial build; see §13 for what changed since)
+
+`candidatesFromRuntimeComponents()` only considers `kind: "cli"` and `kind:
+"service"` components — `library`/`data-store`/`integration`/`unknown`-kind
+components never produce a candidate directly, even with real
+implementation evidence behind them, unless that evidence is also reachable
+through a workflow-family or Terraform-module candidate. This was
+deliberately not widened during this milestone: a `library`-kind,
+`repository-directory`-origin component (the shape this repository's own
+self-scan currently produces) carries no entry-point-level evidence to
+distinguish "a well-tested working library" from "a pile of files," and
+widening the filter without that distinction would risk exactly the kind of
+evidence-inflation the conservative-bias mandate forbids. No model-assisted
+synthesis. At the time this section was written, `rvs validate --ci` did not
+yet run a capability-specific check — see §13, which closes this gap. See
+[`docs/capability-intelligence.md#known-limitations`](capability-intelligence.md#known-limitations)
+for the complete, current list.
+
+### 13. Closure-condition remediation
+
+The conditional acceptance of this milestone listed seven outstanding
+closure conditions. All seven were addressed in a follow-up pass, without
+committing anything (same uncommitted working tree as every prior
+milestone in this file) and without violating any standing hard constraint
+(no external model, no repository-specific hard-coded capability list, no
+manually-authored Looker/Tableau/Looker-Doctor capabilities, no cross-repo
+fixture product names hard-coded into the engine).
+
+**Approach**: two conditions (#1 component granularity, #2 self-hosting
+yield) required direct changes to already-shipped Architecture Intelligence
+logic and were handled directly, in sequence, since #2 is a direct
+consequence of #1. The other five conditions (#3–#7) were file-disjoint and
+were delegated to four parallel background agents, then independently
+re-verified — diffs read firsthand, not taken on the agents' own reports —
+before being accepted as closed.
+
+1. **Component granularity for monorepos.** Root-caused via this
+   repository's own self-hosting re-run to two compounding defects:
+   - `DEFAULT_INCLUDE`/`DEFAULT_EXCLUDE` in `packages/core/src/config.ts`
+     used bare manifest filenames, which fast-glob matches only at the
+     repository root — every nested workspace/module manifest was silently
+     unscanned for any repository/ecosystem not covered by the JS/TS-only
+     `workspaceSourcePatterns()` layer. Fixed by broadening every
+     non-root-only default pattern to a `**/`-prefixed glob (`**/`
+     also matches a zero-segment prefix, so root-level files stay covered);
+     `pnpm-workspace.yaml` deliberately kept root-only, matching pnpm's own
+     convention. `packages/core/src/__tests__/workspace.test.ts`'s two
+     exact-array assertions were updated to match; full workspace suite
+     re-run clean afterward.
+   - `classifyWorkspacePackage()`
+     (`packages/architecture-intelligence/src/synthesize/components.ts`)
+     checked its directory-name regex fallback before the
+     manifest-declared `hasLibraryExport` signal, so `packages/terraform-graph`
+     — a real library package with `"main": "src/index.ts"` — was
+     misclassified as `infrastructure-module` because its directory name
+     matched `/infra|terraform|deploy/i`. Fixed by reordering the checks so
+     manifest evidence (direct, stronger) takes priority over the
+     name-substring heuristic (indirect, weaker); a new
+     `packages/architecture-intelligence/src/__tests__/components.test.ts`
+     (10 tests, previously nonexistent) covers this exact case plus 9 other
+     classification/grouping/determinism scenarios. `pnpm --filter
+     @rvs/architecture-intelligence exec vitest run`: 79/79 passing.
+
+   Net effect: this repository's own self-scan went from one coarse
+   `library`-kind component covering the entire `packages/` tree to 22 real
+   per-package components.
+
+2. **Self-hosting yield.** Direct consequence of #1: this repository's own
+   capability model went from 1 generic qualified capability (of 21
+   candidates) to 2 evidence-backed qualified capabilities — `@rvs/cli`
+   (readiness 64, now resolved as its own `kind: "cli"` component) and the
+   CI workflow's automation family (readiness 62) — of 15 candidates (0
+   included, 0 gaps, 11 roadmap-only, 2 excluded). Re-verified against all
+   three cross-repository fixtures (`cap-intel-fixtures/
+   {fixture-1-dashboard-governance,fixture-2-workbook-admin,fixture-3-bi-diagnostics}`
+   in this session's scratchpad): each still produces 2 qualified
+   capabilities, consistent with the baseline in §9 above, confirming the
+   fix generalizes rather than only helping this repository's own scan.
+
+3. **Packaged-tarball smoke coverage.**
+   `packages/cli/src/__tests__/package-smoke.test.ts` gained a test running
+   `synthesize architecture` → `synthesize capabilities` → `export
+   capabilities` → `capabilities explain` against an installed npm tarball,
+   gated behind `RVS_TEST_PACKAGE=1` alongside the suite's existing
+   packaging tests. Re-run and confirmed passing (7/7 across both packaged
+   test files, including the pre-existing PDF-export and no-workflows
+   tests).
+
+4. **Source-vs-package equivalence coverage.**
+   `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`
+   extended to diff the capability-model cache and `CAPABILITIES.md` output
+   between a source run and a packed-tarball run. Re-run and confirmed
+   passing.
+
+5. **CI validation wiring.** `.github/workflows/ci.yml`'s `build-deck` job
+   now runs `rvs synthesize architecture` and `rvs synthesize capabilities`
+   before `rvs validate --ci`. `packages/cli/src/commands/validate.ts`
+   gained `validateCachedCapabilityModel()`, which runs
+   `validateCapabilityModelStructure()` against
+   `.rvs/cache/capability-model.json` when present, writes
+   `artifacts/visuals/capability-validation-report.json`, and fails `--ci`
+   unconditionally on any structural error — matching the existing
+   unconditional-on-`--ci` precedent set by the deck's own
+   contrast/overflow checks. Backward compatible: a repository that never
+   runs `rvs synthesize capabilities` sees no behavior change.
+
+   Verifying this end-to-end (not just trusting the responsible agent's own
+   test, which only exercised `validateCachedCapabilityModel()` directly
+   against synthetic fixtures — never the full `runValidate()` → Playwright
+   → `deck.html` path) surfaced one real, previously undetected defect: the
+   `capability-intelligence-overview` scene's CSS
+   (`packages/renderer-html/src/styles.ts`) failed both `min-font-size`
+   (`.cap-badge`/`.cap-card-meta` below the 14px minimum) and `contrast`
+   (`.cap-badge-status`'s text color set to `var(--rvs-color-background)` —
+   the validator compares against the outer `.scene` element's background,
+   also `var(--rvs-color-background)`, guaranteeing an exact 1.00:1 ratio
+   regardless of the badge's own different background). Reproduced
+   identically against this repository and all three cross-repo fixtures.
+   Both rules fixed (font sizes raised to 14px;
+   `.cap-badge-status` color changed to `var(--rvs-color-text-primary)`); no
+   test asserted the old values, so none needed updating. Re-verified via
+   `create slides` + `validate --ci` against this repository and all three
+   fixtures: all pass, 0 failed, exit 0.
+
+6. **Reason and warning codes.** Four `CapabilityExclusionReasonCode` values
+   that could not be formalized without an external model or
+   repository-specific hardcoding (`TOO_GRANULAR`, `DUPLICATE_CAPABILITY`,
+   `NOT_USER_MEANINGFUL`, `NO_SUPPORTED_OUTCOME`) were removed from the
+   contract rather than left dead, each already superseded by an equivalent
+   check at a later pipeline stage (documented in the type's own doc
+   comment in `contracts.ts`). The two previously-unreachable
+   `CapIntelWarningCode` values, `CAP_INTEL_PLACEHOLDER_PROMOTED` and
+   `CAP_INTEL_NONDETERMINISTIC_ORDER`, were wired up in `validation.ts`
+   instead, backed by a new `Capability.matchedIncompleteSignals: string[]`
+   field threaded from `CapabilityCandidate` through `buildCapability()`.
+
+7. **Self-referential documentation filtering.**
+   `packages/capability-intelligence/src/candidates.ts` gained
+   `REPORT_NARRATIVE_HEADING_PATTERN` and `NUMBERED_OUTLINE_HEADING_PATTERN`
+   (plus `nearestAncestorHeadings()`, reconstructed from the existing
+   `depth` + document-order fields with no schema change) to suppress
+   markdown sections whose own heading, or nearest enclosing heading, reads
+   as changelog/milestone/status-report/postmortem narrative — generic
+   documentation-convention vocabulary, never this repository's own
+   filenames or wording. A plain product-documentation heading matches none
+   of it.
+
+**Verification**: every fix above was confirmed against a fresh pipeline
+re-run, not assumed from any agent's self-report. Full workspace suite
+(`pnpm -r exec tsc --noEmit` + `pnpm exec vitest run`) re-run clean after
+each change: 597 passed, 7 skipped, 0 failed, across 56 test files at the
+final checkpoint. Packaged/equivalence suite (`RVS_TEST_PACKAGE=1`)
+re-verified separately: 7/7 passing. Nothing was committed — `git
+branch --show-current` still reports `feature/architecture-intelligence-engine`;
+all changes remain layered into the same uncommitted working tree as every
+prior milestone.
+
+See
+[`docs/capability-intelligence.md#closure-condition-remediation`](capability-intelligence.md#closure-condition-remediation)
+for the design-document-side write-up of the same work.

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
+import type { CapabilityModel } from "@rvs/capability-intelligence";
 import { GENERATOR_VERSION, type EvidenceManifest, type GeneratorStamp } from "@rvs/core";
 import type { TerraformTopology } from "@rvs/terraform-graph";
 import type { VisualDoc } from "@rvs/visualdoc-schema";
@@ -23,10 +24,16 @@ export function renderVisualDocToHtml(
   workflowGraphs: WorkflowGraph[] = [],
   terraformTopologies: TerraformTopology[] = [],
   architectureArtifacts: ArchitectureIntelligence[] = [],
+  // CapabilityModel (unlike ArchitectureIntelligence) has no dedicated "id"
+  // field on its identity — systemIdentity is only { displayName, purpose? }
+  // — so systemIdentity.displayName is the closest stable key available and
+  // is what narrative-planner's capability scene builder stamps as model_id.
+  capabilityModels: CapabilityModel[] = [],
 ): string {
   const workflowGraphsById = new Map(workflowGraphs.map((g) => [g.id, g]));
   const terraformTopologiesById = new Map(terraformTopologies.map((t) => [t.id, t]));
   const architectureArtifactsById = new Map(architectureArtifacts.map((a) => [a.identity.id, a]));
+  const capabilityModelsById = new Map(capabilityModels.map((m) => [m.systemIdentity.displayName, m]));
   const contentHash = createHash("sha256").update(JSON.stringify(doc)).digest("hex");
   const stamp: GeneratorStamp = {
     generator_version: GENERATOR_VERSION,
@@ -38,7 +45,7 @@ export function renderVisualDocToHtml(
 
   const scenesHtml = doc.scenes
     .map((scene, index) => {
-      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById, architectureArtifactsById);
+      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById, architectureArtifactsById, capabilityModelsById);
       const citations = renderCitations(scene.evidence, evidence);
       return `
       <section class="scene" id="scene-${index}" data-scene-index="${index}" data-scene-id="${escapeHtml(scene.id)}" data-scene-type="${scene.type}" role="group" aria-roledescription="slide" aria-label="${escapeHtml(scene.headline)}">

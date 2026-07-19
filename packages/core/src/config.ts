@@ -7,20 +7,27 @@ import { workspaceSourcePatterns, type WorkspaceDetection } from "./workspace.js
 // Single source of truth for the single-package default — also referenced
 // by defaultConfig() below when layering in workspace-detected patterns,
 // so the two never drift apart.
+// Manifest and source patterns are "**/"-prefixed so they match at any
+// depth (fast-glob treats a bare "package.json" as root-only, which would
+// silently hide every nested workspace/module manifest in a monorepo).
+// "**/" also matches a zero-segment prefix, so these still cover the
+// repo-root file too — no separate root-only entry is needed.
+// pnpm-workspace.yaml is deliberately left root-only: it is only ever
+// meaningful at the repo root by pnpm's own convention.
 const DEFAULT_INCLUDE = [
   "README.md",
   "docs/**",
-  "src/**",
+  "**/src/**",
   ".github/workflows/**",
-  "package.json",
+  "**/package.json",
   "pnpm-workspace.yaml",
-  "pyproject.toml",
-  "requirements.txt",
-  "go.mod",
-  "Cargo.toml",
-  "pom.xml",
-  "build.gradle",
-  "Gemfile",
+  "**/pyproject.toml",
+  "**/requirements.txt",
+  "**/go.mod",
+  "**/Cargo.toml",
+  "**/pom.xml",
+  "**/build.gradle",
+  "**/Gemfile",
 ];
 // Secret-bearing paths are excluded unconditionally, including .env.* —
 // which also matches .env.example. That's a deliberate choice, not an
@@ -29,8 +36,8 @@ const DEFAULT_INCLUDE = [
 // out-of-the-box default must never risk treating a same-named real
 // secrets file as safe because its sibling .env.example looked benign.
 const DEFAULT_EXCLUDE = [
-  "node_modules/**",
-  "dist/**",
+  "**/node_modules/**",
+  "**/dist/**",
   ".git/**",
   "**/*.lock",
   "**/*.secret",

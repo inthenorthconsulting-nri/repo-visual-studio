@@ -34,8 +34,14 @@ maybeDescribe("packaged CLI (npm tarball)", () => {
     execFileSync("pnpm", ["--filter", "@rvs/cli", "build"], { cwd: repoRoot, stdio: "inherit" });
 
     packDir = mkdtempSync(join(tmpdir(), "rvs-pack-"));
-    execFileSync("pnpm", ["--filter", "@rvs/cli", "pack", "--pack-destination", packDir], {
-      cwd: repoRoot,
+    // `pnpm --filter @rvs/cli pack` fails under pnpm 10.9.0 (this repo's
+    // pinned packageManager version) with "Unknown option: 'recursive'" —
+    // pnpm's filtered/recursive execution mode isn't supported by the
+    // single-package `pack` subcommand in this version. Running `pack`
+    // with cwd set to the package directory instead (no --filter) produces
+    // an identical tarball without depending on recursive-mode support.
+    execFileSync("pnpm", ["pack", "--pack-destination", packDir], {
+      cwd: cliRoot,
       stdio: "inherit",
     });
     tarballPath = join(packDir, readdirSync(packDir).find((f) => f.endsWith(".tgz"))!);
@@ -201,14 +207,120 @@ maybeDescribe("packaged CLI (npm tarball)", () => {
 
     expect(rvs(["create", "slides"])).toContain("Rendered");
 
+    // Mirrors the CI build-deck job: `rvs synthesize architecture` then
+    // `rvs synthesize capabilities` must run before `rvs validate --ci` so
+    // that a capability-model.json cache exists for validate to pick up.
+    expect(rvs(["synthesize", "architecture"])).toContain("Synthesized architecture intelligence");
+    expect(existsSync(join(installDir, ".rvs/cache/architecture-intelligence.json"))).toBe(true);
+
+    expect(rvs(["synthesize", "capabilities"])).toContain("Synthesized capability intelligence");
+    expect(existsSync(join(installDir, ".rvs/cache/capability-model.json"))).toBe(true);
+
     // Non-blocking: this fixture has sparse markdown evidence, so --ci is
     // expected to fail on the missing-evidence warning threshold. The
     // point of this assertion is that the packaged CLI runs the check at
     // all, not that the fixture passes it.
-    rvs(["validate", "--ci"], { allowNonZeroExit: true });
+    const validateOutput = rvs(["validate", "--ci"], { allowNonZeroExit: true });
+
+    // With a capability-model.json cache present, `rvs validate` must also
+    // run capability-model structural validation and write its report
+    // alongside deck.html's own validation-report.json.
+    expect(validateOutput).toContain("Validated capability model:");
+    expect(existsSync(join(installDir, "artifacts/visuals/capability-validation-report.json"))).toBe(true);
 
     const deckHtml = join(installDir, "artifacts/visuals/deck.html");
     expect(existsSync(deckHtml)).toBe(true);
+  });
+
+  it("runs synthesize architecture -> synthesize capabilities -> export capabilities -> capabilities explain against the pipeline's cached evidence", () => {
+    // Depends on the .rvs/cache/{repository-model,workflow-graphs,terraform-topologies}.json
+    // produced by the prior pipeline test's inspect/create workflow/create
+    // topology run against the same installDir — mirrors this file's
+    // existing pattern of later it() blocks (e.g. "exports a PDF...")
+    // building on state left by the main pipeline test rather than
+    // rewriting the fixture from scratch.
+    const archOutput = rvs(["synthesize", "architecture"]);
+    expect(archOutput).toMatch(
+      /Synthesized architecture intelligence for ".+" \(\d+ components, \d+ flows, \d+ error\(s\), \d+ warning\(s\)\)\./,
+    );
+    expect(archOutput).toContain("Cached to .rvs/cache/architecture-intelligence.json");
+    const archCachePath = join(installDir, ".rvs/cache/architecture-intelligence.json");
+    expect(existsSync(archCachePath)).toBe(true);
+    const archModel = JSON.parse(readFileSync(archCachePath, "utf8")) as {
+      metadata?: { schema_version?: number };
+      components?: unknown[];
+    };
+    expect(archModel.metadata?.schema_version).toBe(1);
+    expect(Array.isArray(archModel.components)).toBe(true);
+
+    const capsOutput = rvs(["synthesize", "capabilities"]);
+    // Counts are not asserted (the fixture's real capability yield may be
+    // sparse, and any change elsewhere in the pipeline could shift them) —
+    // only that the summary line has the shape synthesize-capabilities.ts
+    // actually logs.
+    expect(capsOutput).toMatch(
+      /Synthesized capability intelligence for ".+": \d+ included, \d+ qualified, \d+ gaps, \d+ roadmap-only, \d+ excluded \(of \d+ candidates\), \d+ error\(s\), \d+ warning\(s\)\./,
+    );
+    const capModelPath = join(installDir, ".rvs/cache/capability-model.json");
+    const capCandidatesPath = join(installDir, ".rvs/cache/capability-candidates.json");
+    expect(existsSync(capModelPath)).toBe(true);
+    expect(existsSync(capCandidatesPath)).toBe(true);
+
+    interface CapabilityEntry {
+      id: string;
+      displayName: string;
+    }
+    const capModel = JSON.parse(readFileSync(capModelPath, "utf8")) as {
+      evidenceSummary?: unknown;
+      includedCapabilities: CapabilityEntry[];
+      qualifiedCapabilities: CapabilityEntry[];
+      roadmapCapabilities: CapabilityEntry[];
+      gapCapabilities: CapabilityEntry[];
+      unresolvedCapabilities: CapabilityEntry[];
+      excludedCandidates: CapabilityEntry[];
+    };
+    expect(capModel.evidenceSummary).toBeDefined();
+    const candidates = JSON.parse(readFileSync(capCandidatesPath, "utf8"));
+    expect(Array.isArray(candidates)).toBe(true);
+
+    const exportOutput = rvs(["export", "capabilities", "--output", "CAPABILITIES.md", "--include-partial", "--include-gaps"]);
+    expect(exportOutput).toContain("Wrote");
+    const capabilitiesMdPath = join(installDir, "CAPABILITIES.md");
+    expect(existsSync(capabilitiesMdPath)).toBe(true);
+    const capabilitiesMd = readFileSync(capabilitiesMdPath, "utf8");
+    expect(capabilitiesMd.length).toBeGreaterThan(0);
+    expect(capabilitiesMd).toMatch(/^# /);
+
+    // capabilities explain: exercise both a known-good id and a clearly
+    // invalid one. The "known-good" id is derived by mirroring
+    // capabilities-explain.ts's own lookup list exactly (includedCapabilities
+    // -> qualifiedCapabilities -> roadmapCapabilities -> gapCapabilities ->
+    // unresolvedCapabilities -> excludedCandidates) rather than assuming any
+    // specific capability the sparse fixture happens to yield.
+    const allEntries: CapabilityEntry[] = [
+      ...capModel.includedCapabilities,
+      ...capModel.qualifiedCapabilities,
+      ...capModel.roadmapCapabilities,
+      ...capModel.gapCapabilities,
+      ...capModel.unresolvedCapabilities,
+      ...capModel.excludedCandidates,
+    ];
+    expect(allEntries.length).toBeGreaterThan(0);
+    const [first] = allEntries;
+    const explainOutput = rvs(["capabilities", "explain", first.id]);
+    expect(explainOutput).toContain(first.displayName);
+    expect(explainOutput).toContain("Status:");
+
+    let explainFailed = false;
+    let explainMessage = "";
+    try {
+      rvs(["capabilities", "explain", "definitely-not-a-real-capability-id"]);
+    } catch (err) {
+      explainFailed = true;
+      explainMessage = String((err as { stderr?: string }).stderr ?? "");
+    }
+    expect(explainFailed).toBe(true);
+    expect(explainMessage).toContain("No capability or candidate found");
   });
 
   it("exports a PDF when Chromium is available, or fails clearly when it is not", () => {

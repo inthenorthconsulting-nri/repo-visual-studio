@@ -2,15 +2,18 @@
 import { createLogger } from "@rvs/core";
 import { Command } from "commander";
 import { runBrief } from "./commands/brief.js";
+import { runCapabilitiesExplain } from "./commands/capabilities-explain.js";
 import { runCreateSlides } from "./commands/create-slides.js";
 import { runCreateTopology } from "./commands/create-topology.js";
 import { runCreateWorkflow } from "./commands/create-workflow.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runExportCapabilities } from "./commands/export-capabilities.js";
 import { runExportPdf } from "./commands/export-pdf.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
 import { runSkillPath } from "./commands/skill.js";
 import { runSynthesizeArchitecture } from "./commands/synthesize-architecture.js";
+import { runSynthesizeCapabilities } from "./commands/synthesize-capabilities.js";
 import { runValidate } from "./commands/validate.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -121,6 +124,13 @@ synthesize
     await runSynthesizeArchitecture(process.cwd(), logger);
   });
 
+synthesize
+  .command("capabilities")
+  .description("Synthesize an evidence-gated CapabilityModel from the cached ArchitectureIntelligence artifact")
+  .action(async () => {
+    await runSynthesizeCapabilities(process.cwd(), logger);
+  });
+
 program
   .command("validate")
   .description("Run deterministic visual-quality checks against the rendered deck")
@@ -135,6 +145,29 @@ exportCmd
   .description("Export the deck to a paginated PDF")
   .action(async () => {
     await runExportPdf(process.cwd(), logger);
+  });
+
+exportCmd
+  .command("capabilities")
+  .description("Render the synthesized, evidence-gated CapabilityModel to CAPABILITIES.md")
+  .option("--output <path>", "output path (default: CAPABILITIES.md)")
+  .option("--include-partial", "include the 'Available with limitations' section (default: on)")
+  .option("--no-include-partial", "omit the 'Available with limitations' section")
+  .option("--include-gaps", "include the 'Known capability gaps' section (default: on)")
+  .option("--no-include-gaps", "omit the 'Known capability gaps' section")
+  .option("--include-roadmap", "include an opt-in 'Roadmap' section (default: off)")
+  .option("--include-excluded", "include an opt-in 'Excluded candidates' diagnostics section and capability-exclusions.json (default: off)")
+  .action(async (opts: { output?: string; includePartial?: boolean; includeGaps?: boolean; includeRoadmap?: boolean; includeExcluded?: boolean }) => {
+    await runExportCapabilities(process.cwd(), opts, logger);
+  });
+
+const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");
+capabilities
+  .command("explain")
+  .description("Print full evidence, readiness, and inclusion detail for a single capability or excluded candidate")
+  .argument("<capability-id>", "capability id or display name")
+  .action(async (capabilityId: string) => {
+    await runCapabilitiesExplain(process.cwd(), capabilityId, logger);
   });
 
 program
