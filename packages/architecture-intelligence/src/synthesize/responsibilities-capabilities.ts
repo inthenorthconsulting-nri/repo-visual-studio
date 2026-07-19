@@ -137,8 +137,8 @@ export function buildCapabilityDomains(
               [],
               `Rolled up from workflow families: ${entry.families.map((f) => f.label.displayLabel).join(", ")}.`,
             ),
-        responsibilityIds: [...entry.responsibilityIds],
-        componentIds: [...entry.componentIds],
+        responsibilityIds: [...entry.responsibilityIds].sort(),
+        componentIds: [...entry.componentIds].sort(),
         workflowFamilyIds: entry.families.map((f) => f.id),
       };
     });

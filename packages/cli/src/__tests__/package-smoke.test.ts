@@ -390,6 +390,87 @@ maybeDescribe("packaged CLI (npm tarball)", () => {
     expect(explainMessage).toContain('No claim found matching "definitely-not-a-real-claim-id"');
   });
 
+  it("runs synthesize portfolio -> export portfolio-model/claims/decisions -> create slides --profile portfolio -> portfolio explain -> validate --ci, against a single-product portfolio built from the pipeline's own artifacts", () => {
+    // Portfolio intake (Milestone 6) requires capability-model.json and
+    // product-identity.json to live together in one product's artifact_root.
+    // Rather than re-running the whole upstream pipeline a second time just
+    // to produce a second product, this copies the .rvs/cache/capability-model.json
+    // and product-identity.json already produced by the two prior pipeline
+    // tests in this same installDir into a fresh artifact-roots/product-a/
+    // directory and portfolios over that single (self-consistent) product.
+    const artifactRoot = join(installDir, "artifact-roots/product-a");
+    mkdirSync(artifactRoot, { recursive: true });
+    writeFileSync(join(artifactRoot, "capability-model.json"), readFileSync(join(installDir, ".rvs/cache/capability-model.json")));
+    writeFileSync(join(artifactRoot, "product-identity.json"), readFileSync(join(installDir, "product-identity.json")));
+
+    writeFileSync(
+      join(installDir, ".rvs/portfolio.yml"),
+      ["schema_version: 1", "portfolio:", "  id: smoke-test-portfolio", "  display_name: Smoke Test Portfolio", "products:", "  - id: product-a", "    artifact_root: artifact-roots/product-a", ""].join(
+        "\n",
+      ),
+    );
+
+    const synthesizeOutput = rvs(["synthesize", "portfolio"]);
+    expect(synthesizeOutput).toMatch(/Synthesized portfolio "Smoke Test Portfolio": 1 product\(s\)/);
+    expect(synthesizeOutput).toContain("Cached to .rvs/cache/portfolio-model.json");
+    expect(existsSync(join(installDir, ".rvs/cache/portfolio-model.json"))).toBe(true);
+    expect(existsSync(join(installDir, ".rvs/cache/portfolio-claims.json"))).toBe(true);
+    expect(existsSync(join(installDir, ".rvs/cache/portfolio-decisions.json"))).toBe(true);
+
+    const exportModelOutput = rvs(["export", "portfolio-model", "--output", "portfolio-model.json"]);
+    expect(exportModelOutput).toMatch(/Wrote .+ \(1 product\(s\), \d+ capability\(ies\), \d+ relationship\(s\)\)\./);
+    const portfolioModelPath = join(installDir, "portfolio-model.json");
+    expect(existsSync(portfolioModelPath)).toBe(true);
+    const portfolioModel = JSON.parse(readFileSync(portfolioModelPath, "utf8")) as { products: Array<{ id: string }> };
+    expect(portfolioModel.products).toHaveLength(1);
+
+    const exportClaimsOutput = rvs(["export", "portfolio-claims", "--output", "portfolio-claims.json"]);
+    expect(exportClaimsOutput).toMatch(/Wrote .+ \(\d+ claim\(s\), \d+ approved\)\./);
+    const portfolioClaimsPath = join(installDir, "portfolio-claims.json");
+    expect(existsSync(portfolioClaimsPath)).toBe(true);
+    const portfolioClaims = JSON.parse(readFileSync(portfolioClaimsPath, "utf8")) as Array<{ id: string }>;
+
+    const exportDecisionsOutput = rvs(["export", "portfolio-decisions", "--output", "portfolio-decisions.json"]);
+    expect(exportDecisionsOutput).toMatch(/Wrote .+ \(\d+ decision\(s\)\)\./);
+    const portfolioDecisionsPath = join(installDir, "portfolio-decisions.json");
+    expect(existsSync(portfolioDecisionsPath)).toBe(true);
+    const portfolioDecisions = JSON.parse(readFileSync(portfolioDecisionsPath, "utf8")) as Array<{ id: string }>;
+
+    const slidesOutput = rvs(["create", "slides", "--profile", "portfolio", "--audience", "portfolio"]);
+    expect(slidesOutput).toMatch(/Rendered \d+ portfolio scenes to artifacts\/visuals\/deck\.html using ".+" \(audience: "portfolio", theme: ".+"\)/);
+    expect(slidesOutput).toContain("Cached to .rvs/cache/portfolio-plan.json");
+    expect(existsSync(join(installDir, ".rvs/cache/portfolio-plan.json"))).toBe(true);
+
+    // portfolio explain: exercise a known-good id (whichever of
+    // claims/decisions this single-product fixture happens to yield — the
+    // two id spaces never collide, so trying a claim id here also proves
+    // the claims-first lookup path) and a clearly invalid one.
+    const knownId = portfolioClaims[0]?.id ?? portfolioDecisions[0]?.id;
+    if (knownId) {
+      const explainOutput = rvs(["portfolio", "explain", knownId]);
+      expect(explainOutput.length).toBeGreaterThan(0);
+    }
+
+    let explainFailed = false;
+    let explainMessage = "";
+    try {
+      rvs(["portfolio", "explain", "definitely-not-a-real-portfolio-id"]);
+    } catch (err) {
+      explainFailed = true;
+      explainMessage = String((err as { stderr?: string }).stderr ?? "");
+    }
+    expect(explainFailed).toBe(true);
+    expect(explainMessage).toContain('No claim or decision found matching "definitely-not-a-real-portfolio-id"');
+
+    // validate --ci must now also pick up the portfolio-model/claims/plan
+    // caches and write portfolio-validation-report.json alongside the
+    // capability-validation-report.json already asserted in the earlier
+    // pipeline test.
+    const validateOutput = rvs(["validate", "--ci"], { allowNonZeroExit: true });
+    expect(validateOutput).toContain("Validated portfolio:");
+    expect(existsSync(join(installDir, "artifacts/visuals/portfolio-validation-report.json"))).toBe(true);
+  });
+
   it("exports a PDF when Chromium is available, or fails clearly when it is not", () => {
     let chromiumAvailable: boolean;
     try {

@@ -1,5 +1,6 @@
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { ProductIdentityModel, ProductIdentityOverride, ProductIntelWarning, ShowcasePlan } from "./contracts.js";
+import { compareIdentityCandidates } from "./identity-candidates.js";
 import { containsAbsoluteSuperiorityTerm, containsGenericMarketingTerm, findUnsupportedEnterpriseTerm, findUnsupportedQualifiedMaturityTerm, wordCount } from "./label.js";
 import { SHOWCASE_HEADLINE_HARD_MAX_WORDS, SHOWCASE_MAX_SCENES, SHOWCASE_MIN_SCENES } from "./showcase-plan.js";
 
@@ -36,10 +37,23 @@ function warn(code: ProductIntelWarning["code"], message: string, relatedId?: st
   return { code, severity: severityFor(code), message, relatedId, remediation };
 }
 
-function checkSortedById<T extends { id: string }>(items: T[], label: string): ProductIntelWarning | undefined {
-  for (let i = 1; i < items.length; i++) {
-    if (items[i - 1].id.localeCompare(items[i].id) > 0) {
-      return warn("SHOWCASE_NONDETERMINISTIC_ORDER", `${label} is not sorted deterministically by id (found "${items[i - 1].id}" before "${items[i].id}").`, items[i].id, "Sort this collection by id before returning it from synthesis.");
+/**
+ * `ProductIdentityModel.candidates` is ordered by score descending with id
+ * ascending as the tie-break (see `compareIdentityCandidates()` in
+ * `identity-candidates.ts`, the single source of truth for this order) — not
+ * a plain ascending-id sort. Checking against any other invariant here would
+ * make this fire on every run where two candidates have different scores,
+ * which is the deterministic common case, not an instability.
+ */
+function checkCandidatesOrder(candidates: ProductIdentityModel["candidates"]): ProductIntelWarning | undefined {
+  for (let i = 1; i < candidates.length; i++) {
+    if (compareIdentityCandidates(candidates[i - 1], candidates[i]) > 0) {
+      return warn(
+        "SHOWCASE_NONDETERMINISTIC_ORDER",
+        `ProductIdentityModel.candidates is not sorted deterministically (found "${candidates[i - 1].id}" (score ${candidates[i - 1].score}) before "${candidates[i].id}" (score ${candidates[i].score}), which violates the score-descending/id-ascending order).`,
+        candidates[i].id,
+        "Sort this collection with compareIdentityCandidates() (score descending, id ascending tie-break) before returning it from synthesis.",
+      );
     }
   }
   return undefined;
@@ -132,7 +146,7 @@ export function validateProductIdentityModel(model: ProductIdentityModel, capMod
     }
   }
 
-  const orderCheck = checkSortedById(model.candidates, "ProductIdentityModel.candidates");
+  const orderCheck = checkCandidatesOrder(model.candidates);
   if (orderCheck) warnings.push(orderCheck);
 
   return warnings;

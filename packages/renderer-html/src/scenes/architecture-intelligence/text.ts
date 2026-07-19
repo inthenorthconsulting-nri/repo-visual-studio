@@ -64,7 +64,9 @@ export function renderOutcomes(scene: ArchitectureIntelligenceScene, artifact: A
 const SEVERITY_ORDER: ArchitectureRiskSeverity[] = ["high", "medium", "low"];
 
 export function renderRiskSummary(scene: ArchitectureIntelligenceScene, artifact: ArchitectureIntelligence, includeDependencies: boolean): string {
-  const risks = [...applyFocus(artifact.risks, scene.focus_ids)].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
+  const risks = [...applyFocus(artifact.risks, scene.focus_ids)].sort(
+    (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity) || a.id.localeCompare(b.id),
+  );
   const riskItems = risks
     .map(
       (r) =>

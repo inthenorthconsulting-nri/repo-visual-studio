@@ -191,7 +191,7 @@ function topLevelNodes(model: RepositoryModel, max = 6): ArchitectureNode[] {
     const segment = path.includes("/") ? path.split("/")[0] : path;
     counts.set(segment, (counts.get(segment) ?? 0) + 1);
   }
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, max);
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, max);
   if (sorted.length >= 2) {
     return sorted.map(([segment, count], i) => ({ id: `dir-${i}`, label: `${segment} (${count})` }));
   }

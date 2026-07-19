@@ -85,6 +85,26 @@ and
 for the full design and the self-hosting result against this repository
 itself.
 
+**Milestone 6** adds Portfolio and Ecosystem Intelligence: a synthesis stage
+above the per-product pipeline that combines multiple products' own
+already-generated `ProductIdentityModel`/`CapabilityModel` artifacts — one
+per product, each product its own repository — into a single evidence-backed
+`PortfolioModel`: normalized cross-product capabilities, product
+relationships, a dependency graph, overlaps, gaps, an inferred operating
+model, and a maturity summary, feeding a "portfolio" slide profile —
+governed by the same rule raised one level of abstraction: portfolio
+synthesis may raise the level of abstraction across products, but it must
+never invent a relationship, inflate a capability's maturity, or fabricate
+ownership the underlying evidence does not support. Products are named in a
+new `.rvs/portfolio.yml`; a 4-step compatibility gate decides, per product,
+whether its artifacts are usable before any synthesis runs. No external
+model, no re-scanning of any product repository, no repository-specific
+hard-coded product list, relationship, or capability name. See
+[`docs/portfolio-intelligence.md`](docs/portfolio-intelligence.md) and
+[`docs/portfolio-showcase.md`](docs/portfolio-showcase.md) for the full
+design and both self-hosting proofs (a 3-fixture portfolio, and this
+repository's own artifacts added as a 4th product).
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -116,6 +136,9 @@ pnpm rvs create slides --design-system executive-dark # or: editorial-light | te
 pnpm rvs create slides --profile architecture-review   # requires `synthesize architecture` first; see below
 pnpm rvs create slides --profile showcase --audience executive  # requires `synthesize product-identity` first; see below
 pnpm rvs export showcase-plan --output showcase-plan.json  # optional
+pnpm rvs synthesize portfolio                            # optional: requires .rvs/portfolio.yml naming each product's artifact_root
+pnpm rvs export portfolio-model --output portfolio-model.json  # optional
+pnpm rvs create slides --profile portfolio --audience portfolio  # requires `synthesize portfolio` first; see below
 pnpm rvs validate --ci                                # overflow/contrast/evidence checks
 pnpm rvs export pdf
 ```
@@ -324,6 +347,49 @@ full environment-variable dump. `rvs skill path` prints just the resolved
 agent-skill directory, for scripts or agents that want to locate it
 programmatically.
 
+### Portfolio and Ecosystem Intelligence
+
+`rvs synthesize portfolio` reads `.rvs/portfolio.yml` — a small file naming
+each product's id and `artifact_root` (a path to that product's own already-
+generated Milestone 3-5 artifacts) — combines every compatible product's
+`product-identity.json`/`capability-model.json` (plus, optionally,
+`architecture-intelligence.json`/`repository-model.json`/
+`showcase-plan.json`/`showcase-claims.json`) into a `PortfolioModel`, cached
+to `.rvs/cache/portfolio-model.json`. See
+[`docs/portfolio-intelligence.md`](docs/portfolio-intelligence.md) and
+[`docs/portfolio-showcase.md`](docs/portfolio-showcase.md) for the full
+design. In short:
+
+**What it does**: gates each product's artifacts through a 4-step
+compatibility check before combining them; normalizes capabilities across
+products by structural similarity (never lexical overlap alone); derives
+product relationships, a dependency graph, overlaps, gaps, an inferred
+operating model, and a 7-dimension maturity summary; then runs every
+candidate portfolio statement through a claim-control engine (`approved` /
+`approved_with_qualification` / `rejected` / `runtime_verification_required`,
+with 12 rejection reason codes) before composing decisions and a 6-13 scene
+"portfolio" presentation.
+
+**`rvs synthesize portfolio [--allow-partial]`** builds the model (pass
+`--allow-partial` to continue with only the compatible products instead of
+failing when any product is incompatible). **`rvs create slides --profile
+portfolio [--audience portfolio|...] [--theme ...]`** builds the portfolio
+deck. **`rvs export portfolio-model`** / **`rvs export portfolio-claims`** /
+**`rvs export portfolio-decisions`** dump the underlying JSON. **`rvs
+portfolio explain <id>`** prints one claim's or decision's full text,
+status, evidence, and (if rejected/applicable) every rejection reason,
+urgency, and recommended owner.
+
+**Explicit limitations**: no external model, no re-scanning of any product
+repository; several declared gap/relationship/decision type values are
+intentionally not yet computed (documented in place rather than silently
+absent). See
+[`docs/portfolio-intelligence.md#known-limitations`](docs/portfolio-intelligence.md#known-limitations)
+and
+[`docs/portfolio-showcase.md#known-limitations`](docs/portfolio-showcase.md#known-limitations)
+for the complete list, including both self-hosting proofs (a 3-fixture
+portfolio, and this repository's own artifacts added as a 4th product).
+
 ## Self-hosting
 
 This repository can visualize itself:
@@ -361,9 +427,10 @@ packages/
   architecture-intelligence/  RepositoryModel + WorkflowGraph[] + TerraformTopology[] -> synthesized ArchitectureIntelligence, narrative profiles
   capability-intelligence/  ArchitectureIntelligence -> evidence-gated CapabilityModel, CAPABILITIES.md/JSON exporters
   product-intelligence/  CapabilityModel -> ProductIdentityModel, claim-controlled ExecutiveNarrative, ShowcasePlan
-  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase scenes)
-  renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase scene templates + premium theme layer)
-  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks + product-identity/showcase checks
+  portfolio-intelligence/  multiple products' ProductIdentityModel/CapabilityModel artifacts -> claim-controlled PortfolioModel, PortfolioPlan
+  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase + portfolio scenes)
+  renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase/portfolio scene templates + premium theme layer)
+  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks + product-identity/showcase/portfolio checks
   exporter/            Playwright-based PDF export
   cli/                the `rvs` command (Commander)
 design-systems/        token packs: executive-dark, editorial-light, technical-grid
@@ -446,6 +513,22 @@ network-touching step in the whole system is the one-time, user-initiated
   [`docs/product-identity-intelligence.md#known-limitations`](docs/product-identity-intelligence.md#known-limitations)
   and
   [`docs/executive-showcase-intelligence.md#known-limitations`](docs/executive-showcase-intelligence.md#known-limitations)
+  for the complete list.
+- Portfolio and Ecosystem Intelligence (Milestone 6) only combines products
+  named in `.rvs/portfolio.yml`, using each one's own already-generated
+  Milestone 3-5 artifacts — it never re-scans a product repository. Only 4 of
+  8 declared `PortfolioGapType` values, 1 of 10 `PortfolioDependencyEdgeKind`
+  values beyond `depends_on`, and the `deprecation` decision type are
+  currently computed; `upstream_dependency`/`downstream_dependency`/
+  `shared_platform`/`shared_contract` relationships are only ever populated
+  from `.rvs/portfolio.yml`'s `approved_relationships`, never inferred
+  automatically. A capability normalized across two products requires both
+  lexical overlap and structural agreement (shared domain/actor/workflow/
+  external-system) — lexical overlap alone never merges two capabilities.
+  No external model. See
+  [`docs/portfolio-intelligence.md#known-limitations`](docs/portfolio-intelligence.md#known-limitations)
+  and
+  [`docs/portfolio-showcase.md#known-limitations`](docs/portfolio-showcase.md#known-limitations)
   for the complete list.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see

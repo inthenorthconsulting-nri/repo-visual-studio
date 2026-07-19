@@ -130,6 +130,63 @@ jobs:
     expect(result.operatingModel.observability[0]?.inference).toBe("confirmed");
   });
 
+  it("produces order-independent operatingModel.releaseProcess/approvalGates and boundaries[].evidence regardless of workflowGraphs order", () => {
+    // §4 determinism audit: buildOperatingModel() and buildBoundaries() both
+    // iterated their `graphs` parameter without sorting by id first (unlike
+    // buildFlows()/buildRisks() in the same synthesis module) — two
+    // schedule-triggered, approval-gated workflows sharing the "production"
+    // environment name is exactly the tie condition that made caller-supplied
+    // order observable.
+    const scheduledA = `
+name: Alpha Release
+on:
+  schedule:
+    - cron: "0 0 * * *"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  approve-release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - run: echo "awaiting approval"
+`;
+    const scheduledB = `
+name: Beta Release
+on:
+  schedule:
+    - cron: "0 12 * * *"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  approve-release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - run: echo "awaiting approval"
+`;
+    const model = makeRepositoryModel();
+    const { graph: graphA } = parseWorkflowText(scheduledA, ".github/workflows/alpha-release.yml");
+    const { graph: graphB } = parseWorkflowText(scheduledB, ".github/workflows/beta-release.yml");
+
+    const forward = synthesizeArchitectureIntelligence({ model, workflowGraphs: [graphA, graphB], terraformTopologies: [], gitCommit: model.git.commit, generatedAt: "2026-07-01T00:00:00.000Z" });
+    const reversed = synthesizeArchitectureIntelligence({ model, workflowGraphs: [graphB, graphA], terraformTopologies: [], gitCommit: model.git.commit, generatedAt: "2026-07-01T00:00:00.000Z" });
+
+    expect(forward.operatingModel.releaseProcess).toEqual(reversed.operatingModel.releaseProcess);
+    expect(forward.operatingModel.approvalGates).toEqual(reversed.operatingModel.approvalGates);
+    expect(forward.boundaries).toEqual(reversed.boundaries);
+    const productionBoundary = forward.boundaries.find((b) => b.label.sourceLabel === "production");
+    expect(productionBoundary?.evidence.length).toBeGreaterThan(1);
+  });
+
   it("produces a fully self-consistent model with no structural warnings", () => {
     const result = buildModel();
     const warnings = validateArchitectureIntelligenceStructure(result);

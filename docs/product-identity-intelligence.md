@@ -14,6 +14,13 @@ ArchitectureIntelligence + CapabilityModel   (Milestones 3 and 4)
   -> input to Executive Narrative Intelligence (docs/executive-showcase-intelligence.md)
 ```
 
+A product's `product-identity.json` export is also, separately, one of the
+two required per-product artifacts Milestone 6's
+[`@rvs/portfolio-intelligence`](portfolio-intelligence.md) reads when
+combining multiple products' already-generated artifacts into a single
+`PortfolioModel` — see
+[`docs/portfolio-intelligence.md#intake-and-compatibility-gate`](portfolio-intelligence.md#intake-and-compatibility-gate).
+
 Scope: **synthesis over the `CapabilityModel` Milestone 4 already produces**,
 plus the `ArchitectureIntelligence` artifact it was built from. No new
 repository scanning, no external model call, no repository-specific

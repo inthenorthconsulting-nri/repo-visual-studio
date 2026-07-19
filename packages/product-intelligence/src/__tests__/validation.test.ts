@@ -253,7 +253,7 @@ describe("validateProductIdentityModel", () => {
     expect(warnings.some((x) => x.code === "PRODUCT_IDENTITY_OVERRIDE_CONFLICT")).toBe(false);
   });
 
-  it("SHOWCASE_NONDETERMINISTIC_ORDER (Tier 1, severity error) fires when model.candidates is not sorted by id", () => {
+  it("SHOWCASE_NONDETERMINISTIC_ORDER (Tier 1, severity error) fires when tied-score candidates are not sorted by id", () => {
     const model = makeIdentityModel({
       candidates: [
         { id: "prodintel:candidate:zeta_platform" as never, displayName: "X", archetype: "governance_platform", purpose: "p", primaryUsers: [], valuePillars: [], differentiators: [], evidence: [], confidence: "confirmed", score: 1 },
@@ -264,6 +264,39 @@ describe("validateProductIdentityModel", () => {
     const w = warnings.find((x) => x.code === "SHOWCASE_NONDETERMINISTIC_ORDER");
     expect(w).toBeDefined();
     expect(w!.severity).toBe("error");
+  });
+
+  it("SHOWCASE_NONDETERMINISTIC_ORDER fires when a lower-score candidate precedes a higher-score one", () => {
+    // Genuine instability case: score is the primary sort key, so this
+    // ordering can never arise from a correct compareIdentityCandidates()
+    // sort regardless of id — proves the diagnostic stays reachable for real
+    // score-ordering violations, not just id tie-break violations.
+    const model = makeIdentityModel({
+      candidates: [
+        { id: "prodintel:candidate:alpha_platform" as never, displayName: "X", archetype: "developer_tool", purpose: "p", primaryUsers: [], valuePillars: [], differentiators: [], evidence: [], confidence: "confirmed", score: 5 },
+        { id: "prodintel:candidate:zeta_platform" as never, displayName: "X", archetype: "governance_platform", purpose: "p", primaryUsers: [], valuePillars: [], differentiators: [], evidence: [], confidence: "confirmed", score: 10 },
+      ],
+    });
+    const warnings = validateProductIdentityModel(model, makeEmptyCapabilityModel());
+    const w = warnings.find((x) => x.code === "SHOWCASE_NONDETERMINISTIC_ORDER");
+    expect(w).toBeDefined();
+    expect(w!.severity).toBe("error");
+  });
+
+  it("SHOWCASE_NONDETERMINISTIC_ORDER does not fire when candidates are sorted by score descending even though ids are not in ascending order", () => {
+    // Regression test for the validator/generator mismatch this milestone
+    // fixed: buildIdentityCandidates() legitimately orders by score
+    // descending (id ascending only as a tie-break), which very often is NOT
+    // a plain ascending-id order. The old checkSortedById() falsely flagged
+    // this deterministic, correctly-ordered case as nondeterministic.
+    const model = makeIdentityModel({
+      candidates: [
+        { id: "prodintel:candidate:zeta_platform" as never, displayName: "X", archetype: "governance_platform", purpose: "p", primaryUsers: [], valuePillars: [], differentiators: [], evidence: [], confidence: "confirmed", score: 10 },
+        { id: "prodintel:candidate:alpha_platform" as never, displayName: "X", archetype: "developer_tool", purpose: "p", primaryUsers: [], valuePillars: [], differentiators: [], evidence: [], confidence: "confirmed", score: 5 },
+      ],
+    });
+    const warnings = validateProductIdentityModel(model, makeEmptyCapabilityModel());
+    expect(warnings.some((x) => x.code === "SHOWCASE_NONDETERMINISTIC_ORDER")).toBe(false);
   });
 });
 

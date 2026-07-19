@@ -202,13 +202,19 @@ Playwright deterministic checks (overflow, min font size, contrast,
 citation presence) as every other profile — no showcase-specific validator
 exemptions exist.
 
-## Portfolio intelligence (optional)
+## Portfolio intelligence
 
-`ProductIdentityModel`/`ShowcasePlan` accept an optional portfolio input
-(multiple `ProductIdentity` summaries) that, when supplied, unlocks the
-`portfolio-overview` scene type. Omitted entirely for a single-repository
-run — this is why the `repo-visual-studio` self-hosting proof below has no
-`portfolio-overview` scene.
+Combining multiple products' `ProductIdentityModel`/`ShowcasePlan` output
+into a cross-product view is **not** done by extending `ShowcasePlan` or
+`ShowcaseSceneType` in this package — it is a separate downstream package,
+`@rvs/portfolio-intelligence` (Milestone 6), which reconciles independently
+generated `capability-model.json` + `product-identity.json` artifact pairs
+into its own `PortfolioModel`/`PortfolioPlan` with a dedicated 13-value
+`PortfolioSceneType`. See [docs/portfolio-intelligence.md](./portfolio-intelligence.md)
+and [docs/portfolio-showcase.md](./portfolio-showcase.md). A single-repository
+`rvs create slides --profile showcase` run never touches this package or its
+scenes — this is why the `repo-visual-studio` self-hosting proof below has no
+portfolio scenes.
 
 ## Self-hosting proof
 
