@@ -105,6 +105,23 @@ hard-coded product list, relationship, or capability name. See
 design and both self-hosting proofs (a 3-fixture portfolio, and this
 repository's own artifacts added as a 4th product).
 
+**Milestone 6.2** adds a documentation-only agent operating layer: a single
+routing authority, [`MASTER_AGENT.md`](MASTER_AGENT.md), that tells a
+repository agent (Claude Code, Cursor, or similar) which of the four
+intelligence layers above a task actually needs, when a task requires its
+own branch and PR versus continuing existing work, and which Git
+publication boundaries (commit, push, PR, merge) require separate, explicit
+authorization. It adds two new skills — `skills/pr-governance/` and
+`skills/repository-maintenance/` — and thin adapters (`AGENTS.md`,
+`CLAUDE.md`, `.cursorrules`) so tools that look for their own convention
+file find the same routing authority instead of a duplicate. There is no
+runtime routing engine and no external model call: the layer is read by an
+agent, not executed by one. See
+[`docs/agent-operating-model.md`](docs/agent-operating-model.md),
+[`docs/pr-governance.md`](docs/pr-governance.md), and
+[`docs/repository-maintenance.md`](docs/repository-maintenance.md) for the
+full design.
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -437,6 +454,11 @@ design-systems/        token packs: executive-dark, editorial-light, technical-g
 examples/fixture-repo/ tiny sample repo used by repository-model's unit tests
 examples/terraform/self-hosting/  synthetic Terraform module tree used to exercise the topology engine
 skills/repo-visual-studio/  agent skill wrapping the CLI workflow
+skills/pr-governance/       agent skill for branch/commit/PR/review/merge discipline
+skills/repository-maintenance/  agent skill for health/dependency/docs/test/cleanup/release workflows
+tests/                       cross-cutting tests not tied to one package (e.g. agent-governance structure checks)
+MASTER_AGENT.md              root routing authority for repository agents (see Milestone 6.2 above)
+AGENTS.md / CLAUDE.md / .cursorrules  thin adapters pointing tool-specific config at MASTER_AGENT.md
 ```
 
 ## Packaged asset behavior
