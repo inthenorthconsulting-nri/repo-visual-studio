@@ -399,6 +399,162 @@
                   "topology_id"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "architecture-intelligence"
+                  },
+                  "artifact_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "executive-title",
+                      "executive-summary",
+                      "problem-and-response",
+                      "platform-responsibilities",
+                      "system-context",
+                      "logical-architecture",
+                      "capability-map",
+                      "operating-model",
+                      "architecture-flow",
+                      "boundary-map",
+                      "outcomes",
+                      "risk-summary",
+                      "risk-and-dependency-summary",
+                      "workflow-family-map",
+                      "repository-map",
+                      "evidence-confidence",
+                      "decision-or-next-step"
+                    ]
+                  },
+                  "focus_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "artifact_id",
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "capability-intelligence-overview"
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "model_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "showcase-scene"
+                  },
+                  "plan_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scene_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "plan_id",
+                  "scene_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/id"
+                  },
+                  "headline": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/headline"
+                  },
+                  "evidence": {
+                    "$ref": "#/definitions/VisualDoc/properties/scenes/items/anyOf/0/properties/evidence"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "portfolio-scene"
+                  },
+                  "plan_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scene_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "headline",
+                  "type",
+                  "plan_id",
+                  "scene_id"
+                ],
+                "additionalProperties": false
               }
             ]
           },

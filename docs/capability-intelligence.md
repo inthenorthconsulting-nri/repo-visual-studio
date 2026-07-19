@@ -22,6 +22,15 @@ no external model call, no repository-specific hard-coded capability list —
 the engine is handed exactly the same evidence any other repository would
 produce and must derive its output purely from that.
 
+**Milestone 6 note.** Milestone 6 — "Portfolio and Ecosystem Intelligence"
+— added a further downstream consumer: `capability-model.json` is one of
+the two **required** per-product artifacts `@rvs/portfolio-intelligence`
+reads when combining multiple products into a `PortfolioModel` (its absence
+blocks that product's intake outright, `missing_required_artifact`).
+Nothing described in this document changed. See
+[`docs/portfolio-intelligence.md#intake-and-compatibility-gate`](portfolio-intelligence.md#intake-and-compatibility-gate)
+for the intake contract this artifact participates in.
+
 ## Design mandate
 
 > The engine may raise the level of abstraction, but it may never lower the

@@ -9,14 +9,19 @@ import { runCreateWorkflow } from "./commands/create-workflow.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runExportCapabilities } from "./commands/export-capabilities.js";
 import { runExportPdf } from "./commands/export-pdf.js";
+import { runExportPortfolioClaims } from "./commands/export-portfolio-claims.js";
+import { runExportPortfolioDecisions } from "./commands/export-portfolio-decisions.js";
+import { runExportPortfolioModel } from "./commands/export-portfolio-model.js";
 import { runExportProductIdentity } from "./commands/export-product-identity.js";
 import { runExportShowcasePlan } from "./commands/export-showcase-plan.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
+import { runPortfolioExplain } from "./commands/portfolio-explain.js";
 import { runShowcaseExplain } from "./commands/showcase-explain.js";
 import { runSkillPath } from "./commands/skill.js";
 import { runSynthesizeArchitecture } from "./commands/synthesize-architecture.js";
 import { runSynthesizeCapabilities } from "./commands/synthesize-capabilities.js";
+import { runSynthesizePortfolio } from "./commands/synthesize-portfolio.js";
 import { runSynthesizeProductIdentity } from "./commands/synthesize-product-identity.js";
 import { runValidate } from "./commands/validate.js";
 import { CLI_VERSION } from "./version.js";
@@ -58,10 +63,13 @@ create
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
   .option(
     "--profile <id>",
-    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase); default: repository-inventory",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio); default: repository-inventory",
   )
-  .option("--audience <id>", "showcase audience (executive|product_leader|platform_leader|architect|engineering_leader|developer|operator|portfolio|conference); only used with --profile showcase")
-  .option("--theme <id>", "showcase theme id stamped into the ShowcasePlan; only used with --profile showcase (default: the --design-system id)")
+  .option(
+    "--audience <id>",
+    "showcase/portfolio audience (executive|product_leader|platform_leader|architect|engineering_leader|developer|operator|portfolio|conference); only used with --profile showcase|portfolio",
+  )
+  .option("--theme <id>", "showcase/portfolio theme id stamped into the plan; only used with --profile showcase|portfolio (default: the --design-system id)")
   .action(async (opts: { designSystem?: string; profile?: string; audience?: string; theme?: string }) => {
     await runCreateSlides(process.cwd(), opts.designSystem, logger, opts.profile, { audience: opts.audience, theme: opts.theme });
   });
@@ -144,6 +152,14 @@ synthesize
     await runSynthesizeProductIdentity(process.cwd(), logger);
   });
 
+synthesize
+  .command("portfolio")
+  .description("Combine each product listed in .rvs/portfolio.yml's already-generated artifacts into a single evidence-backed PortfolioModel")
+  .option("--allow-partial", "continue with only the compatible products instead of failing when any product is incompatible")
+  .action(async (opts: { allowPartial?: boolean }) => {
+    await runSynthesizePortfolio(process.cwd(), { allowPartial: opts.allowPartial }, logger);
+  });
+
 program
   .command("validate")
   .description("Run deterministic visual-quality checks against the rendered deck")
@@ -190,6 +206,30 @@ exportCmd
     await runExportShowcasePlan(process.cwd(), opts, logger);
   });
 
+exportCmd
+  .command("portfolio-model")
+  .description("Write the synthesized PortfolioModel to portfolio-model.json")
+  .option("--output <path>", "output path (default: portfolio-model.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportPortfolioModel(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("portfolio-claims")
+  .description("Write the synthesized portfolio claims (approved, qualified, and rejected) to portfolio-claims.json")
+  .option("--output <path>", "output path (default: portfolio-claims.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportPortfolioClaims(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("portfolio-decisions")
+  .description("Write the synthesized portfolio decisions to portfolio-decisions.json")
+  .option("--output <path>", "output path (default: portfolio-decisions.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportPortfolioDecisions(process.cwd(), opts, logger);
+  });
+
 const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");
 capabilities
   .command("explain")
@@ -206,6 +246,15 @@ showcase
   .argument("<claim-id>", "claim id")
   .action(async (claimId: string) => {
     await runShowcaseExplain(process.cwd(), claimId, logger);
+  });
+
+const portfolio = program.command("portfolio").description("Inspect the synthesized portfolio model");
+portfolio
+  .command("explain")
+  .description("Print full evidence, qualifiers, rejection reasons, and rationale for a single portfolio claim or decision")
+  .argument("<id>", "claim id or decision id")
+  .action(async (id: string) => {
+    await runPortfolioExplain(process.cwd(), id, logger);
   });
 
 program

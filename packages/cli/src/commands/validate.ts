@@ -6,6 +6,8 @@ import type { CapabilityModel } from "@rvs/capability-intelligence";
 import { validateCapabilityModelStructure } from "@rvs/capability-intelligence";
 import type { ProductIdentityModel, ShowcasePlan } from "@rvs/product-intelligence";
 import { loadProductIdentityOverride, validateProductIdentityModel, validateShowcasePlan } from "@rvs/product-intelligence";
+import type { PortfolioClaim, PortfolioModel, PortfolioPlan } from "@rvs/portfolio-intelligence";
+import { validatePortfolioClaims, validatePortfolioModel, validatePortfolioPlan } from "@rvs/portfolio-intelligence";
 import { readCachedJsonOptional } from "../cache.js";
 
 const CAPABILITY_MODEL_CACHE_FILE = "capability-model.json";
@@ -14,6 +16,10 @@ const PRODUCT_IDENTITY_MODEL_CACHE_FILE = "product-identity-model.json";
 const PRODUCT_IDENTITY_VALIDATION_REPORT_FILE = "product-identity-validation-report.json";
 const SHOWCASE_PLAN_CACHE_FILE = "showcase-plan.json";
 const SHOWCASE_VALIDATION_REPORT_FILE = "showcase-validation-report.json";
+const PORTFOLIO_MODEL_CACHE_FILE = "portfolio-model.json";
+const PORTFOLIO_CLAIMS_CACHE_FILE = "portfolio-claims.json";
+const PORTFOLIO_PLAN_CACHE_FILE = "portfolio-plan.json";
+const PORTFOLIO_VALIDATION_REPORT_FILE = "portfolio-validation-report.json";
 
 export interface CapabilityValidationOutcome {
   /** Whether a capability-model.json cache was found at all. */
@@ -120,6 +126,42 @@ export function validateCachedShowcasePlan(repoRoot: string, outputDir: string, 
   return { ran: true, hasError: errorCount > 0 };
 }
 
+// The PortfolioModel/claims are only present after `rvs synthesize
+// portfolio` has run at least once; the PortfolioPlan is additionally only
+// present after `rvs create slides --profile portfolio` has run. Both stay
+// fully optional/backward-compatible, mirroring the capability/product
+// identity/showcase outcomes above — no .rvs/portfolio.yml, no behavior
+// change. All three validators' error-severity warnings are combined into a
+// single hasError flag so --ci fails on any of them.
+export function validateCachedPortfolio(repoRoot: string, outputDir: string, logger: Logger): ProductIdentityValidationOutcome {
+  const model = readCachedJsonOptional<PortfolioModel>(repoRoot, PORTFOLIO_MODEL_CACHE_FILE);
+  const claims = readCachedJsonOptional<PortfolioClaim[]>(repoRoot, PORTFOLIO_CLAIMS_CACHE_FILE);
+  if (!model || !claims) return { ran: false, hasError: false };
+
+  const warnings = [...validatePortfolioModel(model), ...validatePortfolioClaims(claims, model)];
+
+  const plan = readCachedJsonOptional<PortfolioPlan>(repoRoot, PORTFOLIO_PLAN_CACHE_FILE);
+  if (plan) warnings.push(...validatePortfolioPlan(plan));
+
+  writeFileSync(resolve(outputDir, PORTFOLIO_VALIDATION_REPORT_FILE), JSON.stringify(warnings, null, 2));
+
+  let errorCount = 0;
+  let warningCount = 0;
+  for (const warning of warnings) {
+    if (warning.severity === "error") {
+      logger.error(`${warning.code}: ${warning.message}`);
+      errorCount += 1;
+    } else {
+      logger.warn(`${warning.code}: ${warning.message}`);
+      warningCount += 1;
+    }
+  }
+
+  logger.info(`Validated portfolio: ${errorCount} error(s), ${warningCount} warning(s).`);
+
+  return { ran: true, hasError: errorCount > 0 };
+}
+
 export async function runValidate(repoRoot: string, ci: boolean, logger: Logger): Promise<void> {
   const config = loadConfig(repoRoot);
   const outputDir = resolve(repoRoot, config.defaults.output_dir);
@@ -145,6 +187,7 @@ export async function runValidate(repoRoot: string, ci: boolean, logger: Logger)
   const capabilityOutcome = validateCachedCapabilityModel(repoRoot, outputDir, logger);
   const productIdentityOutcome = validateCachedProductIdentity(repoRoot, outputDir, logger);
   const showcaseOutcome = validateCachedShowcasePlan(repoRoot, outputDir, logger);
+  const portfolioOutcome = validateCachedPortfolio(repoRoot, outputDir, logger);
 
   if (ci) {
     const blocking = report.scenes.some((scene) =>
@@ -160,7 +203,7 @@ export async function runValidate(repoRoot: string, ci: boolean, logger: Logger)
     // config.quality knob for these layers (checked packages/core's config
     // schema), matching the existing precedent that contrast/min-font-size
     // failures above always fail --ci regardless of the fail_on_* flags.
-    if (blocking || capabilityOutcome.hasError || productIdentityOutcome.hasError || showcaseOutcome.hasError) {
+    if (blocking || capabilityOutcome.hasError || productIdentityOutcome.hasError || showcaseOutcome.hasError || portfolioOutcome.hasError) {
       logger.error("Validation failed under --ci policy.");
       process.exitCode = 1;
     }

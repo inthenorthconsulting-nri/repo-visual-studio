@@ -35,6 +35,15 @@ for the downstream effect this has on Capability Intelligence's self-hosting
 result. This was not changed by Milestone 4; it is documented here as an
 open characteristic of Milestone 3's own component model.
 
+**Milestone 6 note.** Milestone 6 — "Portfolio and Ecosystem Intelligence"
+— added a further downstream consumer: `architecture-intelligence.json` is
+one of the four **optional** per-product artifacts `@rvs/portfolio-intelligence`
+reads when combining multiple products into a `PortfolioModel` (its absence
+only downgrades a product's intake to `compatible_with_warnings`, never
+blocks it). Nothing described in this document changed. See
+[`docs/portfolio-intelligence.md#intake-and-compatibility-gate`](portfolio-intelligence.md#intake-and-compatibility-gate)
+for the intake contract this artifact participates in.
+
 ```
 RepositoryModel + WorkflowGraph[] + TerraformTopology[]  (all already cached)
   -> ArchitectureIntelligence          (packages/architecture-intelligence)

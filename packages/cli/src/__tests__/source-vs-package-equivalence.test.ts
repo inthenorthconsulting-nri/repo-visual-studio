@@ -152,7 +152,11 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
   }
 
   it("produces structurally identical cache, workflow, and deck output from source and from the tarball", () => {
-    for (const run of [runSource, runPackaged]) {
+    const runs: Array<[(args: string[]) => string, string]> = [
+      [runSource, sourceDir],
+      [runPackaged, packagedDir],
+    ];
+    for (const [run, dir] of runs) {
       run(["init"]);
       run(["inspect"]);
       run(["brief", "--audience", "architecture-review"]);
@@ -172,6 +176,40 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
       run(["export", "product-identity", "--output", "product-identity.json"]);
       run(["create", "slides", "--profile", "showcase", "--audience", "executive"]);
       run(["export", "showcase-plan", "--output", "showcase-plan.json"]);
+
+      // Portfolio intake (Milestone 6) requires capability-model.json and
+      // product-identity.json to live together in one product's
+      // artifact_root — copy this run's own already-generated files (each
+      // run's copy stays internally self-consistent; the two runs' bytes
+      // differ only in the same run-specific generated_at fields already
+      // stripped from the underlying caches elsewhere in this test) into a
+      // fresh artifact-roots/product-a/ directory and portfolio over that
+      // single product.
+      const artifactRoot = join(dir, "artifact-roots/product-a");
+      mkdirSync(artifactRoot, { recursive: true });
+      writeFileSync(join(artifactRoot, "capability-model.json"), readFileSync(join(dir, ".rvs/cache/capability-model.json")));
+      writeFileSync(join(artifactRoot, "product-identity.json"), readFileSync(join(dir, "product-identity.json")));
+      writeFileSync(
+        join(dir, ".rvs/portfolio.yml"),
+        [
+          "schema_version: 1",
+          "portfolio:",
+          "  id: equivalence-test-portfolio",
+          "  display_name: Equivalence Test Portfolio",
+          "products:",
+          "  - id: product-a",
+          "    artifact_root: artifact-roots/product-a",
+          "",
+        ].join("\n"),
+      );
+      run(["synthesize", "portfolio"]);
+      run(["export", "portfolio-model", "--output", "portfolio-model.json"]);
+      run(["export", "portfolio-claims", "--output", "portfolio-claims.json"]);
+      run(["export", "portfolio-decisions", "--output", "portfolio-decisions.json"]);
+      // Last `create slides` call in the pipeline — deck.html/visualdoc.json
+      // below therefore reflect the portfolio deck, not the showcase one
+      // (see the note at the bottom of this test).
+      run(["create", "slides", "--profile", "portfolio", "--audience", "portfolio"]);
     }
 
     // .rvs/config.yml: identical project name (from the shared package.json)
@@ -361,11 +399,70 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     );
 
     // The showcase deck.html / visualdoc.json overwrite the earlier
-    // repository-inventory deck (both runs execute `create slides` then
-    // `create slides --profile showcase` in the same order above), so the
-    // deck.html/visualdoc.json assertions further up this test already
-    // re-verify the *showcase* deck's content-spec-hash, git-commit stamp,
-    // and scene-id ordering are identical between source and packaged — no
-    // separate showcase-specific deck assertion is needed here.
+    // repository-inventory deck, and the portfolio deck.html / visualdoc.json
+    // in turn overwrite the showcase one (both runs execute `create slides`,
+    // then `--profile showcase`, then `--profile portfolio`, in the same
+    // order above — portfolio is last), so the deck.html/visualdoc.json
+    // assertions further up this test already re-verify the *portfolio*
+    // deck's content-spec-hash, git-commit stamp, and scene-id ordering are
+    // identical between source and packaged — no separate portfolio-specific
+    // deck assertion is needed here.
+
+    // portfolio-model.json: generationMetadata.generated_at is run-specific
+    // (a direct `new Date().toISOString()` call), and each product's own
+    // source.sourceProductIdentityGeneratedAt/sourceCapabilityModelGeneratedAt
+    // chain from the copied artifact files' own run-specific timestamps —
+    // strip all three and deep-compare everything else, including every
+    // normalized capability, relationship, gap, and evidence citation.
+    const stripPortfolioModel = (m: Record<string, unknown>) => {
+      const { generationMetadata, products, ...rest } = m as {
+        generationMetadata: Record<string, unknown>;
+        products: Array<Record<string, unknown>>;
+      } & Record<string, unknown>;
+      const { generated_at, ...metadataRest } = generationMetadata;
+      const strippedProducts = products.map((p) => {
+        const { source, ...productRest } = p as { source: Record<string, unknown> } & Record<string, unknown>;
+        const { sourceProductIdentityGeneratedAt, sourceCapabilityModelGeneratedAt, ...sourceRest } = source;
+        return { ...productRest, source: sourceRest };
+      });
+      return { ...rest, products: strippedProducts, generationMetadata: metadataRest };
+    };
+    expect(
+      stripPortfolioModel(readJson(join(sourceDir, ".rvs/cache/portfolio-model.json")) as Record<string, unknown>),
+    ).toEqual(stripPortfolioModel(readJson(join(packagedDir, ".rvs/cache/portfolio-model.json")) as Record<string, unknown>));
+    expect(
+      stripPortfolioModel(readJson(join(sourceDir, "portfolio-model.json")) as Record<string, unknown>),
+    ).toEqual(stripPortfolioModel(readJson(join(packagedDir, "portfolio-model.json")) as Record<string, unknown>));
+
+    // portfolio-claims.json / portfolio-decisions.json: neither PortfolioClaim
+    // nor PortfolioDecision carries a timestamp field — byte-identical.
+    expect(readFileSync(join(sourceDir, ".rvs/cache/portfolio-claims.json"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, ".rvs/cache/portfolio-claims.json"), "utf8"),
+    );
+    expect(readFileSync(join(sourceDir, "portfolio-claims.json"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, "portfolio-claims.json"), "utf8"),
+    );
+    expect(readFileSync(join(sourceDir, ".rvs/cache/portfolio-decisions.json"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, ".rvs/cache/portfolio-decisions.json"), "utf8"),
+    );
+    expect(readFileSync(join(sourceDir, "portfolio-decisions.json"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, "portfolio-decisions.json"), "utf8"),
+    );
+
+    // portfolio-plan.json: same generationMetadata.generated_at plus the
+    // full embedded PortfolioModel's own run-specific fields — reuse
+    // stripPortfolioModel for the nested model and strip the plan's own
+    // generated_at alongside it.
+    const stripPortfolioPlan = (p: Record<string, unknown>) => {
+      const { generationMetadata, model, ...rest } = p as {
+        generationMetadata: Record<string, unknown>;
+        model: Record<string, unknown>;
+      } & Record<string, unknown>;
+      const { generated_at, ...metadataRest } = generationMetadata;
+      return { ...rest, model: stripPortfolioModel(model), generationMetadata: metadataRest };
+    };
+    expect(
+      stripPortfolioPlan(readJson(join(sourceDir, ".rvs/cache/portfolio-plan.json")) as Record<string, unknown>),
+    ).toEqual(stripPortfolioPlan(readJson(join(packagedDir, ".rvs/cache/portfolio-plan.json")) as Record<string, unknown>));
   });
 });

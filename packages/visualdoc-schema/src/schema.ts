@@ -163,6 +163,20 @@ export const ShowcaseSceneSchema = BaseSceneSchema.extend({
   scene_id: z.string().min(1),
 });
 
+// A portfolio scene never embeds a PortfolioPlan — it points at one (built
+// by @rvs/portfolio-intelligence and cached separately) by plan_id, plus
+// scene_id to select which single PortfolioScenePlan within that plan's own
+// `scenes` array this VisualDoc scene renders — mirroring
+// ShowcaseSceneSchema's plan_id/scene_id contract exactly. The renderer
+// switches on PortfolioPlan.scenes[].type; the narrative-significant
+// ordering and per-scene content stay entirely owned by
+// portfolio-intelligence.
+export const PortfolioSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("portfolio-scene"),
+  plan_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -174,6 +188,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   ArchitectureIntelligenceSceneSchema,
   CapabilityIntelligenceOverviewSceneSchema,
   ShowcaseSceneSchema,
+  PortfolioSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -191,6 +206,7 @@ export type ArchitectureSceneKind = z.infer<typeof ArchitectureSceneKindSchema>;
 export type ArchitectureIntelligenceScene = z.infer<typeof ArchitectureIntelligenceSceneSchema>;
 export type CapabilityIntelligenceOverviewScene = z.infer<typeof CapabilityIntelligenceOverviewSceneSchema>;
 export type ShowcaseScene = z.infer<typeof ShowcaseSceneSchema>;
+export type PortfolioScene = z.infer<typeof PortfolioSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

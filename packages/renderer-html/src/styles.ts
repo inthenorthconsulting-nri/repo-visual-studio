@@ -189,6 +189,45 @@ export const BASE_CSS = `
   .showcase-limitations .arch-statement-list { margin-top: 20px; }
   .showcase-qualifier-note { font-size: 14px; font-style: italic; color: var(--rvs-color-text-secondary); opacity: 0.85; margin-top: 16px; }
 
+  /* Portfolio and Ecosystem Intelligence (Milestone 6) — reuses the same
+     .stage-viewport/.stage/.scene pillarboxed-scaling mechanism, and several
+     showcase-* classes directly (chip grid, layer list, closing), rather
+     than duplicating layout infrastructure a second time. */
+  .scene-portfolio { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+  .portfolio-product-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 20px; }
+  .portfolio-product-card { border: 1px solid var(--rvs-color-border); border-radius: 10px; padding: 16px 18px; background: var(--rvs-color-surface); }
+  .portfolio-product-name { font-family: var(--rvs-font-heading); font-size: 18px; margin: 0 0 6px; color: var(--rvs-color-text-primary); }
+  .portfolio-product-descriptor { font-size: 14px; margin: 0 0 10px; color: var(--rvs-color-text-secondary); }
+  .portfolio-role-chip { display: inline-block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--rvs-color-border); color: var(--rvs-color-accent); }
+
+  .portfolio-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 20px; }
+  .portfolio-role-title { font-family: var(--rvs-font-heading); font-size: 17px; margin: 0 0 8px; color: var(--rvs-color-text-primary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .portfolio-role-product-list { list-style: none; margin: 0; padding: 0; font-size: 15px; display: flex; flex-direction: column; gap: 4px; }
+
+  .portfolio-stage-name { font-family: var(--rvs-font-heading); font-size: 20px; text-transform: capitalize; }
+  .portfolio-stage-products { font-size: 14px; color: var(--rvs-color-text-secondary); }
+
+  .portfolio-relationship-list, .portfolio-dependency-list, .portfolio-decision-list { list-style: none; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .portfolio-relationship-row, .portfolio-dependency-row { display: flex; align-items: baseline; gap: 12px; font-size: 15px; border-left: 3px solid var(--rvs-color-accent); padding-left: 14px; }
+  .portfolio-relationship-type, .portfolio-dependency-kind { font-family: var(--rvs-font-code); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rvs-color-accent); }
+  .portfolio-relationship-confidence { font-size: 13px; color: var(--rvs-color-text-secondary); opacity: 0.85; }
+
+  .portfolio-maturity-list { list-style: none; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .portfolio-maturity-row { display: grid; grid-template-columns: 180px 1fr 80px; align-items: center; gap: 14px; }
+  .portfolio-maturity-label { font-size: 15px; color: var(--rvs-color-text-primary); }
+  .portfolio-maturity-bar-track { height: 10px; border-radius: 999px; background: var(--rvs-color-border); overflow: hidden; }
+  .portfolio-maturity-bar-fill { height: 100%; background: var(--rvs-color-accent); }
+  .portfolio-maturity-value { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--rvs-color-text-secondary); text-align: right; }
+
+  .portfolio-gap-type { font-family: var(--rvs-font-code); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rvs-color-accent); margin-right: 8px; }
+
+  .portfolio-decision-row { border-left: 3px solid var(--rvs-color-accent); padding-left: 14px; }
+  .portfolio-decision-statement { font-size: 16px; color: var(--rvs-color-text-primary); }
+  .portfolio-decision-meta { display: flex; gap: 12px; font-size: 13px; color: var(--rvs-color-text-secondary); margin-top: 4px; }
+  .portfolio-decision-urgency { text-transform: uppercase; letter-spacing: 0.04em; }
+  .portfolio-decision-urgency-high { color: var(--rvs-color-warning, #d9a441); }
+
   .citations {
     position: absolute;
     left: 96px;

@@ -28,6 +28,7 @@
     "@rvs/core": "workspace:*",
     "@rvs/exporter": "workspace:*",
     "@rvs/narrative-planner": "workspace:*",
+    "@rvs/portfolio-intelligence": "workspace:*",
     "@rvs/product-intelligence": "workspace:*",
     "@rvs/renderer-html": "workspace:*",
     "@rvs/repository-model": "workspace:*",

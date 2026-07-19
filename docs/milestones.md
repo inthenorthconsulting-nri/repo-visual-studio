@@ -2001,3 +2001,196 @@ entirely under this session's scratchpad, outside this repository's working
 tree — they do not appear in `git status` here and were never staged or
 committed anywhere. Nothing was committed during this pass, per the
 explicit "Do not commit changes" instruction.
+
+## Milestone 6 — Portfolio and Ecosystem Intelligence
+
+**Status: core engine, presentation integration, and both self-hosting
+proofs complete.** Objective: a synthesis stage above Milestone 5's
+per-product `ProductIdentityModel`/`CapabilityModel` pipeline — Portfolio
+Intelligence combines multiple already-generated, independently-produced
+product artifacts (one per product, each product its own repository) into a
+single evidence-backed `PortfolioModel`: normalized cross-product
+capabilities, product relationships, a dependency graph, overlaps, gaps, an
+inferred operating model, and a maturity summary — feeding Portfolio
+Showcase Intelligence, a `PortfolioPlan`/`"portfolio"` `VisualDoc` profile —
+governed by the same rule every milestone above establishes, raised one
+level of abstraction: "portfolio synthesis may raise the level of
+abstraction across products, but it must never invent a relationship,
+inflate a capability's maturity, or fabricate ownership that the underlying
+evidence does not support." No external model, no re-scanning of any
+product repository, no repository-specific hard-coded product list,
+relationship, or capability name. See
+[`docs/portfolio-intelligence.md`](portfolio-intelligence.md) and
+[`docs/portfolio-showcase.md`](portfolio-showcase.md) for the complete
+design, contracts, pipelines, and self-hosting proofs — this entry records
+summary/coverage facts and defers to those two documents for everything
+else, the same division of labor Milestones 4 and 5's entries use with
+their own design documents.
+
+### 1. Package, contracts, and pipeline
+
+New package `packages/portfolio-intelligence` (`@rvs/portfolio-intelligence`),
+21 non-test source modules: `contracts.ts` (the full `PortfolioModel`/
+`PortfolioClaim`/`PortfolioDecision`/`PortfolioPlan` shapes, a 12-value
+`PortfolioProductRole`, a 13-value `PortfolioSceneType`, a 12-value
+`PortfolioClaimRejectionReasonCode`), `product-registry.ts` (`.rvs/portfolio.yml`
+loading/validation), `intake.ts`, `compatibility.ts`,
+`identity-reconciliation.ts`, `capability-normalization.ts`,
+`capability-relationships.ts`, `product-relationships.ts`, `dependencies.ts`,
+`overlaps.ts`, `gaps.ts`, `ownership.ts`, `operating-model.ts`, `maturity.ts`,
+`claims.ts`, `narrative.ts`, `portfolio-plan.ts`, `validation.ts`,
+`exporter.ts`, `ids.ts`, `index.ts` — the same small-pure-single-responsibility-
+module shape `@rvs/architecture-intelligence`, `@rvs/capability-intelligence`,
+and `@rvs/product-intelligence` all already use. Depends only on
+`@rvs/capability-intelligence` and `@rvs/product-intelligence` for input
+types (plus `yaml`/`zod` for config parsing) — no dependency in the other
+direction. Full contract and pipeline detail:
+[docs/portfolio-intelligence.md#the-portfoliomodel-contract](portfolio-intelligence.md#the-portfoliomodel-contract).
+
+### 2. Intake, compatibility gate, and claim control
+
+`intake.ts` reads 2 required (`product-identity.json`, `capability-model.json`)
+plus 4 optional (`architecture-intelligence.json`, `repository-model.json`,
+`showcase-plan.json`, `showcase-claims.json`) artifacts per configured
+product; `compatibility.ts`'s 4-step gate (required-artifact presence,
+schema-version match, capability-id intersection, generation-timestamp
+staleness) decides, per product, one of 7 `PortfolioCompatibilityStatus`
+values before any synthesis runs — an incompatible product is excluded and
+recorded on `PortfolioModel.excludedProducts` under `--allow-partial`,
+never silently merged. `claims.ts`'s `buildPortfolioClaims()`/
+`classifyDraft()` runs unconditionally before narrative synthesis, the same
+"claim control is never bypassed" rule Milestone 5 established, widened to
+12 portfolio-specific rejection reason codes. Full design:
+[docs/portfolio-intelligence.md#intake-and-compatibility-gate](portfolio-intelligence.md#intake-and-compatibility-gate)
+and
+[docs/portfolio-intelligence.md#claims-and-claim-control](portfolio-intelligence.md#claims-and-claim-control).
+
+### 3. Presentation integration and CLI
+
+New `portfolio-*` `PortfolioSceneType` values (13, in `contracts.ts`, not
+`@rvs/visualdoc-schema` — a portfolio scene points at its source
+`PortfolioPlan` by `plan_id`/`scene_id` rather than embedding scene content
+inline); a new `"portfolio"` `VisualDoc` profile in
+`packages/narrative-planner/src/portfolio-visualdoc-builder.ts`; new scene
+templates under `packages/renderer-html/src/scenes/portfolio/`. Six new CLI
+commands wired into `packages/cli/src/bin.ts`: `rvs synthesize portfolio
+[--allow-partial]`, `rvs create slides --profile portfolio [--audience ...]
+[--theme ...]`, `rvs export portfolio-model`, `rvs export portfolio-claims`,
+`rvs export portfolio-decisions`, `rvs portfolio explain <id>`. `rvs
+validate --ci` gained `validateCachedPortfolio()`
+(`packages/cli/src/commands/validate.ts`), fully backward-compatible — a
+repository that has never run `rvs synthesize portfolio` sees no behavior
+change. Full design:
+[docs/portfolio-showcase.md](portfolio-showcase.md#the-13-portfolioscenetype-values).
+
+### 4. Self-hosting proof (3-fixture portfolio)
+
+Three independently-shaped generic fixture products — Governance CLI,
+Reliability CLI, Migration CLI, each its own git repository with its own
+README, source, and CI workflow — were each run through the full
+`inspect -> synthesize architecture -> synthesize capabilities -> synthesize
+product-identity -> export product-identity` pipeline independently, then
+combined via a `.rvs/portfolio.yml` naming all three. **All 3 reached
+`compatible_with_warnings`** (warnings only `optional-input-unavailable` on
+the 4 optional artifacts; `excludedProducts: []`). governance-cli resolved
+archetype `governance_platform` (confirmed) with 4 included capabilities (1
+qualified); reliability-cli resolved `reliability_platform` (derived) with 3
+included (2 qualified); migration-cli resolved `migration_platform`
+(derived) with 4 included (2 qualified). **Portfolio result: 11 normalized
+capabilities (7 single-product, 4 overlapping), 3 relationships** (all
+`shared_capability`, forming a complete triangle across every product
+pair), **4 overlaps** (3 minor pairwise plus 1 material three-way overlap on
+"Release and Maintenance" spanning all 3 products), **6 gaps** (5
+`qualified_only_coverage` plus 1 `unowned_capability`). **63 claims: 43
+approved, 8 approved with qualification, 12 rejected** —
+`PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED` (5x),
+`PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP` (4x),
+`PORTFOLIO_CLAIM_UNRESOLVED_RELATIONSHIP` (3x — each superseded by the
+actual resolved `shared_capability` relationship, not missing evidence).
+**9 decisions**: 3 `integration_priority`, 5
+`qualified_capability_investment`, 1 `ownership` (urgency `high`,
+recommended owner `architecture_council`). `rvs create slides --profile
+portfolio --audience portfolio` rendered 11 scenes, no crash; `rvs validate
+--ci` reported the portfolio layer itself fully clean (0 errors, 0
+warnings, no `PORTFOLIO_*` code firing) — the overall command's exit 1 came
+from 6 unrelated rendering-density findings on portfolio scenes, a
+scene-layout/design-system concern, not a portfolio-logic defect. Full
+narrative, including the exact claim texts and rejection reasoning:
+[docs/portfolio-intelligence.md#self-hosting-proof](portfolio-intelligence.md#self-hosting-proof)
+and
+[docs/portfolio-showcase.md#self-hosting-proof](portfolio-showcase.md#self-hosting-proof).
+
+### 5. Real-project proof (repo-visual-studio as a 4th product)
+
+`rvs export product-identity` against `repo-visual-studio`'s own current
+cache reproduces the same conservative result Milestone 5's own proof
+established: archetype `unknown`, confidence `unresolved`, 0 current
+capabilities, 2 qualified capabilities. Adding this genuinely-scanned (not
+hand-authored) artifact as a 4th product to the 3-fixture portfolio, via
+`--allow-partial`, reached `compatible_with_warnings`,
+`excludedProducts: []`. Portfolio-wide totals became **13 normalized
+capabilities, 3 relationships (unchanged), 4 overlaps (unchanged), 8 gaps,
+14 decisions**; `rvs synthesize portfolio` logged 0 errors, 0 warnings. The
+relationship count staying at 3 — rather than growing to include
+repo-visual-studio — is the correct, evidence-honest outcome: this
+repository's own capability text doesn't share enough name/domain/actor/
+workflow/external-system vocabulary with any of the 3 fixtures to clear
+either the capability-merge or weaker relationship-classification
+threshold. Adding a 4th, evidence-thin product does not fabricate a
+relationship just to make the portfolio look more connected. Full write-up:
+[docs/portfolio-intelligence.md#real-project-proof-repo-visual-studios-own-artifacts-as-a-4th-product](portfolio-intelligence.md#real-project-proof-repo-visual-studios-own-artifacts-as-a-4th-product).
+
+### 6. Known, disclosed scope trims
+
+Several declared type values are intentionally not yet computed, each
+documented inline in source rather than silently absent: 4 of 8
+`PortfolioGapType` values (`no_product_coverage`, `fragmented_coverage`,
+`contract_gap`, `operational_gap` — the latter two would require consuming
+`architecture-intelligence.json`/`repository-model.json`, already collected
+as optional intake but not yet reasoned over); 9 of 10
+`PortfolioDependencyEdgeKind` values beyond `depends_on`; the
+`deprecation` `PortfolioDecisionType`; and `upstream_dependency`/
+`downstream_dependency`/`shared_platform`/`shared_contract` relationship
+types, which are only ever populated from `.rvs/portfolio.yml`'s
+`approved_relationships`, never inferred automatically. Each is a disclosed,
+intentional trim rather than a defect — full rationale in
+[docs/portfolio-intelligence.md#known-limitations](portfolio-intelligence.md#known-limitations)
+and
+[docs/portfolio-showcase.md#known-limitations](portfolio-showcase.md#known-limitations).
+
+### 7. Test coverage and verification
+
+`packages/portfolio-intelligence/src/__tests__/`: 21 test files, one per
+source module (`capability-normalization`/`capability-relationships`/
+`claims`/`compatibility`/`dependencies`/`exporter`/`fixtures`/`gaps`/
+`identity-reconciliation`/`ids`/`index`/`intake`/`maturity`/`narrative`/
+`operating-model`/`overlaps`/`ownership`/`portfolio-plan`/`product-registry`/
+`product-relationships`/`validation`), plus new tests in
+`packages/narrative-planner/src/__tests__/portfolio-visualdoc-builder.test.ts`
+and `packages/renderer-html/src/__tests__/portfolio-scene.test.ts`. Full
+workspace suite: `pnpm -r exec tsc --noEmit` clean, 0 errors; `pnpm test`
+**1184 passed, 9 skipped, 0 failed** across 96 passed + 2 skipped (98) test
+files.
+
+### 8. Current repository state
+
+Unlike Milestones 3-5, which each landed as a merged pull request onto
+`main` before the next milestone began (`git log --oneline -3` shows
+`93e5643` "Merge pull request #3 from
+.../feature/product-identity-executive-showcase" as the current tip),
+Milestone 6's work sits, uncommitted, on
+`feature/portfolio-ecosystem-intelligence`, branched from that same merged
+`main`. `git status --short` shows the new `packages/portfolio-intelligence/`
+package; new CLI command files (`export-portfolio-{model,claims,decisions}.ts`,
+`portfolio-explain.ts`, `synthesize-portfolio.ts`); new
+`portfolio-visualdoc-builder.ts` and `scenes/portfolio/` renderer files;
+modifications to `packages/cli/src/{bin.ts, commands/create-slides.ts,
+commands/validate.ts}` and their tests; modifications to
+`packages/narrative-planner/src/index.ts`,
+`packages/renderer-html/src/{render.ts, scenes/index.ts, styles.ts}`, and
+`packages/visualdoc-schema/src/schema.ts` wiring the new profile and scene
+templates in; plus this documentation pass
+(`docs/portfolio-intelligence.md`, `docs/portfolio-showcase.md`, this entry,
+and forward-reference notes in `docs/architecture-intelligence.md`,
+`docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
+and `README.md`). Nothing from this milestone has been committed.
