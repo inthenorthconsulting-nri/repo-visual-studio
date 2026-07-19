@@ -213,7 +213,6 @@ export function buildProductRelationships(
 
   // 4. Explicit config declarations always win and can express types (dependency/platform/contract) evidence alone cannot support.
   for (const declared of config?.approved_relationships ?? []) {
-    if (!productsById.has(declared.product_a) && ![...productsById.values()].some((p) => p.source.configId === declared.product_a)) continue;
     const productAId = [...productsById.values()].find((p) => p.source.configId === declared.product_a || p.id === declared.product_a)?.id;
     const productBId = [...productsById.values()].find((p) => p.source.configId === declared.product_b || p.id === declared.product_b)?.id;
     if (!productAId || !productBId) continue;

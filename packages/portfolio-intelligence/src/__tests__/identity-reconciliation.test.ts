@@ -110,10 +110,14 @@ describe("classifySecondaryRoles", () => {
 });
 
 describe("buildPortfolioProduct", () => {
-  it("derives id from configId, capability counts from currentCapabilities/qualifiedCapabilities, and role from the identity's archetype", () => {
+  it("derives id from configId, capability counts from currentCapabilities/qualifiedCapabilities, and role from the identity's archetype, sorting the id lists regardless of the source artifact's order", () => {
     const intake = makePortfolioProductIntake({
       configId: "governance-cli",
       artifacts: {
+        // Deliberately unsorted in the source artifact -- product-identity.json is read back
+        // across a serialization boundary, so buildPortfolioProduct() must not trust that
+        // whatever produced it upheld @rvs/product-intelligence's own sort-before-write
+        // convention (§4 determinism audit).
         productIdentity: makeProductIdentityModel(
           {},
           { displayName: "Governance CLI", archetype: "governance_platform", currentCapabilities: ["capintel:capability:widget-sync", "capintel:capability:widget-audit"], qualifiedCapabilities: ["capintel:capability:widget-report"] },
@@ -128,7 +132,7 @@ describe("buildPortfolioProduct", () => {
     expect(product.displayName).toBe("Governance CLI");
     expect(product.primaryArchetype).toBe("governance_platform");
     expect(product.primaryRole).toBe("governance_system");
-    expect(product.currentCapabilityIds).toEqual(["capintel:capability:widget-sync", "capintel:capability:widget-audit"]);
+    expect(product.currentCapabilityIds).toEqual(["capintel:capability:widget-audit", "capintel:capability:widget-sync"]);
     expect(product.qualifiedCapabilityIds).toEqual(["capintel:capability:widget-report"]);
     expect(product.currentCapabilityCount).toBe(2);
     expect(product.qualifiedCapabilityCount).toBe(1);

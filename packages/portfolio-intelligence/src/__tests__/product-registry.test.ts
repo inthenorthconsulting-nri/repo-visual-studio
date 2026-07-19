@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -83,6 +83,24 @@ describe("validatePortfolioConfig", () => {
     const errors = validatePortfolioConfig(config, repoRoot);
     expect(errors.some((e) => e.message.includes("without an explicit alias_of"))).toBe(true);
   });
+
+  it("rejects an artifact_root with a URL scheme instead of resolving it as a relative path", () => {
+    const config = makePortfolioConfig({ products: [makePortfolioConfigProduct({ id: "governance-cli", artifact_root: "https://example.com/artifacts" })] });
+    const errors = validatePortfolioConfig(config, repoRoot);
+    expect(errors.some((e) => e.message.includes("must be a local filesystem path, not a remote URL"))).toBe(true);
+  });
+
+  it("errors when two products point at the same real directory through a symlinked artifact_root, without an explicit alias_of", () => {
+    const root = makeArtifactDir("governance-cli");
+    const symlinkRoot = "./artifacts/governance-cli-link";
+    symlinkSync(join(repoRoot, "artifacts", "governance-cli"), join(repoRoot, "artifacts", "governance-cli-link"));
+    const config: PortfolioConfig = {
+      ...makePortfolioConfig(),
+      products: [makePortfolioConfigProduct({ id: "governance-cli", artifact_root: root }), makePortfolioConfigProduct({ id: "governance-cli-shadow", artifact_root: symlinkRoot })],
+    };
+    const errors = validatePortfolioConfig(config, repoRoot);
+    expect(errors.some((e) => e.message.includes("without an explicit alias_of"))).toBe(true);
+  });
 });
 
 describe("portfolioConfigPath", () => {
@@ -152,5 +170,27 @@ describe("loadPortfolioConfig", () => {
     );
     writeFileSync(join(repoRoot, ".rvs", "portfolio.yml"), yaml, "utf8");
     expect(() => loadPortfolioConfig(repoRoot)).toThrow(/does not exist/);
+  });
+
+  it("throws a friendly single-sentence error (not a raw YAML parser exception) when the file contains malformed YAML", () => {
+    mkdirSync(join(repoRoot, ".rvs"), { recursive: true });
+    writeFileSync(join(repoRoot, ".rvs", "portfolio.yml"), "schema_version: 1\nportfolio:\n  id: [unterminated\n", "utf8");
+    expect(() => loadPortfolioConfig(repoRoot)).toThrow(/^Invalid \.rvs\/portfolio\.yml: not valid YAML \(/);
+  });
+
+  it("throws a friendly single-sentence error (not a raw ZodError dump) when schema_version does not match", () => {
+    mkdirSync(join(repoRoot, ".rvs"), { recursive: true });
+    const yaml = ["schema_version: 2", "portfolio:", "  id: test-portfolio", "  display_name: Test Portfolio", "products:", "  - id: governance-cli", "    artifact_root: ./artifacts/governance-cli", ""].join(
+      "\n",
+    );
+    writeFileSync(join(repoRoot, ".rvs", "portfolio.yml"), yaml, "utf8");
+    expect(() => loadPortfolioConfig(repoRoot)).toThrow(/^Invalid \.rvs\/portfolio\.yml: schema_version:/);
+  });
+
+  it("throws a friendly single-sentence error when products is missing entirely", () => {
+    mkdirSync(join(repoRoot, ".rvs"), { recursive: true });
+    const yaml = ["schema_version: 1", "portfolio:", "  id: test-portfolio", "  display_name: Test Portfolio", ""].join("\n");
+    writeFileSync(join(repoRoot, ".rvs", "portfolio.yml"), yaml, "utf8");
+    expect(() => loadPortfolioConfig(repoRoot)).toThrow(/^Invalid \.rvs\/portfolio\.yml: products:/);
   });
 });

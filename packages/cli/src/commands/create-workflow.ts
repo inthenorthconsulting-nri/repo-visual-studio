@@ -150,7 +150,10 @@ export async function runCreateWorkflow(
   // previously-cached graphs untouched.
   let cachedGraphs: WorkflowGraph[];
   if (opts.all) {
-    cachedGraphs = graphs;
+    // Sorted explicitly rather than relying on discoverWorkflowFiles()'s
+    // internal path sort to keep the cache alphabetical (matching the
+    // `--source` branch below, and create-topology.ts's equivalent branch).
+    cachedGraphs = [...graphs].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   } else {
     const existing = readCachedJsonOptional<WorkflowGraph[]>(repoRoot, WORKFLOW_GRAPHS_CACHE_FILE) ?? [];
     const bySourcePath = new Map(existing.map((g) => [g.sourcePath, g]));

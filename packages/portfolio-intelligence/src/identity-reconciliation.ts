@@ -99,8 +99,12 @@ export function buildPortfolioProduct(intake: PortfolioProductIntake): Portfolio
     secondaryArchetypes: identity.secondaryArchetypes,
     primaryRole,
     secondaryRoles,
-    currentCapabilityIds: identity.currentCapabilities,
-    qualifiedCapabilityIds: identity.qualifiedCapabilities,
+    // `@rvs/product-intelligence` sorts these before writing product-identity.json (see its
+    // index.ts), but this artifact is read back from disk across a serialization boundary --
+    // sort again here rather than trust that every on-disk artifact was produced by a build
+    // that upholds the same invariant (§4 determinism audit).
+    currentCapabilityIds: [...identity.currentCapabilities].sort((a, b) => a.localeCompare(b)),
+    qualifiedCapabilityIds: [...identity.qualifiedCapabilities].sort((a, b) => a.localeCompare(b)),
     currentCapabilityCount: identity.currentCapabilities.length,
     qualifiedCapabilityCount: identity.qualifiedCapabilities.length,
     source: {

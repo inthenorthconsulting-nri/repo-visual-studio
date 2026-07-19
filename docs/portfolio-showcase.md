@@ -56,7 +56,8 @@ PortfolioNarrative/PortfolioPlan on every run").
 
 `PortfolioScenePlan`: `id`, `type` (`PortfolioSceneType`), `headline`,
 optional `subheadline`, `density`, `productIds`, `capabilityIds`,
-`relationshipIds`, `gapIds`, `claimIds`, `evidenceIds`, `qualifiers`.
+`relationshipIds`, `gapIds`, `decisionIds`, `claimIds`, `evidenceIds`,
+`qualifiers`.
 
 ## The 13 `PortfolioSceneType` values
 
@@ -95,7 +96,10 @@ Tier 2) if the actual count ever falls outside `[6, 13]` — see
 The relationship-map scene additionally degrades density and truncates its
 edge list once relationship-plus-unresolved-relationship evidence crosses
 `RELATIONSHIP_MAP_DENSE_THRESHOLD` (12), disclosing the truncation via a
-scene qualifier rather than silently dropping edges. Headlines are capped at
+scene qualifier rather than silently dropping edges. The decisions scene
+truncates similarly once the decision register crosses `DECISIONS_MAX` (40),
+also disclosing the truncation via a scene qualifier; the full register
+remains available via `rvs export portfolio-decisions`. Headlines are capped at
 `PORTFOLIO_HEADLINE_HARD_MAX_WORDS` (14 words) and may never be a generic
 slide label (`GENERIC_HEADLINE_LABELS`: overview, introduction, summary,
 portfolio, products, capabilities, about, welcome, next steps) — both

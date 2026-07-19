@@ -271,7 +271,7 @@ function draftScaleAdoptionClaims(config: PortfolioConfig | undefined, portfolio
     evidence.push(entry);
     drafts.push({
       subjectId: `runtime-claim:${index}`,
-      claimType: /adopt/i.test(text) ? "adoption" : "scale",
+      claimType: /adopt/i.test(text) || /user/i.test(text) ? "adoption" : "scale",
       text,
       evidenceIds: [entry.id],
       isOverrideRuntimeClaim: true,

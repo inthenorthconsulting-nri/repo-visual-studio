@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { BuildPortfolioClaimsInput } from "../claims.js";
-import { buildPortfolioClaims } from "../claims.js";
+import type { BuildPortfolioClaimsInput, ClaimDraft } from "../claims.js";
+import { buildPortfolioClaims, classifyDraft } from "../claims.js";
 import type { PortfolioCapability, PortfolioConfig, PortfolioEvidence, PortfolioMaturitySummary, PortfolioOperatingModel, PortfolioProductRelationship } from "../contracts.js";
 import { makePortfolioConfig, makePortfolioProduct } from "./fixtures.js";
+
+function baseDraft(overrides: Partial<ClaimDraft> = {}): ClaimDraft {
+  return { subjectId: "test-subject", claimType: "coverage", text: "A plain, unremarkable claim about coverage.", evidenceIds: ["portfolio:evidence:x:0"], ...overrides };
+}
 
 function dim(numerator: number, denominator: number, label: string) {
   return { numerator, denominator, score: denominator === 0 ? 0 : numerator / denominator, label };
@@ -167,5 +171,274 @@ describe("buildPortfolioClaims", () => {
     const { claims } = buildPortfolioClaims(buildInput());
     const ids = claims.map((c) => c.id);
     expect(ids).toEqual([...ids].sort((a, b) => a.localeCompare(b)));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyDraft — one isolated test per rejection-reason trigger, covering all
+// 12 codes contracts.ts's PortfolioClaimRejectionReasonCode union defines.
+// 4 of the 12 (the claim-type-specific PORTFOLIO_CLAIM_UNSUPPORTED_{SCALE,
+// ADOPTION,INTEGRATION,UNIFICATION} codes) are only ever produced by
+// buildPortfolioClaims's augmentRejectionReasons step, which re-maps the
+// generic UNSUPPORTED classifyDraft emits — those four are covered separately
+// below at the buildPortfolioClaims level, where that remapping actually runs.
+// PORTFOLIO_CLAIM_ROADMAP_PROMOTED has no current draft-builder that ever
+// sets isRoadmapOnly (no draft* function in claims.ts wires it up) — it is
+// reserved, not fabricated, the same disclosed-scope-trim pattern documented
+// for the "deprecation" PortfolioDecisionType — so classifyDraft is the ONLY
+// place this code is reachable from at all, unit-level or otherwise.
+// ---------------------------------------------------------------------------
+
+describe("classifyDraft — unit coverage of every rejection-reason trigger", () => {
+  it("PORTFOLIO_CLAIM_UNSUPPORTED fires when a draft has zero evidence ids", () => {
+    const result = classifyDraft(baseDraft({ evidenceIds: [] }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED fires when a draft's normalized text was already seen (duplicate claim), even with evidence attached", () => {
+    const seen = new Set(["a plain, unremarkable claim about coverage."]);
+    const result = classifyDraft(baseDraft(), seen, []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED"]);
+  });
+
+  it("PORTFOLIO_CLAIM_GENERIC_MARKETING fires when the text contains a config-supplied disallowed term", () => {
+    const result = classifyDraft(baseDraft({ text: "Widget-sync serves enterprise customers at scale." }), new Set(), ["enterprise customers"]);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toContain("PORTFOLIO_CLAIM_GENERIC_MARKETING");
+  });
+
+  it("PORTFOLIO_CLAIM_GENERIC_MARKETING fires when the text contains a built-in generic marketing term (e.g. 'revolutionary')", () => {
+    const result = classifyDraft(baseDraft({ text: "This is a revolutionary approach to widget sync." }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toContain("PORTFOLIO_CLAIM_GENERIC_MARKETING");
+  });
+
+  it("PORTFOLIO_CLAIM_GENERIC_MARKETING fires when the text contains a built-in absolute-superiority term (e.g. 'best-in-class')", () => {
+    const result = classifyDraft(baseDraft({ text: "Widget-sync is best-in-class among portfolio capabilities." }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toContain("PORTFOLIO_CLAIM_GENERIC_MARKETING");
+  });
+
+  it("PORTFOLIO_CLAIM_ROADMAP_PROMOTED fires when a draft is marked roadmap-only (reserved code — no current draft-builder sets this flag, so this is the only place it is reachable from)", () => {
+    const result = classifyDraft(baseDraft({ isRoadmapOnly: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_ROADMAP_PROMOTED"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNRESOLVED_RELATIONSHIP fires when a draft requires a resolved relationship it doesn't have", () => {
+    const result = classifyDraft(baseDraft({ requiresResolvedRelationship: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNRESOLVED_RELATIONSHIP"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP fires when a draft requires resolved ownership it doesn't have", () => {
+    const result = classifyDraft(baseDraft({ requiresResolvedOwnership: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP"]);
+  });
+
+  it("PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY fires when a draft implies double-counting a shared capability", () => {
+    const result = classifyDraft(baseDraft({ impliesDoubleCounting: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY"]);
+  });
+
+  it("PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED fires when a draft asserts full implementation of a capability that is only qualified", () => {
+    const result = classifyDraft(baseDraft({ assertsUnqualifiedButIsQualified: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED"]);
+  });
+
+  it("PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED fires when a draft requires runtime evidence it doesn't have", () => {
+    const result = classifyDraft(baseDraft({ requiresRuntimeEvidence: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED"]);
+  });
+
+  it("collects every triggered reason at once when multiple flags fire simultaneously — none is dropped in favor of another", () => {
+    const result = classifyDraft(
+      baseDraft({ evidenceIds: [], isRoadmapOnly: true, requiresResolvedRelationship: true, requiresResolvedOwnership: true, impliesDoubleCounting: true, assertsUnqualifiedButIsQualified: true, requiresRuntimeEvidence: true }),
+      new Set(),
+      [],
+    );
+    expect(result.status).toBe("rejected");
+    expect(result.rejectionReasons).toEqual([
+      "PORTFOLIO_CLAIM_UNSUPPORTED",
+      "PORTFOLIO_CLAIM_ROADMAP_PROMOTED",
+      "PORTFOLIO_CLAIM_UNRESOLVED_RELATIONSHIP",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP",
+      "PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY",
+      "PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED",
+      "PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED",
+    ]);
+  });
+
+  it("rejection always wins over runtime-verification-required, even when both a rejection flag and isOverrideRuntimeClaim are set", () => {
+    const result = classifyDraft(baseDraft({ evidenceIds: [], isOverrideRuntimeClaim: true }), new Set(), []);
+    expect(result.status).toBe("rejected");
+  });
+
+  it("with no rejection flags and isOverrideRuntimeClaim set, status is runtime_verification_required, not approved", () => {
+    const result = classifyDraft(baseDraft({ isOverrideRuntimeClaim: true }), new Set(), []);
+    expect(result.status).toBe("runtime_verification_required");
+    expect(result.rejectionReasons).toEqual([]);
+  });
+
+  it("with no rejection flags and a qualifierText, status is approved_with_qualification and the qualifier text is carried through verbatim", () => {
+    const result = classifyDraft(baseDraft({ qualifierText: "Partial evidence only." }), new Set(), []);
+    expect(result.status).toBe("approved_with_qualification");
+    expect(result.qualifiers).toEqual(["Partial evidence only."]);
+  });
+
+  it("with no flags at all, status is plainly approved", () => {
+    const result = classifyDraft(baseDraft(), new Set(), []);
+    expect(result.status).toBe("approved");
+    expect(result.rejectionReasons).toEqual([]);
+    expect(result.qualifiers).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildPortfolioClaims — the 4 claim-type-specific UNSUPPORTED_* codes, and
+// the codes above re-verified through a real draft-building path (not just
+// classifyDraft's boolean-flag handling) to confirm the wiring from model
+// data to rejection code is itself correct, not only the classifier.
+// ---------------------------------------------------------------------------
+
+describe("buildPortfolioClaims — claim-type-specific UNSUPPORTED_* remapping (augmentRejectionReasons)", () => {
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_SCALE: a duplicate scale-type runtime claim (no 'adopt' in its text) is rejected with the scale-specific code, not the generic one", () => {
+    const config = makePortfolioConfig({ runtime_claims: ["Widget-sync now serves 500 workspaces.", "Widget-sync now serves 500 workspaces."] });
+    const { claims } = buildPortfolioClaims({ ...buildInput(), config });
+    const first = claims.find((c) => c.text === "Widget-sync now serves 500 workspaces." && c.id.endsWith("runtime-claim-0"));
+    const second = claims.find((c) => c.text === "Widget-sync now serves 500 workspaces." && c.id.endsWith("runtime-claim-1"));
+    expect(first!.claimType).toBe("scale");
+    expect(first!.status).toBe("runtime_verification_required");
+    expect(second!.status).toBe("rejected");
+    expect(second!.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_SCALE"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_ADOPTION: a duplicate adoption-type runtime claim (text containing 'adopt') is rejected with the adoption-specific code", () => {
+    const config = makePortfolioConfig({ runtime_claims: ["Adoption grew across all teams.", "Adoption grew across all teams."] });
+    const { claims } = buildPortfolioClaims({ ...buildInput(), config });
+    const second = claims.find((c) => c.text === "Adoption grew across all teams." && c.id.endsWith("runtime-claim-1"));
+    expect(second!.claimType).toBe("adoption");
+    expect(second!.status).toBe("rejected");
+    expect(second!.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_ADOPTION"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_ADOPTION: a duplicate adoption-type runtime claim (text containing 'user' but not 'adopt') is rejected with the adoption-specific code", () => {
+    const config = makePortfolioConfig({ runtime_claims: ["Over 500 users rely on widget-sync daily.", "Over 500 users rely on widget-sync daily."] });
+    const { claims } = buildPortfolioClaims({ ...buildInput(), config });
+    const second = claims.find((c) => c.text === "Over 500 users rely on widget-sync daily." && c.id.endsWith("runtime-claim-1"));
+    expect(second!.claimType).toBe("adoption");
+    expect(second!.status).toBe("rejected");
+    expect(second!.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_ADOPTION"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_INTEGRATION: an unevidenced shared_platform relationship (claimType 'integration') is rejected with the integration-specific code", () => {
+    const baseInput = buildInput();
+    const productA = baseInput.products[0]!;
+    const productB = baseInput.products[1]!;
+    const unevidencedIntegration: PortfolioProductRelationship = {
+      id: "portfolio:relationship:shared_platform:product-a:product-b",
+      productAId: productA.id,
+      productBId: productB.id,
+      type: "shared_platform",
+      confidence: "confirmed",
+      statement: "Product A and Product B share a common platform.",
+      capabilityIds: [],
+      evidenceIds: [],
+    };
+    const { claims } = buildPortfolioClaims({ ...baseInput, relationships: [...baseInput.relationships, unevidencedIntegration] });
+    const claim = claims.find((c) => c.text === unevidencedIntegration.statement);
+    expect(claim!.claimType).toBe("integration");
+    expect(claim!.status).toBe("rejected");
+    expect(claim!.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_INTEGRATION"]);
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_UNIFICATION: an unevidenced shared_capability relationship (claimType 'unification') is rejected with the unification-specific code", () => {
+    const baseInput = buildInput();
+    const productA = baseInput.products[0]!;
+    const productB = baseInput.products[1]!;
+    const unevidencedUnification: PortfolioProductRelationship = {
+      id: "portfolio:relationship:shared_capability:product-a:product-b:2",
+      productAId: productA.id,
+      productBId: productB.id,
+      type: "shared_capability",
+      confidence: "confirmed",
+      statement: "Product A and Product B both implement a second shared capability.",
+      capabilityIds: [],
+      evidenceIds: [],
+    };
+    const { claims } = buildPortfolioClaims({ ...baseInput, relationships: [...baseInput.relationships, unevidencedUnification] });
+    const claim = claims.find((c) => c.text === unevidencedUnification.statement);
+    expect(claim!.claimType).toBe("unification");
+    expect(claim!.status).toBe("rejected");
+    expect(claim!.rejectionReasons).toEqual(["PORTFOLIO_CLAIM_UNSUPPORTED_UNIFICATION"]);
+  });
+});
+
+describe("buildPortfolioClaims — the remaining structural rejection codes, exercised through real draft-building logic", () => {
+  it("PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY: the portfolio-capability-total claim is rejected when summed per-product counts overcount the deduplicated capability total", () => {
+    // buildInput()'s default fixture already has productA/productB each claiming currentCapabilityCount: 1
+    // against a single shared capability (summed 2 != capabilities.length 1) -- this is the real, common
+    // "naive sum double-counts a shared capability" scenario this code exists to catch.
+    const { claims } = buildPortfolioClaims(buildInput());
+    const totalClaim = claims.find((c) => c.claimType === "coverage" && c.text.startsWith("The portfolio provides"));
+    expect(totalClaim!.status).toBe("rejected");
+    expect(totalClaim!.rejectionReasons).toContain("PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY");
+  });
+
+  it("the portfolio-capability-total claim is approved when summed per-product counts exactly match the deduplicated capability total (no double-counting)", () => {
+    const baseInput = buildInput();
+    const productA = { ...baseInput.products[0]!, currentCapabilityCount: baseInput.capabilities.length };
+    const otherProducts = baseInput.products.slice(1).map((p) => ({ ...p, currentCapabilityCount: 0 }));
+    const { claims } = buildPortfolioClaims({ ...baseInput, products: [productA, ...otherProducts] });
+    const totalClaim = claims.find((c) => c.claimType === "coverage" && c.text.startsWith("The portfolio provides"));
+    expect(totalClaim!.status).toBe("approved");
+    expect(totalClaim!.rejectionReasons).toEqual([]);
+  });
+
+  it("PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED: a per-product capability claim is rejected when the participant only qualifies for (doesn't fully implement) the capability", () => {
+    const baseInput = buildInput();
+    const productA = baseInput.products[0]!;
+    const qualifiedOnlyCap: PortfolioCapability = { ...baseInput.capabilities[0]!, id: "portfolio:capability:qualified-only", displayName: "Qualified Only Cap", participation: [{ productId: productA.id, productCapabilityId: "capA:q", productCapabilityDisplayName: "Q", qualified: true }] };
+    const { claims } = buildPortfolioClaims({ ...baseInput, capabilities: [...baseInput.capabilities, qualifiedOnlyCap] });
+
+    const claim = claims.find((c) => c.text.includes('currently implements "Qualified Only Cap"'));
+    expect(claim!.status).toBe("rejected");
+    expect(claim!.rejectionReasons).toContain("PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED");
+  });
+
+  it("PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED: a runtime-verification claim for a confirmed capability is rejected when no runtime/usage/deployment evidence backs it", () => {
+    const baseInput = buildInput();
+    const { claims } = buildPortfolioClaims({ ...baseInput, runtimeEvidenceByCapability: new Map() });
+
+    const claim = claims.find((c) => c.text.includes("is verified in operation by runtime"));
+    expect(claim!.status).toBe("rejected");
+    expect(claim!.rejectionReasons).toContain("PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED");
+  });
+
+  it("PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP: an ownership claim is rejected when a shared capability has zero or 2+ fully-current (non-qualified) participants", () => {
+    // buildInput()'s default sharedCap has 2 non-qualified participants -- ownership.ts's own rule is that
+    // 2+ (as much as 0) fully-current participants makes ownership genuinely ambiguous, not resolved.
+    const { claims } = buildPortfolioClaims(buildInput());
+    const ownershipClaim = claims.find((c) => c.claimType === "ownership" && c.text.includes("Shared X"));
+    expect(ownershipClaim!.status).toBe("rejected");
+    expect(ownershipClaim!.rejectionReasons).toContain("PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP");
+  });
+
+  it("an ownership claim is approved when exactly one participant is fully current (qualified: false) and the rest are qualified-only", () => {
+    const baseInput = buildInput();
+    const productA = baseInput.products[0]!;
+    const productB = baseInput.products[1]!;
+    const resolvedCap: PortfolioCapability = { ...baseInput.capabilities[0]!, id: "portfolio:capability:resolved-owner", displayName: "Resolved Owner Cap", participation: [{ productId: productA.id, productCapabilityId: "capA:r", productCapabilityDisplayName: "R", qualified: false }, { productId: productB.id, productCapabilityId: "capB:r", productCapabilityDisplayName: "R", qualified: true }] };
+    const { claims } = buildPortfolioClaims({ ...baseInput, capabilities: [...baseInput.capabilities, resolvedCap] });
+
+    const ownershipClaim = claims.find((c) => c.claimType === "ownership" && c.text.includes("Resolved Owner Cap"));
+    expect(ownershipClaim!.status).toBe("approved");
+    expect(ownershipClaim!.text).toBe('Ownership of "Resolved Owner Cap" is resolved to a single current-implementing product.');
   });
 });

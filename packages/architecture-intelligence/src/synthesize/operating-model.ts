@@ -5,7 +5,11 @@ import type { ArchitectureBoundary, OperatingModel, WorkflowFamily } from "../ty
 
 const SCHEDULE_OR_RELEASE = /^(schedule|release)$/i;
 
-export function buildOperatingModel(graphs: WorkflowGraph[], topologies: TerraformTopology[], boundaries: ArchitectureBoundary[], workflowFamilies: WorkflowFamily[]): OperatingModel {
+export function buildOperatingModel(graphsInput: WorkflowGraph[], topologies: TerraformTopology[], boundaries: ArchitectureBoundary[], workflowFamilies: WorkflowFamily[]): OperatingModel {
+  // Sorted by id (matching buildRisks() in outcomes-risks-dependencies.ts)
+  // so releaseProcess/approvalGates never depend on the caller-supplied scan order.
+  const graphs = [...graphsInput].sort((a, b) => a.id.localeCompare(b.id));
+
   const deploymentEnvironments = boundaries.length > 0
     ? boundaries.map((b) => confirmed(`${b.label.displayLabel} deployment environment.`, b.evidence))
     : [unresolved("No deployment environments were declared in scanned GitHub Actions workflows.", "No WorkflowNode of type \"environment\" was found.")];

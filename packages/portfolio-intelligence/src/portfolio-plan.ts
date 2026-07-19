@@ -34,6 +34,7 @@ export const PORTFOLIO_PLAN_MAX_SCENES = 13;
 export const PORTFOLIO_HEADLINE_HARD_MAX_WORDS = 14;
 const RELATIONSHIP_MAP_DENSE_THRESHOLD = 12;
 const CAPABILITY_COVERAGE_MAX = 40;
+const DECISIONS_MAX = 40;
 
 const EVIDENCE_MODE_CAP: Record<PortfolioEvidenceMode, number> = {
   concise: 2,
@@ -261,6 +262,7 @@ interface SceneContentOptions {
   capabilityIds?: string[];
   relationshipIds?: string[];
   gapIds?: string[];
+  decisionIds?: string[];
   claimIds?: string[];
   evidenceIds?: string[];
   qualifiers?: string[];
@@ -278,6 +280,7 @@ function buildScene(type: PortfolioSceneType, index: number, headlineText: strin
     capabilityIds: [...new Set(opts.capabilityIds ?? [])].sort((a, b) => a.localeCompare(b)),
     relationshipIds: [...new Set(opts.relationshipIds ?? [])].sort((a, b) => a.localeCompare(b)),
     gapIds: [...new Set(opts.gapIds ?? [])].sort((a, b) => a.localeCompare(b)),
+    decisionIds: [...new Set(opts.decisionIds ?? [])].sort((a, b) => a.localeCompare(b)),
     claimIds: [...new Set(opts.claimIds ?? [])].sort((a, b) => a.localeCompare(b)),
     evidenceIds: capEvidence(opts.evidenceIds ?? [], evidenceMode),
     qualifiers: opts.qualifiers ?? [],
@@ -366,11 +369,16 @@ function buildScenesForTypes(types: PortfolioSceneType[], model: PortfolioModel,
           capabilityIds: model.gaps.map((g) => g.capabilityId).filter((id): id is string => Boolean(id)),
           evidenceIds: model.gaps.flatMap((g) => g.evidenceIds),
         });
-      case "portfolio-decisions":
+      case "portfolio-decisions": {
+        const truncated = decisions.length > DECISIONS_MAX;
+        const included = decisions.slice(0, DECISIONS_MAX);
         return buildScene(type, index, `${decisions.length} portfolio decisions for review`, narrative.strategicDirection, evidenceMode, {
-          productIds: decisions.flatMap((d) => d.affectedProductIds),
-          evidenceIds: decisions.flatMap((d) => d.evidenceIds),
+          productIds: included.flatMap((d) => d.affectedProductIds),
+          decisionIds: included.map((d) => d.id),
+          evidenceIds: included.flatMap((d) => d.evidenceIds),
+          qualifiers: truncated ? [`Showing ${DECISIONS_MAX} of ${decisions.length} decisions; remaining decisions are available in the full export.`] : [],
         });
+      }
       case "portfolio-closing":
         return buildScene(type, index, narrative.strategicDirection, undefined, evidenceMode, {});
     }

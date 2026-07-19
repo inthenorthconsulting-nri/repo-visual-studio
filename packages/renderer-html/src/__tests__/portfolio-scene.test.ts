@@ -137,6 +137,7 @@ function makeScenePlan(type: PortfolioSceneType, overrides: Partial<PortfolioSce
     capabilityIds: [],
     relationshipIds: [],
     gapIds: [],
+    decisionIds: [],
     claimIds: [],
     evidenceIds: [],
     qualifiers: [],
@@ -284,9 +285,9 @@ describe("renderPortfolioScene", () => {
     expect(html).toContain("No gaps were identified.");
   });
 
-  it("renders the portfolio-decisions scene from plan.decisions (not scene ids), including urgency", () => {
+  it("renders the portfolio-decisions scene from scene.decisionIds resolved against plan.decisions, including urgency", () => {
     const decision = makeDecision();
-    const scenePlan = makeScenePlan("portfolio-decisions");
+    const scenePlan = makeScenePlan("portfolio-decisions", { decisionIds: [decision.id] });
     const plan = makePlan([scenePlan], { decisions: [decision] });
     const html = renderPortfolioScene(pointerScene(scenePlan.id, "portfolio:acme"), plan);
     expect(html).toContain("Decide which product owns widget synchronization going forward.");
@@ -294,10 +295,19 @@ describe("renderPortfolioScene", () => {
     expect(html).toContain("architecture_council");
   });
 
-  it("renders 'No decisions are available yet.' on portfolio-decisions when plan.decisions is empty", () => {
-    const scenePlan = makeScenePlan("portfolio-decisions");
+  it("renders 'No decisions are available yet.' on portfolio-decisions when decisionIds is empty", () => {
+    const scenePlan = makeScenePlan("portfolio-decisions", { decisionIds: [] });
     const plan = makePlan([scenePlan], { decisions: [] });
     const html = renderPortfolioScene(pointerScene(scenePlan.id, "portfolio:acme"), plan);
+    expect(html).toContain("No decisions are available yet.");
+  });
+
+  it("omits a decision from portfolio-decisions when it is present in plan.decisions but not in scene.decisionIds", () => {
+    const decision = makeDecision();
+    const scenePlan = makeScenePlan("portfolio-decisions", { decisionIds: [] });
+    const plan = makePlan([scenePlan], { decisions: [decision] });
+    const html = renderPortfolioScene(pointerScene(scenePlan.id, "portfolio:acme"), plan);
+    expect(html).not.toContain("Decide which product owns widget synchronization going forward.");
     expect(html).toContain("No decisions are available yet.");
   });
 
@@ -319,7 +329,7 @@ describe("renderPortfolioScene", () => {
 
   it("HTML-escapes decision statements on portfolio-decisions", () => {
     const decision = makeDecision({ statement: `Widget CLI vs <Widget Operator> & "ownership"` });
-    const scenePlan = makeScenePlan("portfolio-decisions");
+    const scenePlan = makeScenePlan("portfolio-decisions", { decisionIds: [decision.id] });
     const plan = makePlan([scenePlan], { decisions: [decision] });
     const html = renderPortfolioScene(pointerScene(scenePlan.id, "portfolio:acme"), plan);
     expect(html).toContain("Widget CLI vs &lt;Widget Operator&gt; &amp; &quot;ownership&quot;");

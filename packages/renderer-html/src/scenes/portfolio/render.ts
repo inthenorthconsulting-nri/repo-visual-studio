@@ -223,7 +223,10 @@ function renderGaps(scene: PortfolioScenePlan, plan: PortfolioPlan): string {
 }
 
 function renderDecisions(scene: PortfolioScenePlan, plan: PortfolioPlan): string {
-  const items = plan.decisions
+  const decisionsById = new Map(plan.decisions.map((d) => [d.id, d]));
+  const items = scene.decisionIds
+    .map((id) => decisionsById.get(id))
+    .filter((d): d is PortfolioDecision => Boolean(d))
     .map(
       (d: PortfolioDecision) => `
       <li class="portfolio-decision-row">

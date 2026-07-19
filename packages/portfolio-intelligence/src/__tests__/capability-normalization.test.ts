@@ -37,10 +37,42 @@ describe("collectCapabilityRefs", () => {
     expect(refs[0]!.capability.id).toBe(capA.id);
   });
 
+  it("never pulls a roadmap-only or gap-only capability into refs, even if a product's capability id lists (incorrectly) reference it -- only includedCapabilities/qualifiedCapabilities ever count", () => {
+    const roadmapCap = makeCapability({ sourceLabel: "Future Widget Automation" });
+    const gapCap = makeCapability({ sourceLabel: "Missing Widget Coverage" });
+    const model = makeCapabilityModel({ includedCapabilities: [], roadmapCapabilities: [roadmapCap], gapCapabilities: [gapCap] });
+    // Adversarial: a product's own currentCapabilityIds accidentally cites a roadmap/gap id
+    // (a malformed product-identity.json could do this) -- neither should ever resolve to a ref,
+    // since normalizePortfolioCapabilities only reasons over included/qualified today (roadmap
+    // and gap coverage are reserved for a future extension, per this module's own header comment).
+    const product = makePortfolioProduct({ currentCapabilityIds: [roadmapCap.id], qualifiedCapabilityIds: [gapCap.id] });
+
+    const refs = collectCapabilityRefs([product], new Map([[product.id, model]]));
+
+    expect(refs).toEqual([]);
+  });
+
   it("skips a product entirely when no capability model is present for it", () => {
     const product = makePortfolioProduct();
     const refs = collectCapabilityRefs([product], new Map());
     expect(refs).toEqual([]);
+  });
+
+  it("does not double-count a capability id that (adversarially) appears in both currentCapabilityIds and qualifiedCapabilityIds of the same product", () => {
+    // product-identity.json is an external artifact read back across a
+    // serialization boundary (see identity-reconciliation.ts's own comment on
+    // why it re-sorts rather than trusting the artifact) -- portfolio-intelligence
+    // never re-validates that a generator kept current/qualified disjoint, so a
+    // malformed or adversarial artifact could list the same capability id in
+    // both lists. That must still resolve to exactly one ref, not two.
+    const capA = makeCapability({ sourceLabel: "Widget Sync" });
+    const model = makeCapabilityModel({ includedCapabilities: [capA] });
+    const product = makePortfolioProduct({ currentCapabilityIds: [capA.id], qualifiedCapabilityIds: [capA.id] });
+
+    const refs = collectCapabilityRefs([product], new Map([[product.id, model]]));
+
+    expect(refs).toHaveLength(1);
+    expect(refs[0]!.capability.id).toBe(capA.id);
   });
 
   it("sorts refs by productId then capability id", () => {
@@ -305,5 +337,250 @@ describe("normalizePortfolioCapabilities", () => {
     const result = normalizePortfolioCapabilities([productWithCap], new Map([[productWithCap.id, model]]));
 
     expect(result.capabilities[0]!.domain).toBe("Widget Operations Domain");
+  });
+
+  it("produces identical capabilities regardless of the order products are supplied in, including when two unrelated products share the same generic capability.id", () => {
+    // §4 determinism audit: capability.id is a pure function of sourceLabel
+    // text alone (not product-scoped), so two unrelated products can easily
+    // produce identically-id'd single-product capabilities that land in
+    // different normalization groups — this is exactly the tie the
+    // sortedGroups comparator's normalizedKey tiebreak exists to resolve
+    // deterministically rather than falling back to Map insertion order.
+    const productAId = "portfolio:product:product-a";
+    const productBId = "portfolio:product:product-b";
+    const productA = makePortfolioProduct({ displayName: "Product A", source: { configId: "product-a", artifactRoot: "./a", compatibility: "compatible" } });
+    const productB = makePortfolioProduct({ displayName: "Product B", source: { configId: "product-b", artifactRoot: "./b", compatibility: "compatible" } });
+    expect(productA.id).toBe(productAId);
+    expect(productB.id).toBe(productBId);
+
+    // Identical sourceLabel ("Widget Sync") on both sides means identical
+    // capability.id, but (mirroring the "unrelated capabilities" case above)
+    // near-zero domain/actor/workflow/evidence-type overlap keeps the
+    // combined score below SAME_CAPABILITY_THRESHOLD — isSameCapability is
+    // false, so these land in two separate single_product groups.
+    const capA = makeCapability({
+      sourceLabel: "Widget Sync",
+      domainId: "capintel:domain:widget-operations",
+      actors: ["Operator"],
+      workflows: ["widget-lifecycle"],
+      externalSystems: [],
+      evidence: [makeCapabilityEvidence("implementation")],
+    });
+    const capB = makeCapability({
+      sourceLabel: "Widget Sync",
+      domainId: "capintel:domain:reporting-analytics",
+      actors: ["Analyst"],
+      workflows: ["report-generation"],
+      externalSystems: [],
+      evidence: [makeCapabilityEvidence("test")],
+    });
+    expect(capA.id).toBe(capB.id);
+
+    const modelA = makeCapabilityModel({ includedCapabilities: [capA] });
+    const modelB = makeCapabilityModel({ includedCapabilities: [capB] });
+    const productAWithCap = { ...productA, currentCapabilityIds: [capA.id] };
+    const productBWithCap = { ...productB, currentCapabilityIds: [capB.id] };
+    const models = new Map<string, CapabilityModel>([
+      [productAWithCap.id, modelA],
+      [productBWithCap.id, modelB],
+    ]);
+
+    const forward = normalizePortfolioCapabilities([productAWithCap, productBWithCap], models);
+    const reversed = normalizePortfolioCapabilities([productBWithCap, productAWithCap], models);
+
+    expect(forward.capabilities).toHaveLength(2);
+    expect(forward.capabilities).toEqual(reversed.capabilities);
+    expect(forward.capabilities.map((c) => c.id)).toEqual([...forward.capabilities.map((c) => c.id)].sort());
+  });
+
+  it("does not merge two capabilities that share only generic/boilerplate wording across otherwise-unrelated domains, actors, and workflows (false-positive guard)", () => {
+    // Adversarial: "Manage account settings" is the kind of generic phrase that
+    // could independently arise in two completely unrelated products. Lexical
+    // overlap alone must never be enough to merge them (§8 hard rule) -- this
+    // exercises the real computeCapabilitySimilarity -> isSameCapability
+    // pipeline end-to-end, not synthetic signal objects.
+    const { productA, productB } = twoProductSetup();
+    const capA = makeCapability({
+      sourceLabel: "Manage account settings",
+      purpose: "Manage account settings for billing administrators.",
+      actors: ["BillingAdmin"],
+      workflows: ["billing-lifecycle"],
+      externalSystems: ["stripe"],
+      domainId: "capintel:domain:billing",
+      evidence: [makeCapabilityEvidence("implementation")],
+    });
+    const capB = makeCapability({
+      sourceLabel: "Manage account settings",
+      purpose: "Manage account settings for notification preferences.",
+      actors: ["EndUser"],
+      workflows: ["notification-preferences"],
+      externalSystems: ["sendgrid"],
+      domainId: "capintel:domain:notifications",
+      evidence: [makeCapabilityEvidence("implementation")],
+    });
+    const modelA = makeCapabilityModel({ includedCapabilities: [capA] });
+    const modelB = makeCapabilityModel({ includedCapabilities: [capB] });
+    const productAWithCap = { ...productA, currentCapabilityIds: [capA.id] };
+    const productBWithCap = { ...productB, currentCapabilityIds: [capB.id] };
+
+    const result = normalizePortfolioCapabilities(
+      [productAWithCap, productBWithCap],
+      new Map<string, CapabilityModel>([
+        [productAWithCap.id, modelA],
+        [productBWithCap.id, modelB],
+      ]),
+    );
+
+    expect(result.capabilities).toHaveLength(2);
+    expect(result.capabilities.every((c) => c.coverage === "single_product")).toBe(true);
+  });
+
+  it("never merges on evidence-type overlap alone -- two doc-only-mentioned capabilities with identical wording but zero domain/actor/workflow/externalSystem overlap stay separate", () => {
+    // Adversarial "doc-only mentions" case: both capabilities' evidence is
+    // entirely "documentation" type, so evidenceTypeOverlap is 1.0 and
+    // nameOverlap is high -- but evidenceTypeOverlap is deliberately excluded
+    // from isSameCapability's structuralAgreement set, so a shared evidence
+    // *type* (as opposed to shared domain/actor/workflow/externalSystem)
+    // must never be sufficient to merge two otherwise-unrelated capabilities.
+    const { productA, productB } = twoProductSetup();
+    const capA = makeCapability({
+      sourceLabel: "Widget Governance Overview",
+      purpose: "Documents widget governance overview concepts for readers.",
+      actors: [],
+      workflows: [],
+      externalSystems: [],
+      domainId: "quadrant-alpha",
+      evidence: [makeCapabilityEvidence("documentation"), makeCapabilityEvidence("documentation")],
+    });
+    const capB = makeCapability({
+      sourceLabel: "Widget Governance Overview",
+      purpose: "Documents widget governance overview concepts for readers.",
+      actors: [],
+      workflows: [],
+      externalSystems: [],
+      domainId: "sector-beta",
+      evidence: [makeCapabilityEvidence("documentation"), makeCapabilityEvidence("documentation")],
+    });
+    const modelA = makeCapabilityModel({ includedCapabilities: [capA] });
+    const modelB = makeCapabilityModel({ includedCapabilities: [capB] });
+    const productAWithCap = { ...productA, currentCapabilityIds: [capA.id] };
+    const productBWithCap = { ...productB, currentCapabilityIds: [capB.id] };
+
+    const { signals } = computeCapabilitySimilarity(ref(productAWithCap.id, "product-a", capA), ref(productBWithCap.id, "product-b", capB));
+    expect(signals.evidenceTypeOverlap).toBe(1);
+    expect(signals.domainOverlap).toBe(0);
+    expect(signals.actorOverlap).toBe(0);
+    expect(signals.workflowOverlap).toBe(0);
+    expect(signals.externalSystemOverlap).toBe(0);
+
+    const result = normalizePortfolioCapabilities(
+      [productAWithCap, productBWithCap],
+      new Map<string, CapabilityModel>([
+        [productAWithCap.id, modelA],
+        [productBWithCap.id, modelB],
+      ]),
+    );
+
+    expect(result.capabilities).toHaveLength(2);
+    expect(result.capabilities.every((c) => c.coverage === "single_product")).toBe(true);
+  });
+
+  it("merges a qualified capability from one product with a current (non-qualified) capability from another product into one shared entry, preserving each member's own qualified flag rather than collapsing to a single shared state", () => {
+    const { productA, productB } = twoProductSetup();
+    const capA = makeCapability({
+      sourceLabel: "Widget Identity Sync",
+      purpose: "Synchronizes widget identity records across systems.",
+      actors: ["Operator"],
+      workflows: ["identity-lifecycle"],
+      domainId: "capintel:domain:widget-operations",
+    });
+    const capB = makeCapability({
+      sourceLabel: "Widget Identity Sync",
+      purpose: "Synchronizes widget identity records across systems.",
+      actors: ["Operator"],
+      workflows: ["identity-lifecycle"],
+      domainId: "capintel:domain:widget-operations",
+    });
+    // capA is current (unqualified) for product A; capB is only qualified for product B.
+    const modelA = makeCapabilityModel({ includedCapabilities: [capA] });
+    const modelB = makeCapabilityModel({ includedCapabilities: [], qualifiedCapabilities: [capB] });
+    const productAWithCap = { ...productA, currentCapabilityIds: [capA.id], qualifiedCapabilityIds: [] };
+    const productBWithCap = { ...productB, currentCapabilityIds: [], qualifiedCapabilityIds: [capB.id] };
+
+    const result = normalizePortfolioCapabilities(
+      [productAWithCap, productBWithCap],
+      new Map<string, CapabilityModel>([
+        [productAWithCap.id, modelA],
+        [productBWithCap.id, modelB],
+      ]),
+    );
+
+    expect(result.capabilities).toHaveLength(1);
+    const participation = result.capabilities[0]!.participation;
+    expect(participation).toHaveLength(2);
+    expect(participation.find((p) => p.productId === productAWithCap.id)!.qualified).toBe(false);
+    expect(participation.find((p) => p.productId === productBWithCap.id)!.qualified).toBe(true);
+  });
+
+  describe("contradictory evidence -- merged confidence across members", () => {
+    function mergedConfidenceFor(confidenceA: "confirmed" | "derived" | "suggested" | "unresolved", confidenceB: "confirmed" | "derived" | "suggested" | "unresolved"): string {
+      const { productA, productB } = twoProductSetup();
+      const capA = makeCapability({
+        sourceLabel: "Widget Identity Sync",
+        purpose: "Synchronizes widget identity records across systems.",
+        actors: ["Operator"],
+        workflows: ["identity-lifecycle"],
+        domainId: "capintel:domain:widget-operations",
+        confidence: confidenceA,
+        evidence: [makeCapabilityEvidence("implementation")],
+      });
+      const capB = makeCapability({
+        sourceLabel: "Widget Identity Sync",
+        purpose: "Synchronizes widget identity records across systems.",
+        actors: ["Operator"],
+        workflows: ["identity-lifecycle"],
+        domainId: "capintel:domain:widget-operations",
+        confidence: confidenceB,
+        evidence: [makeCapabilityEvidence("implementation")],
+      });
+      const modelA = makeCapabilityModel({ includedCapabilities: [capA] });
+      const modelB = makeCapabilityModel({ includedCapabilities: [capB] });
+      const productAWithCap = { ...productA, currentCapabilityIds: [capA.id] };
+      const productBWithCap = { ...productB, currentCapabilityIds: [capB.id] };
+
+      const result = normalizePortfolioCapabilities(
+        [productAWithCap, productBWithCap],
+        new Map<string, CapabilityModel>([
+          [productAWithCap.id, modelA],
+          [productBWithCap.id, modelB],
+        ]),
+      );
+      expect(result.capabilities).toHaveLength(1);
+      return result.capabilities[0]!.confidence;
+    }
+
+    it("downgrades to unresolved when one member is confirmed and the other is unresolved -- contradictory evidence must not average out to false confidence", () => {
+      expect(mergedConfidenceFor("confirmed", "unresolved")).toBe("unresolved");
+    });
+
+    it("stays confirmed only when every member is confirmed", () => {
+      expect(mergedConfidenceFor("confirmed", "confirmed")).toBe("confirmed");
+    });
+
+    it("downgrades to derived when one member is confirmed and the other is only suggested", () => {
+      expect(mergedConfidenceFor("confirmed", "suggested")).toBe("derived");
+    });
+
+    it("downgrades to derived when one member is derived and the other is only suggested", () => {
+      expect(mergedConfidenceFor("derived", "suggested")).toBe("derived");
+    });
+
+    it("stays suggested when every member is only suggested", () => {
+      expect(mergedConfidenceFor("suggested", "suggested")).toBe("suggested");
+    });
+
+    it("downgrades to unresolved even when the other member is confirmed and evidence-rich (unresolved always wins, regardless of member order)", () => {
+      expect(mergedConfidenceFor("unresolved", "confirmed")).toBe("unresolved");
+    });
   });
 });

@@ -1,4 +1,5 @@
 import type { ProductArchetype, ProductIdentityCandidate } from "./contracts.js";
+import { compareIdentityCandidates } from "./identity-candidates.js";
 
 /**
  * §4: ranking is a thin, separately-testable seam over the archetype
@@ -13,5 +14,5 @@ export function pickWinningCandidate(candidates: ProductIdentityCandidate[], pri
 export function rankSecondaryCandidates(candidates: ProductIdentityCandidate[], primaryArchetype: ProductArchetype, secondaryArchetypes: ProductArchetype[]): ProductIdentityCandidate[] {
   return candidates
     .filter((c) => c.archetype !== primaryArchetype && secondaryArchetypes.includes(c.archetype))
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    .sort(compareIdentityCandidates);
 }

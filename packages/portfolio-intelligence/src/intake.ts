@@ -3,13 +3,31 @@ import { resolve } from "node:path";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { ProductIdentityModel } from "@rvs/product-intelligence";
 import { assessCompatibility } from "./compatibility.js";
-import type { PortfolioConfigProduct, PortfolioOptionalArtifact, PortfolioProductArtifacts, PortfolioProductInputIssue, PortfolioProductIntake } from "./contracts.js";
+import type {
+  PortfolioConfigProduct,
+  PortfolioOptionalArtifact,
+  PortfolioProductArtifacts,
+  PortfolioProductInputIssue,
+  PortfolioProductIntake,
+  PortfolioRequiredArtifact,
+} from "./contracts.js";
 
 const OPTIONAL_ARTIFACTS: PortfolioOptionalArtifact[] = ["architecture-intelligence.json", "repository-model.json", "showcase-plan.json", "showcase-claims.json"];
 
-function readJsonIfPresent<T>(path: string): T | undefined {
+/**
+ * A malformed artifact (truncated write, disk error, stray merge-conflict markers) must not
+ * crash synthesis for every other product in the portfolio -- catch the parse failure, record
+ * it as an "input-invalid" issue, and treat the artifact as absent so assessCompatibility()
+ * excludes just this one product via its existing missing-artifact handling.
+ */
+function readJsonIfPresent<T>(path: string, artifact: PortfolioRequiredArtifact, issues: PortfolioProductInputIssue[]): T | undefined {
   if (!existsSync(path)) return undefined;
-  return JSON.parse(readFileSync(path, "utf8")) as T;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch (error) {
+    issues.push({ code: "input-invalid", artifact, message: `${artifact} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}.` });
+    return undefined;
+  }
 }
 
 /**
@@ -27,8 +45,8 @@ export function intakeProduct(repoRoot: string, product: PortfolioConfigProduct)
   const issues: PortfolioProductInputIssue[] = [];
 
   const artifacts: PortfolioProductArtifacts = {
-    productIdentity: readJsonIfPresent<ProductIdentityModel>(resolve(artifactRoot, "product-identity.json")),
-    capabilityModel: readJsonIfPresent<CapabilityModel>(resolve(artifactRoot, "capability-model.json")),
+    productIdentity: readJsonIfPresent<ProductIdentityModel>(resolve(artifactRoot, "product-identity.json"), "product-identity.json", issues),
+    capabilityModel: readJsonIfPresent<CapabilityModel>(resolve(artifactRoot, "capability-model.json"), "capability-model.json", issues),
   };
 
   for (const optional of OPTIONAL_ARTIFACTS) {

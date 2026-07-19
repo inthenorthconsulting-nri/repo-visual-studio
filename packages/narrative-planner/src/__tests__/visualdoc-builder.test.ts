@@ -195,4 +195,32 @@ describe("buildVisualDoc", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("orders tied-count top-level directory nodes alphabetically, regardless of the order sampledPaths lists them in", async () => {
+    // §4 determinism audit: topLevelNodes() sorted by file count descending
+    // with no tiebreaker, so a tie between two top-level directories fell
+    // back to Map insertion order (first-occurrence order in sampledPaths) —
+    // this proves the fix makes the architecture scene's node order
+    // independent of scan/insertion order.
+    const config = defaultConfig("order-service");
+    const model = await buildRepositoryModel(fixtureRepo, config);
+    const evidence = buildEvidenceManifest(model);
+    const brief = buildNarrativeBrief(model, evidence, "executive");
+
+    const tiedFirst: typeof model = { ...model, files: { ...model.files, sampledPaths: ["scripts/a.ts", "scripts/b.ts", "packages/a.ts", "packages/b.ts", "docs/readme.md"] } };
+    const tiedReversed: typeof model = { ...model, files: { ...model.files, sampledPaths: ["packages/a.ts", "packages/b.ts", "scripts/a.ts", "scripts/b.ts", "docs/readme.md"] } };
+
+    const docFirst = buildVisualDoc(tiedFirst, evidence, brief, "executive-dark");
+    const docReversed = buildVisualDoc(tiedReversed, evidence, brief, "executive-dark");
+
+    const nodesFirst = docFirst.scenes.find((s) => s.type === "architecture" && s.nodes.length > 0);
+    const nodesReversed = docReversed.scenes.find((s) => s.type === "architecture" && s.nodes.length > 0);
+    if (nodesFirst?.type !== "architecture" || nodesReversed?.type !== "architecture") throw new Error("expected an architecture scene with nodes");
+
+    expect(nodesFirst.nodes.map((n) => n.label)).toEqual(nodesReversed.nodes.map((n) => n.label));
+    const packagesIndex = nodesFirst.nodes.findIndex((n) => n.label.startsWith("packages ("));
+    const scriptsIndex = nodesFirst.nodes.findIndex((n) => n.label.startsWith("scripts ("));
+    expect(packagesIndex).toBeGreaterThanOrEqual(0);
+    expect(packagesIndex).toBeLessThan(scriptsIndex);
+  });
 });

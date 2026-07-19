@@ -20,6 +20,17 @@ import { join } from "node:path";
 // introduce into deterministic output (claim/graph IDs, content_spec_hash)
 // without either suite alone noticing, since neither compares one run
 // against the other.
+//
+// Portfolio coverage below spans small (single-product), large (3-product),
+// reordered, and partially-incompatible (--allow-partial) inputs, each
+// verified through both source and the packaged tarball. It deliberately
+// does not re-derive adversarial-input coverage (e.g. capability records
+// crafted to bait/evade the merge algorithm) here: that's synthesis-logic
+// correctness, already proven in capability-normalization.test.ts and
+// portfolio-intelligence/src/__tests__/index.test.ts, and packaging cannot
+// introduce a per-input logic divergence — only a build/bundling one, which
+// the structural comparisons in this file already catch regardless of which
+// portfolio input produced the bytes being compared.
 const RUN = process.env.RVS_TEST_PACKAGE === "1";
 const maybeDescribe = RUN ? describe : describe.skip;
 
@@ -151,6 +162,63 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     return execFileSync("npx", ["rvs", ...args], { cwd: packagedDir, encoding: "utf8" });
   }
 
+  const portfolioYaml = (order: readonly string[]) =>
+    [
+      "schema_version: 1",
+      "portfolio:",
+      "  id: equivalence-test-portfolio",
+      "  display_name: Equivalence Test Portfolio",
+      "products:",
+      ...order.map((id) => `  - id: ${id}\n    artifact_root: artifact-roots/${id}`),
+      "",
+    ].join("\n");
+
+  // portfolio-model.json: generationMetadata.generated_at is run-specific (a
+  // direct `new Date().toISOString()` call), and each product's own
+  // source.sourceProductIdentityGeneratedAt/sourceCapabilityModelGeneratedAt
+  // chain from the copied artifact files' own run-specific timestamps —
+  // strip all three and deep-compare everything else, including every
+  // normalized capability, relationship, gap, and evidence citation.
+  // excludedProducts[].artifacts embeds the *raw* parsed capability-model.json
+  // / product-identity.json for the excluded product, each carrying its own
+  // run-specific generationMetadata timestamps (same wall-clock chain as the
+  // standalone capability-model.json/product-identity.json comparisons
+  // elsewhere in this test) — strip those the same way before comparing.
+  const stripGenerationMetadataTimestamps = (obj: unknown, ...timestampKeys: string[]) => {
+    if (obj === undefined || obj === null || typeof obj !== "object") return obj;
+    const { generationMetadata, ...rest } = obj as { generationMetadata?: Record<string, unknown> } & Record<string, unknown>;
+    if (!generationMetadata) return obj;
+    const strippedMetadata = { ...generationMetadata };
+    for (const key of timestampKeys) delete strippedMetadata[key];
+    return { ...rest, generationMetadata: strippedMetadata };
+  };
+
+  const stripPortfolioModel = (m: Record<string, unknown>) => {
+    const { generationMetadata, products, excludedProducts, ...rest } = m as {
+      generationMetadata: Record<string, unknown>;
+      products: Array<Record<string, unknown>>;
+      excludedProducts: Array<Record<string, unknown>>;
+    } & Record<string, unknown>;
+    const { generated_at, ...metadataRest } = generationMetadata;
+    const strippedProducts = products.map((p) => {
+      const { source, ...productRest } = p as { source: Record<string, unknown> } & Record<string, unknown>;
+      const { sourceProductIdentityGeneratedAt, sourceCapabilityModelGeneratedAt, ...sourceRest } = source;
+      return { ...productRest, source: sourceRest };
+    });
+    const strippedExcludedProducts = (excludedProducts ?? []).map((p) => {
+      const { artifacts, ...productRest } = p as { artifacts: Record<string, unknown> } & Record<string, unknown>;
+      return {
+        ...productRest,
+        artifacts: {
+          ...artifacts,
+          capabilityModel: stripGenerationMetadataTimestamps(artifacts.capabilityModel, "generated_at", "source_architecture_intelligence_generated_at"),
+          productIdentity: stripGenerationMetadataTimestamps(artifacts.productIdentity, "generated_at", "source_capability_model_generated_at"),
+        },
+      };
+    });
+    return { ...rest, products: strippedProducts, excludedProducts: strippedExcludedProducts, generationMetadata: metadataRest };
+  };
+
   it("produces structurally identical cache, workflow, and deck output from source and from the tarball", () => {
     const runs: Array<[(args: string[]) => string, string]> = [
       [runSource, sourceDir],
@@ -182,27 +250,34 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
       // artifact_root — copy this run's own already-generated files (each
       // run's copy stays internally self-consistent; the two runs' bytes
       // differ only in the same run-specific generated_at fields already
-      // stripped from the underlying caches elsewhere in this test) into a
-      // fresh artifact-roots/product-a/ directory and portfolio over that
-      // single product.
-      const artifactRoot = join(dir, "artifact-roots/product-a");
-      mkdirSync(artifactRoot, { recursive: true });
-      writeFileSync(join(artifactRoot, "capability-model.json"), readFileSync(join(dir, ".rvs/cache/capability-model.json")));
-      writeFileSync(join(artifactRoot, "product-identity.json"), readFileSync(join(dir, "product-identity.json")));
-      writeFileSync(
-        join(dir, ".rvs/portfolio.yml"),
-        [
-          "schema_version: 1",
-          "portfolio:",
-          "  id: equivalence-test-portfolio",
-          "  display_name: Equivalence Test Portfolio",
-          "products:",
-          "  - id: product-a",
-          "    artifact_root: artifact-roots/product-a",
-          "",
-        ].join("\n"),
-      );
-      run(["synthesize", "portfolio"]);
+      // stripped from the underlying caches elsewhere in this test) into
+      // artifact-roots/product-a/. product-b is a byte-identical clone of
+      // product-a's own artifacts under a distinct product id, so
+      // normalizePortfolioCapabilities has a genuine second participant to
+      // merge product-a's capability into (a "large"-r, non-trivial
+      // multi-product case, not just a single-product portfolio) — see
+      // capability-normalization.test.ts for the merge-logic unit coverage
+      // this exercises end-to-end through the packaged binary. product-c
+      // carries a bumped capabilityModel.schemaVersion (2, unsupported) so
+      // compatibility.ts excludes it as incompatible, giving a "partially
+      // incompatible" portfolio that requires --allow-partial to succeed.
+      const capabilityModelJson = readFileSync(join(dir, ".rvs/cache/capability-model.json"), "utf8");
+      const productIdentityJson = readFileSync(join(dir, "product-identity.json"), "utf8");
+      const incompatibleCapabilityModelJson = JSON.stringify({ ...JSON.parse(capabilityModelJson), schemaVersion: 2 });
+
+      for (const [productId, capModel] of [
+        ["product-a", capabilityModelJson],
+        ["product-b", capabilityModelJson],
+        ["product-c", incompatibleCapabilityModelJson],
+      ] as const) {
+        const artifactRoot = join(dir, "artifact-roots", productId);
+        mkdirSync(artifactRoot, { recursive: true });
+        writeFileSync(join(artifactRoot, "capability-model.json"), capModel);
+        writeFileSync(join(artifactRoot, "product-identity.json"), productIdentityJson);
+      }
+
+      writeFileSync(join(dir, ".rvs/portfolio.yml"), portfolioYaml(["product-a", "product-b", "product-c"]));
+      run(["synthesize", "portfolio", "--allow-partial"]);
       run(["export", "portfolio-model", "--output", "portfolio-model.json"]);
       run(["export", "portfolio-claims", "--output", "portfolio-claims.json"]);
       run(["export", "portfolio-decisions", "--output", "portfolio-decisions.json"]);
@@ -412,21 +487,9 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     // (a direct `new Date().toISOString()` call), and each product's own
     // source.sourceProductIdentityGeneratedAt/sourceCapabilityModelGeneratedAt
     // chain from the copied artifact files' own run-specific timestamps —
-    // strip all three and deep-compare everything else, including every
-    // normalized capability, relationship, gap, and evidence citation.
-    const stripPortfolioModel = (m: Record<string, unknown>) => {
-      const { generationMetadata, products, ...rest } = m as {
-        generationMetadata: Record<string, unknown>;
-        products: Array<Record<string, unknown>>;
-      } & Record<string, unknown>;
-      const { generated_at, ...metadataRest } = generationMetadata;
-      const strippedProducts = products.map((p) => {
-        const { source, ...productRest } = p as { source: Record<string, unknown> } & Record<string, unknown>;
-        const { sourceProductIdentityGeneratedAt, sourceCapabilityModelGeneratedAt, ...sourceRest } = source;
-        return { ...productRest, source: sourceRest };
-      });
-      return { ...rest, products: strippedProducts, generationMetadata: metadataRest };
-    };
+    // strip all three (via the hoisted stripPortfolioModel above) and
+    // deep-compare everything else, including every normalized capability,
+    // relationship, gap, and evidence citation.
     expect(
       stripPortfolioModel(readJson(join(sourceDir, ".rvs/cache/portfolio-model.json")) as Record<string, unknown>),
     ).toEqual(stripPortfolioModel(readJson(join(packagedDir, ".rvs/cache/portfolio-model.json")) as Record<string, unknown>));
@@ -464,5 +527,45 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     expect(
       stripPortfolioPlan(readJson(join(sourceDir, ".rvs/cache/portfolio-plan.json")) as Record<string, unknown>),
     ).toEqual(stripPortfolioPlan(readJson(join(packagedDir, ".rvs/cache/portfolio-plan.json")) as Record<string, unknown>));
+
+    // Reordered-input proof, run through the packaged binary as well as
+    // source (not just in-process — synthesizePortfolio's own
+    // order-independence proofs in portfolio-intelligence/src/__tests__/
+    // index.test.ts never touch the packaged tarball). Reuses the
+    // artifact-roots/{product-a,product-b,product-c} directories each dir
+    // already has on disk from the pipeline above, so this needs no
+    // additional pack/install cost. Runs and asserts last, after every
+    // other assertion in this test that reads .rvs/cache/portfolio-model.json
+    // or the exported portfolio-model.json, since re-running `synthesize
+    // portfolio` here overwrites both with the reversed-order result.
+    for (const [run, dir] of runs) {
+      writeFileSync(join(dir, ".rvs/portfolio.yml"), portfolioYaml(["product-c", "product-b", "product-a"]));
+      run(["synthesize", "portfolio", "--allow-partial"]);
+      run(["export", "portfolio-model", "--output", "portfolio-model-reordered.json"]);
+    }
+    const forwardVsReversed = (dir: string) =>
+      expect(stripPortfolioModel(readJson(join(dir, "portfolio-model-reordered.json")) as Record<string, unknown>)).toEqual(
+        stripPortfolioModel(readJson(join(dir, "portfolio-model.json")) as Record<string, unknown>),
+      );
+    forwardVsReversed(sourceDir);
+    forwardVsReversed(packagedDir);
+    expect(stripPortfolioModel(readJson(join(sourceDir, "portfolio-model-reordered.json")) as Record<string, unknown>)).toEqual(
+      stripPortfolioModel(readJson(join(packagedDir, "portfolio-model-reordered.json")) as Record<string, unknown>),
+    );
+
+    // Small-portfolio proof: the multi-product scenario above (used for the
+    // "large"/reordered/partially-incompatible dimensions) fully replaced
+    // this test's original single-product scenario, so re-add it here as a
+    // minimal, cheap check reusing the same already-installed tarball (no
+    // additional pack/install cost) — confirms source and packaged stay
+    // equivalent for the smallest possible portfolio input too.
+    for (const [run, dir] of runs) {
+      writeFileSync(join(dir, ".rvs/portfolio.yml"), portfolioYaml(["product-a"]));
+      run(["synthesize", "portfolio"]);
+      run(["export", "portfolio-model", "--output", "portfolio-model-small.json"]);
+    }
+    expect(stripPortfolioModel(readJson(join(sourceDir, "portfolio-model-small.json")) as Record<string, unknown>)).toEqual(
+      stripPortfolioModel(readJson(join(packagedDir, "portfolio-model-small.json")) as Record<string, unknown>),
+    );
   });
 });

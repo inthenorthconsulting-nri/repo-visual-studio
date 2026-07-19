@@ -80,7 +80,11 @@ export function collectCapabilityRefs(products: PortfolioProduct[], capabilityMo
     const byId = new Map<string, { capability: Capability; qualified: boolean }>();
     for (const c of model.includedCapabilities) byId.set(c.id, { capability: c, qualified: false });
     for (const c of model.qualifiedCapabilities) byId.set(c.id, { capability: c, qualified: true });
-    for (const id of [...product.currentCapabilityIds, ...product.qualifiedCapabilityIds]) {
+    // Dedupe: current/qualified come from an external, unrevalidated product-identity.json
+    // artifact -- a malformed generator run could list the same capability id in both lists,
+    // and a Set here (rather than a plain concatenated array) keeps that from producing two
+    // refs for the same (product, capability) pair, which would double-count it downstream.
+    for (const id of new Set([...product.currentCapabilityIds, ...product.qualifiedCapabilityIds])) {
       const entry = byId.get(id);
       if (entry) refs.push({ productId: product.id, configId: product.source.configId, capability: entry.capability, qualified: entry.qualified });
     }
@@ -180,15 +184,24 @@ export function normalizePortfolioCapabilities(products: PortfolioProduct[], cap
   const evidence: PortfolioEvidence[] = [];
   const refToCapabilityId = new Map<string, string>();
 
-  const sortedGroups = [...groups.values()].sort((a, b) => refs[a[0]].capability.id.localeCompare(refs[b[0]].capability.id));
-
-  for (const memberIndices of sortedGroups) {
+  // `capability.id` is a pure function of source label text alone (not
+  // product-scoped), so two unrelated products can produce identically-named
+  // capabilities that land in different groups — a group's first-member
+  // capability.id alone is not always unique, so the group's full
+  // `normalizedKey` (unique by construction, computed once here) breaks the
+  // tie deterministically instead of falling back to Map insertion order.
+  const groupEntries = [...groups.values()].map((memberIndices) => {
     const members = memberIndices.map((i) => refs[i]).sort((a, b) => a.productId.localeCompare(b.productId) || a.capability.id.localeCompare(b.capability.id));
+    const normalizedKey = members.map((m) => `${m.productId}:${m.capability.id}`).join("|");
+    return { members, normalizedKey };
+  });
+  const sortedGroups = groupEntries.sort((a, b) => a.members[0].capability.id.localeCompare(b.members[0].capability.id) || a.normalizedKey.localeCompare(b.normalizedKey));
+
+  for (const { members, normalizedKey } of sortedGroups) {
     // Canonical label: the member with the most evidence wins (best-supported label); ties broken by shorter, then alphabetically earlier, display name for determinism.
     const canonical = [...members].sort(
       (a, b) => b.capability.evidence.length - a.capability.evidence.length || a.capability.displayName.length - b.capability.displayName.length || a.capability.displayName.localeCompare(b.capability.displayName),
     )[0];
-    const normalizedKey = members.map((m) => `${m.productId}:${m.capability.id}`).join("|");
     const capabilityId = portfolioCapabilityId(normalizedKey);
 
     const participation: PortfolioCapabilityParticipation[] = members.map((m) => ({

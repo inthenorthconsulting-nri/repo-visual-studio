@@ -266,6 +266,7 @@ export function validatePortfolioPlan(plan: PortfolioPlan): PortfolioWarning[] {
   const capabilityIds = new Set(plan.model.capabilities.map((c) => c.id));
   const relationshipIds = new Set([...plan.model.relationships, ...plan.model.unresolvedRelationships].map((r) => r.id));
   const gapIds = new Set(plan.model.gaps.map((g) => g.id));
+  const decisionIds = new Set(plan.decisions.map((d) => d.id));
   const claimIds = new Set([...plan.narrative.approvedClaims, ...plan.narrative.rejectedClaims, ...plan.narrative.runtimeVerificationClaims].map((c) => c.id));
   const evidenceIds = new Set(plan.model.evidence.map((e) => e.id));
 
@@ -283,6 +284,7 @@ export function validatePortfolioPlan(plan: PortfolioPlan): PortfolioWarning[] {
       ...scene.capabilityIds.filter((id) => !capabilityIds.has(id)),
       ...scene.relationshipIds.filter((id) => !relationshipIds.has(id)),
       ...scene.gapIds.filter((id) => !gapIds.has(id)),
+      ...scene.decisionIds.filter((id) => !decisionIds.has(id)),
       ...scene.claimIds.filter((id) => !claimIds.has(id)),
       ...scene.evidenceIds.filter((id) => !evidenceIds.has(id)),
     ];

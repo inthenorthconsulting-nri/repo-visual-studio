@@ -58,6 +58,26 @@ describe("buildProductRelationships", () => {
       const upstream = result.relationships.find((r) => r.type === "upstream_dependency")!;
       expect(upstream.confidence).toBe("confirmed");
     });
+
+    it("silently skips an approved_relationships entry whose product_a or product_b does not resolve to any known product id or configId, rather than producing a dangling relationship", () => {
+      const productA = makePortfolioProduct({ source: makeSourceMetadata({ configId: "product-a" }) });
+      const productB = makePortfolioProduct({ displayName: "Product B", source: makeSourceMetadata({ configId: "product-b" }) });
+      const config = makePortfolioConfig({
+        products: [
+          { id: "product-a", artifact_root: "./artifacts/product-a" },
+          { id: "product-b", artifact_root: "./artifacts/product-b" },
+        ],
+        approved_relationships: [
+          { product_a: "product-a", product_b: "nonexistent-product", relationship: "upstream_dependency", note: "Declared upstream." },
+          { product_a: "nonexistent-product", product_b: "product-b", relationship: "shared_platform", note: "Declared platform." },
+        ],
+      });
+
+      const result = buildProductRelationships([productA, productB], new Map(), [], new Map(), config);
+
+      expect(result.relationships).toEqual([]);
+      expect(result.unresolvedRelationships).toEqual([]);
+    });
   });
 
   it("two products sharing a normalized capability (shared coverage, 2 participants) produce a shared_capability relationship", () => {

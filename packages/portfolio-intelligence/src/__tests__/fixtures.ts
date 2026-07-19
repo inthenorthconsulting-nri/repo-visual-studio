@@ -456,6 +456,7 @@ export function makePortfolioScenePlan(overrides: Partial<PortfolioScenePlan> = 
     capabilityIds: [],
     relationshipIds: [],
     gapIds: [],
+    decisionIds: [],
     claimIds: [],
     evidenceIds: [],
     qualifiers: [],

@@ -125,10 +125,12 @@ export function buildFlows(input: FlowInputs): ArchitectureFlow[] {
 }
 
 /** Deployment-environment boundaries are derived only from WorkflowNode(type="environment") labels — one boundary per distinct environment name seen across all workflows. */
-export function buildBoundaries(graphs: WorkflowGraph[], workflowComponentsByGraphId: Map<string, string>): ArchitectureBoundary[] {
+export function buildBoundaries(graphsInput: WorkflowGraph[], workflowComponentsByGraphId: Map<string, string>): ArchitectureBoundary[] {
   const byName = new Map<string, { componentIds: Set<string>; evidence: { path: string; lines?: string }[] }>();
 
-  for (const graph of graphs) {
+  // Sorted by id (matching buildFlows() above) so which graph's node.evidence
+  // ends up first within a shared environment name never depends on caller-supplied scan order.
+  for (const graph of [...graphsInput].sort((a, b) => a.id.localeCompare(b.id))) {
     const componentId = workflowComponentsByGraphId.get(graph.id);
     if (!componentId) continue;
     for (const node of graph.nodes) {
@@ -149,6 +151,6 @@ export function buildBoundaries(graphs: WorkflowGraph[], workflowComponentsByGra
       kind: "deployment-environment" as const,
       containedComponentIds: [...entry.componentIds].sort(),
       description: derived(`Deployment environment referenced by ${entry.componentIds.size} automation area${entry.componentIds.size === 1 ? "" : "s"}.`, entry.evidence, "Derived from GitHub Actions environment nodes."),
-      evidence: entry.evidence,
+      evidence: [...entry.evidence].sort((a, b) => evidenceKey(a).localeCompare(evidenceKey(b))),
     }));
 }

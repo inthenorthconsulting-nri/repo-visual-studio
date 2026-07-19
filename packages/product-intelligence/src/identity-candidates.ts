@@ -29,6 +29,18 @@ export function descriptorForArchetype(archetype: ProductArchetype): string {
   return ARCHETYPE_DESCRIPTOR_TEMPLATES[archetype];
 }
 
+/**
+ * The single deterministic ordering rule for `ProductIdentityModel.candidates`:
+ * evidence score descending, then stable id ascending as the tie-break.
+ * `buildIdentityCandidates()` sorts by this, and `validation.ts`'s
+ * `SHOWCASE_NONDETERMINISTIC_ORDER` check verifies against this same
+ * comparator — sharing it is what keeps the generator and the validator from
+ * drifting into checking two different invariants.
+ */
+export function compareIdentityCandidates(a: ProductIdentityCandidate, b: ProductIdentityCandidate): number {
+  return b.score - a.score || a.id.localeCompare(b.id);
+}
+
 /** §5: short promise <=18 words, derived from (never replacing) the synthesized purpose sentence. */
 export function shortPromiseFromPurpose(purpose: string): string {
   const firstClause = purpose.split(/[.;]/)[0] ?? purpose;
@@ -70,6 +82,6 @@ export function buildIdentityCandidates(
       return candidate;
     });
 
-  candidates.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  candidates.sort(compareIdentityCandidates);
   return candidates;
 }

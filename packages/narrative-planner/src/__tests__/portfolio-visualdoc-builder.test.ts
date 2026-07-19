@@ -86,6 +86,7 @@ function makeScenePlan(type: PortfolioSceneType, id: string, headline: string): 
     capabilityIds: [],
     relationshipIds: [],
     gapIds: [],
+    decisionIds: [],
     claimIds: [],
     evidenceIds: [],
     qualifiers: [],

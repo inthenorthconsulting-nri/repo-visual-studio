@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { PortfolioGapType } from "../contracts.js";
-import { portfolioDecisionId } from "../ids.js";
+import type { PortfolioGapType, PortfolioProduct, PortfolioProductRelationship } from "../contracts.js";
+import { portfolioDecisionId, portfolioProductId } from "../ids.js";
 import { buildPortfolioDecisions, buildPortfolioPlan, PORTFOLIO_PLAN_MAX_SCENES, PORTFOLIO_PLAN_MIN_SCENES, type BuildPortfolioPlanOptions } from "../portfolio-plan.js";
 import {
   GENERATED_AT,
+  makePortfolioCapability,
   makePortfolioDependencyEdge,
   makePortfolioGap,
   makePortfolioModel,
@@ -14,6 +15,28 @@ import {
   makePortfolioRelationship,
   makeSourceMetadata,
 } from "./fixtures.js";
+
+/** N distinct portfolio products (p0..p{n-1}), each with a unique configId/id so relationship/capability fixtures below have real product ids to reference. */
+function makeProducts(n: number): PortfolioProduct[] {
+  return Array.from({ length: n }, (_, i) =>
+    makePortfolioProduct({
+      displayName: `Product ${i}`,
+      source: makeSourceMetadata({ configId: `product-${i}`, artifactRoot: `./artifacts/product-${i}` }),
+    }),
+  );
+}
+
+/** The first `count` distinct (i < j) pairs among `products`, each as a "shared_capability" relationship -- enough unique pairs exist up to C(products.length, 2). */
+function makeRelationshipsAmong(products: PortfolioProduct[], count: number): PortfolioProductRelationship[] {
+  const relationships: PortfolioProductRelationship[] = [];
+  outer: for (let i = 0; i < products.length; i += 1) {
+    for (let j = i + 1; j < products.length; j += 1) {
+      if (relationships.length >= count) break outer;
+      relationships.push(makePortfolioRelationship({ productAId: products[i]!.id, productBId: products[j]!.id }));
+    }
+  }
+  return relationships;
+}
 
 function makeSecondProduct() {
   return makePortfolioProduct({
@@ -171,6 +194,70 @@ describe("buildPortfolioDecisions - overlap, reconciliation, and unresolved-rela
   });
 });
 
+describe("buildPortfolioDecisions - owner-type resolution never invents a named individual or an arbitrary role (ownership.ts + decisionOwnerType)", () => {
+  it("falls back to the generic architecture_council owner (never picking one product's role arbitrarily) when a decision's affected products span two different roles", () => {
+    const product1 = makePortfolioProduct(); // default primaryRole: governance_system
+    const product2 = makeSecondProduct(); // primaryRole: operations_system
+    const gap = makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product1.id, product2.id], capabilityId: "portfolio:capability:widget-sync" });
+    const model = makePortfolioModel({ products: [product1, product2], gaps: [gap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.recommendedOwnerType).toBe("architecture_council");
+  });
+
+  it("falls back to the generic architecture_council owner (never a fabricated role) when affectedProductIds don't resolve to any product in the model at all", () => {
+    const strategicOverlap = makePortfolioOverlap({ severity: "strategic", productIds: ["portfolio:product:unknown-a", "portfolio:product:unknown-b"] });
+    const model = makePortfolioModel({ overlaps: [strategicOverlap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.recommendedOwnerType).toBe("architecture_council");
+  });
+
+  it("a single affected product with a known role still resolves to that role's owner type, not the mixed-role fallback (control case, so the fallback tests above are proven meaningful)", () => {
+    const product = makeSecondProduct(); // primaryRole: operations_system -> operations_owner
+    const gap = makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: "portfolio:capability:widget-sync" });
+    const model = makePortfolioModel({ products: [product], gaps: [gap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions[0]!.recommendedOwnerType).toBe("operations_owner");
+  });
+});
+
+describe("buildPortfolioDecisions - confidence is only ever read from an already-resolved capability, never fabricated", () => {
+  it("falls back to confidence: 'derived' when the gap has no capabilityId at all", () => {
+    const product = makePortfolioProduct();
+    const gap = makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: undefined });
+    const model = makePortfolioModel({ products: [product], gaps: [gap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.confidence).toBe("derived");
+  });
+
+  it("falls back to confidence: 'derived' when the gap's capabilityId points to a capability absent from model.capabilities (dangling reference), rather than crashing or inventing a confidence level", () => {
+    const product = makePortfolioProduct();
+    const gap = makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: "portfolio:capability:does-not-exist" });
+    const model = makePortfolioModel({ products: [product], gaps: [gap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.confidence).toBe("derived");
+  });
+
+  it("reads confidence directly off the resolved capability's own confidence field (not a fixed default) when capabilityId does resolve", () => {
+    const product = makePortfolioProduct();
+    const capability = makePortfolioCapability({ id: "portfolio:capability:widget-sync", confidence: "suggested" });
+    const gap = makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: capability.id });
+    const model = makePortfolioModel({ products: [product], capabilities: [capability], gaps: [gap] });
+
+    const decisions = buildPortfolioDecisions(model);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.confidence).toBe("suggested");
+  });
+});
+
 describe("buildPortfolioPlan / selectSceneTypes (evidence-gated optional scenes)", () => {
   const narrative = makePortfolioNarrative();
   const options: BuildPortfolioPlanOptions = { audience: "executive", theme: "default", evidenceMode: "concise", generatedAt: GENERATED_AT };
@@ -229,5 +316,146 @@ describe("buildPortfolioPlan / selectSceneTypes (evidence-gated optional scenes)
     // Decisions are computed once (via buildPortfolioDecisions) and reused for both the plan's decisions
     // register and the portfolio-decisions scene gate.
     expect(plan.decisions.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildPortfolioPlan / large-portfolio scale (12 products, 30 capabilities, 25 relationships)", () => {
+  const narrative = makePortfolioNarrative();
+  const options: BuildPortfolioPlanOptions = { audience: "executive", theme: "default", evidenceMode: "audit", generatedAt: GENERATED_AT };
+
+  it("stays within PORTFOLIO_PLAN_MIN_SCENES..PORTFOLIO_PLAN_MAX_SCENES, includes every capability (30 < CAPABILITY_COVERAGE_MAX), and truncates the relationship map (25 > RELATIONSHIP_MAP_DENSE_THRESHOLD) with a disclosed qualifier rather than silently dropping edges", () => {
+    const products = makeProducts(12);
+    const capabilities = Array.from({ length: 30 }, (_, i) => makePortfolioCapability({ id: `portfolio:capability:cap-${String(i).padStart(2, "0")}`, displayName: `Capability ${i}` }));
+    const relationships = makeRelationshipsAmong(products, 25);
+    const model = makePortfolioModel({ products, capabilities, relationships });
+
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+
+    expect(plan.scenes.length).toBeGreaterThanOrEqual(PORTFOLIO_PLAN_MIN_SCENES);
+    expect(plan.scenes.length).toBeLessThanOrEqual(PORTFOLIO_PLAN_MAX_SCENES);
+
+    const coverageScene = plan.scenes.find((s) => s.type === "portfolio-capability-coverage")!;
+    expect(coverageScene.capabilityIds).toHaveLength(30);
+    expect(coverageScene.qualifiers).toEqual([]);
+
+    const relationshipScene = plan.scenes.find((s) => s.type === "portfolio-relationship-map")!;
+    expect(relationshipScene.relationshipIds).toHaveLength(12);
+    expect(relationshipScene.density).toBe("low");
+    expect(relationshipScene.qualifiers).toEqual([`Showing the 12 highest-priority relationships of 25; the full set is available in the evidence export.`]);
+    // Truncation picks the 12 lowest-sorted-by-id relationships deterministically, not an arbitrary subset.
+    const expectedIncludedIds = [...relationships].map((r) => r.id).sort((a, b) => a.localeCompare(b)).slice(0, 12);
+    expect(relationshipScene.relationshipIds).toEqual(expectedIncludedIds);
+  });
+});
+
+describe("buildPortfolioPlan / portfolio-relationship-map density fallback (RELATIONSHIP_MAP_DENSE_THRESHOLD boundary)", () => {
+  const narrative = makePortfolioNarrative();
+  const options: BuildPortfolioPlanOptions = { audience: "executive", theme: "default", evidenceMode: "audit", generatedAt: GENERATED_AT };
+
+  it("0 relationships: portfolio-relationship-map is omitted entirely (evidence-gated, never an empty scene)", () => {
+    const model = makePortfolioModel({ products: makeProducts(2), relationships: [] });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    expect(plan.scenes.some((s) => s.type === "portfolio-relationship-map")).toBe(false);
+  });
+
+  it("1 relationship: included in full, density medium, no truncation qualifier", () => {
+    const products = makeProducts(2);
+    const relationships = makeRelationshipsAmong(products, 1);
+    const model = makePortfolioModel({ products, relationships });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-relationship-map")!;
+    expect(scene.relationshipIds).toHaveLength(1);
+    expect(scene.density).toBe("medium");
+    expect(scene.qualifiers).toEqual([]);
+  });
+
+  it("exactly 12 relationships (at, not over, the threshold): included in full, density medium, no truncation -- '> 12' is a strict inequality", () => {
+    const products = makeProducts(12);
+    const relationships = makeRelationshipsAmong(products, 12);
+    const model = makePortfolioModel({ products, relationships });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-relationship-map")!;
+    expect(scene.relationshipIds).toHaveLength(12);
+    expect(scene.density).toBe("medium");
+    expect(scene.qualifiers).toEqual([]);
+  });
+
+  it("13 relationships (one over the threshold): truncated to 12, density low, qualifier discloses the truncation and the true total", () => {
+    const products = makeProducts(12);
+    const relationships = makeRelationshipsAmong(products, 13);
+    const model = makePortfolioModel({ products, relationships });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-relationship-map")!;
+    expect(scene.relationshipIds).toHaveLength(12);
+    expect(scene.density).toBe("low");
+    expect(scene.qualifiers).toEqual([`Showing the 12 highest-priority relationships of 13; the full set is available in the evidence export.`]);
+  });
+
+  it("all-to-all (6 products, C(6,2)=15 relationships): still just a count crossing the threshold -- truncates the same as any other 15-relationship set", () => {
+    const products = makeProducts(6);
+    const relationships = makeRelationshipsAmong(products, 15);
+    expect(relationships).toHaveLength(15);
+    const model = makePortfolioModel({ products, relationships });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-relationship-map")!;
+    expect(scene.relationshipIds).toHaveLength(12);
+    expect(scene.density).toBe("low");
+    expect(scene.qualifiers).toEqual([`Showing the 12 highest-priority relationships of 15; the full set is available in the evidence export.`]);
+  });
+});
+
+describe("buildPortfolioPlan / portfolio-capability-coverage truncation (CAPABILITY_COVERAGE_MAX boundary)", () => {
+  const narrative = makePortfolioNarrative();
+  const options: BuildPortfolioPlanOptions = { audience: "executive", theme: "default", evidenceMode: "audit", generatedAt: GENERATED_AT };
+
+  it("exactly 40 capabilities (at, not over, the threshold): included in full, no truncation qualifier", () => {
+    const capabilities = Array.from({ length: 40 }, (_, i) => makePortfolioCapability({ id: `portfolio:capability:cap-${String(i).padStart(2, "0")}`, displayName: `Capability ${i}` }));
+    const model = makePortfolioModel({ capabilities });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-capability-coverage")!;
+    expect(scene.capabilityIds).toHaveLength(40);
+    expect(scene.qualifiers).toEqual([]);
+  });
+
+  it("41 capabilities (one over the threshold): truncated to the 40 lowest-sorted ids, qualifier discloses the true total", () => {
+    const capabilities = Array.from({ length: 41 }, (_, i) => makePortfolioCapability({ id: `portfolio:capability:cap-${String(i).padStart(2, "0")}`, displayName: `Capability ${i}` }));
+    const model = makePortfolioModel({ capabilities });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-capability-coverage")!;
+    expect(scene.capabilityIds).toHaveLength(40);
+    expect(scene.qualifiers).toEqual([`Showing 40 of 41 capabilities; remaining capabilities are available in the full export.`]);
+    const expectedIncludedIds = capabilities.map((c) => c.id).sort((a, b) => a.localeCompare(b)).slice(0, 40);
+    expect(scene.capabilityIds).toEqual(expectedIncludedIds);
+  });
+});
+
+describe("buildPortfolioPlan / portfolio-decisions truncation (DECISIONS_MAX boundary)", () => {
+  const narrative = makePortfolioNarrative();
+  const options: BuildPortfolioPlanOptions = { audience: "executive", theme: "default", evidenceMode: "audit", generatedAt: GENERATED_AT };
+
+  it("exactly 40 decisions (at, not over, the threshold): included in full, no truncation qualifier", () => {
+    const product = makePortfolioProduct();
+    const gaps = Array.from({ length: 40 }, (_, i) =>
+      makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: `portfolio:capability:cap-${String(i).padStart(2, "0")}` }),
+    );
+    const model = makePortfolioModel({ products: [product], gaps });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-decisions")!;
+    expect(scene.decisionIds).toHaveLength(40);
+    expect(scene.qualifiers).toEqual([]);
+  });
+
+  it("41 decisions (one over the threshold): truncated to the 40 lowest-sorted ids, qualifier discloses the true total", () => {
+    const product = makePortfolioProduct();
+    const gaps = Array.from({ length: 41 }, (_, i) =>
+      makePortfolioGap({ type: "unowned_capability", affectedProductIds: [product.id], capabilityId: `portfolio:capability:cap-${String(i).padStart(2, "0")}` }),
+    );
+    const model = makePortfolioModel({ products: [product], gaps });
+    const plan = buildPortfolioPlan(model, narrative, [], options);
+    const scene = plan.scenes.find((s) => s.type === "portfolio-decisions")!;
+    expect(scene.decisionIds).toHaveLength(40);
+    expect(scene.qualifiers).toEqual([`Showing 40 of 41 decisions; remaining decisions are available in the full export.`]);
+    const expectedIncludedIds = buildPortfolioDecisions(model).map((d) => d.id).slice(0, 40);
+    expect(scene.decisionIds).toEqual(expectedIncludedIds);
   });
 });

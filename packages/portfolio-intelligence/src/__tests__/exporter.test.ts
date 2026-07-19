@@ -78,6 +78,26 @@ describe("explainPortfolioClaim", () => {
     const text = explainPortfolioClaim(claim);
     expect(text).toContain("(none recorded)");
   });
+
+  it("renders every one of the 12 rejection-reason codes verbatim when a claim carries all of them at once — nothing is truncated, deduped, or dropped by the renderer", () => {
+    const allCodes = [
+      "PORTFOLIO_CLAIM_UNSUPPORTED",
+      "PORTFOLIO_CLAIM_DOUBLE_COUNTS_CAPABILITY",
+      "PORTFOLIO_CLAIM_ROADMAP_PROMOTED",
+      "PORTFOLIO_CLAIM_QUALIFIED_CAPABILITY_UNQUALIFIED",
+      "PORTFOLIO_CLAIM_RUNTIME_UNVERIFIED",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_SCALE",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_ADOPTION",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_INTEGRATION",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_UNIFICATION",
+      "PORTFOLIO_CLAIM_UNRESOLVED_RELATIONSHIP",
+      "PORTFOLIO_CLAIM_GENERIC_MARKETING",
+      "PORTFOLIO_CLAIM_UNSUPPORTED_OWNERSHIP",
+    ] as const;
+    const claim = makePortfolioClaim({ status: "rejected", rejectionReasons: [...allCodes] });
+    const text = explainPortfolioClaim(claim);
+    for (const code of allCodes) expect(text).toContain(`- ${code}`);
+  });
 });
 
 describe("explainPortfolioDecision", () => {

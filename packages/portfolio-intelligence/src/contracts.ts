@@ -152,7 +152,10 @@ export interface PortfolioProductInputIssue {
   message: string;
 }
 
-export type PortfolioCompatibilityStatus = "compatible" | "compatible_with_warnings" | "incompatible" | "missing_required_artifact" | "unsupported_schema" | "identity_mismatch" | "stale_artifact_set";
+// Note: every possible compatibility failure produced by assessCompatibility() (compatibility.ts)
+// is already one of the four specific statuses below -- there is no generic "incompatible" catch-all
+// status, since a caller should always be able to tell exactly which §6 check failed.
+export type PortfolioCompatibilityStatus = "compatible" | "compatible_with_warnings" | "missing_required_artifact" | "unsupported_schema" | "identity_mismatch" | "stale_artifact_set";
 
 /** Raw per-product artifact bundle loaded from an artifact root, prior to any reconciliation. Never rescans a repository — always reads already-generated Milestone 3-5 output (§2 hard constraint). */
 export interface PortfolioProductArtifacts {
@@ -482,6 +485,7 @@ export interface PortfolioScenePlan {
   capabilityIds: string[];
   relationshipIds: string[];
   gapIds: string[];
+  decisionIds: string[];
   claimIds: string[];
   evidenceIds: string[];
   qualifiers: string[];
