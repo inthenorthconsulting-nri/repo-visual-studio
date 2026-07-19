@@ -105,11 +105,20 @@ function bestEffortName(repoRoot: string, dir: string, manifestFile: string, man
 export function detectWorkspacePackages(repoRoot: string, inventory: FileInventory): WorkspacePackage[] {
   const packages: WorkspacePackage[] = [];
   const seenDirs = new Set<string>();
+  let rootManifest: { base: string; path: string } | undefined;
   for (const file of inventory.files) {
     const base = file.path.includes("/") ? file.path.slice(file.path.lastIndexOf("/") + 1) : file.path;
     if (!MANIFEST_FILENAMES.has(base) || base === "pnpm-workspace.yaml") continue;
     const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
-    if (dir === "") continue; // the repo root's own manifest is already represented via tech_stack, not as a "sub-package" component
+    if (dir === "") {
+      // Deferred, not skipped: a monorepo's root manifest (this repo's own
+      // shape) stays represented via tech_stack only, so per-package
+      // granularity is never diluted by a coarse root entry — see the
+      // packages.length check below, which only promotes the root manifest
+      // when there is no nested package to prefer over it.
+      if (!rootManifest) rootManifest = { base, path: file.path };
+      continue;
+    }
     if (seenDirs.has(dir)) continue;
     seenDirs.add(dir);
 
@@ -119,5 +128,29 @@ export function detectWorkspacePackages(repoRoot: string, inventory: FileInvento
       packages.push({ path: dir, manifestFile: base, name: bestEffortName(repoRoot, dir, base, file.path), hasBinEntry: false, binPaths: [], dependencyNames: [], hasLibraryExport: false });
     }
   }
+
+  // A single-package repository (no nested workspace packages) still has
+  // real package-defining evidence at its own root — most commonly a CLI's
+  // package.json with a "bin" field living directly at the repo root, the
+  // single most common real-world Node CLI shape. Without this, that
+  // evidence was invisible to every downstream consumer that reads
+  // workspace_packages (component classification, capability candidates,
+  // archetype detection).
+  if (packages.length === 0 && rootManifest) {
+    packages.push(
+      rootManifest.base === "package.json"
+        ? readPackageJson(repoRoot, "", rootManifest.path)
+        : {
+            path: "",
+            manifestFile: rootManifest.base,
+            name: bestEffortName(repoRoot, "", rootManifest.base, rootManifest.path),
+            hasBinEntry: false,
+            binPaths: [],
+            dependencyNames: [],
+            hasLibraryExport: false,
+          },
+    );
+  }
+
   return packages.sort((a, b) => a.path.localeCompare(b.path));
 }

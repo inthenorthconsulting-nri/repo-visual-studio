@@ -113,6 +113,9 @@ importers:
       '@rvs/narrative-planner':
         specifier: workspace:*
         version: link:../narrative-planner
+      '@rvs/product-intelligence':
+        specifier: workspace:*
+        version: link:../product-intelligence
       '@rvs/renderer-html':
         specifier: workspace:*
         version: link:../renderer-html
@@ -196,6 +199,9 @@ importers:
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
+      '@rvs/product-intelligence':
+        specifier: workspace:*
+        version: link:../product-intelligence
       '@rvs/repository-model':
         specifier: workspace:*
         version: link:../repository-model
@@ -222,6 +228,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@24.13.3)
 
+  packages/product-intelligence:
+    dependencies:
+      '@rvs/architecture-intelligence':
+        specifier: workspace:*
+        version: link:../architecture-intelligence
+      '@rvs/capability-intelligence':
+        specifier: workspace:*
+        version: link:../capability-intelligence
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.0
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@24.13.3)
+
   packages/renderer-html:
     dependencies:
       '@rvs/architecture-intelligence':
@@ -233,6 +264,9 @@ importers:
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
+      '@rvs/product-intelligence':
+        specifier: workspace:*
+        version: link:../product-intelligence
       '@rvs/terraform-graph':
         specifier: workspace:*
         version: link:../terraform-graph

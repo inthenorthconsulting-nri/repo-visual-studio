@@ -67,6 +67,24 @@ model, no repository-specific hard-coded capability list. See
 full design, the 13 exclusion reason codes, and the self-hosting result
 against this repository itself.
 
+**Milestone 5** adds Product Identity and Executive Showcase Intelligence: a
+synthesis stage on top of an accepted `CapabilityModel` that derives a
+durable product identity (archetype, purpose, users, value pillars,
+differentiators) and, from it, an audience-aware executive narrative and a
+premium "showcase" slide profile — governed throughout by the same rule as
+every prior milestone: storytelling may compress evidence, but it must never
+inflate maturity, invent adoption, or promote unfinished capabilities. A new
+claim-control engine classifies every candidate showcase statement as
+approved, approved with qualification, rejected, or requiring runtime
+verification before it can appear in a slide, and every rejection stays
+inspectable via `rvs showcase explain`. No external model, no
+repository-specific hard-coded product identity. See
+[`docs/product-identity-intelligence.md`](docs/product-identity-intelligence.md)
+and
+[`docs/executive-showcase-intelligence.md`](docs/executive-showcase-intelligence.md)
+for the full design and the self-hosting result against this repository
+itself.
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -92,8 +110,12 @@ pnpm rvs create topology --all --renderer both         # optional: Terraform -> 
 pnpm rvs synthesize architecture                        # optional: synthesize ArchitectureIntelligence
 pnpm rvs synthesize capabilities                        # optional: synthesize CapabilityModel (requires synthesize architecture)
 pnpm rvs export capabilities --output CAPABILITIES.md   # optional: render the evidence-gated capability model
+pnpm rvs synthesize product-identity                     # optional: synthesize ProductIdentityModel (requires synthesize capabilities)
+pnpm rvs export product-identity --output product-identity.json  # optional
 pnpm rvs create slides --design-system executive-dark # or: editorial-light | technical-grid
 pnpm rvs create slides --profile architecture-review   # requires `synthesize architecture` first; see below
+pnpm rvs create slides --profile showcase --audience executive  # requires `synthesize product-identity` first; see below
+pnpm rvs export showcase-plan --output showcase-plan.json  # optional
 pnpm rvs validate --ci                                # overflow/contrast/evidence checks
 pnpm rvs export pdf
 ```
@@ -255,6 +277,41 @@ the same cached evidence any repository produces. See
 for the complete list, including this repository's own low-yield self-hosting
 result and its root cause.
 
+### Product Identity and Executive Showcase Intelligence
+
+`rvs synthesize product-identity` reads the cached `capability-model.json`
+(required — run `rvs synthesize capabilities` first) plus
+`architecture-intelligence.json`, and produces a `ProductIdentityModel`,
+cached to `.rvs/cache/product-identity-model.json`. See
+[`docs/product-identity-intelligence.md`](docs/product-identity-intelligence.md)
+and
+[`docs/executive-showcase-intelligence.md`](docs/executive-showcase-intelligence.md)
+for the full design. In short:
+
+**What it does**: classifies a product archetype (13 possible, or `unknown`
+when evidence is too thin), derives users/purpose/3-5 value pillars/up to 6
+structurally-justified differentiators, then runs every candidate showcase
+statement through a claim-control engine (`approved` /
+`approved_with_qualification` / `rejected` / `runtime_verification_required`,
+with 11 rejection reason codes) before composing an audience-aware executive
+narrative and a 7-10 scene "showcase" presentation.
+
+**`rvs create slides --profile showcase [--audience executive|...] [--theme
+executive-dark|...]`** builds the showcase deck.
+**`rvs export product-identity`** / **`rvs export showcase-plan`** dump the
+underlying JSON. **`rvs showcase explain <claim-id>`** prints one claim's
+full text, status, evidence, and (if rejected) every rejection reason.
+
+**Explicit limitations**: no external model; scenes are only ever inserted
+when the underlying evidence justifies them (e.g. the differentiators scene
+is omitted entirely when no differentiator clears its structural bar) —
+never padded to hit the 7-10 scene band. See
+[`docs/product-identity-intelligence.md#known-limitations`](docs/product-identity-intelligence.md#known-limitations)
+and
+[`docs/executive-showcase-intelligence.md#known-limitations`](docs/executive-showcase-intelligence.md#known-limitations)
+for the complete list, including this repository's own conservative
+`archetype: unknown` self-hosting result.
+
 Run `pnpm rvs doctor` (or `npx rvs doctor` for a standalone install) if
 anything fails unexpectedly. It reports the CLI version, Node
 version/OS/architecture, installation type (packaged vs. workspace
@@ -303,9 +360,10 @@ packages/
   terraform-svg/       TerraformTopology -> native SVG diagram (shared layout engine)
   architecture-intelligence/  RepositoryModel + WorkflowGraph[] + TerraformTopology[] -> synthesized ArchitectureIntelligence, narrative profiles
   capability-intelligence/  ArchitectureIntelligence -> evidence-gated CapabilityModel, CAPABILITIES.md/JSON exporters
-  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence scenes)
-  renderer-html/      VisualDoc + design tokens -> standalone HTML deck
-  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks
+  product-intelligence/  CapabilityModel -> ProductIdentityModel, claim-controlled ExecutiveNarrative, ShowcasePlan
+  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase scenes)
+  renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase scene templates + premium theme layer)
+  validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks + product-identity/showcase checks
   exporter/            Playwright-based PDF export
   cli/                the `rvs` command (Commander)
 design-systems/        token packs: executive-dark, editorial-light, technical-grid
@@ -375,6 +433,20 @@ network-touching step in the whole system is the one-time, user-initiated
   and 2 evidence-backed qualified capabilities. See
   [`docs/capability-intelligence.md#closure-condition-remediation`](docs/capability-intelligence.md#closure-condition-remediation)
   for the full traced explanation. No external model.
+- Product Identity and Executive Showcase Intelligence (Milestone 5) only
+  synthesizes from an already-accepted `CapabilityModel` — a repository whose
+  capability model has few included/qualified capabilities will correctly
+  resolve to `archetype: unknown` / `confidence: unresolved` rather than
+  guess (observed directly on this repository's own thin self-scan). The
+  claim-control engine's technical-token detection is a generic regex, not a
+  repository-specific denylist, so a legitimate product term that happens to
+  look like a package path or camelCase identifier will also be rejected —
+  every rejection stays inspectable via `rvs showcase explain` rather than
+  silently disappearing. No external model. See
+  [`docs/product-identity-intelligence.md#known-limitations`](docs/product-identity-intelligence.md#known-limitations)
+  and
+  [`docs/executive-showcase-intelligence.md#known-limitations`](docs/executive-showcase-intelligence.md#known-limitations)
+  for the complete list.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see
   [`docs/packaging.md`](docs/packaging.md#current-limitations-before-npm-publication)

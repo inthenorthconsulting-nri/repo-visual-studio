@@ -12,6 +12,7 @@
     "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/capability-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
+    "@rvs/product-intelligence": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",
     "@rvs/terraform-svg": "workspace:*",
     "@rvs/visualdoc-schema": "workspace:*",

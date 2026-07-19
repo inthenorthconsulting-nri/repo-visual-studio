@@ -124,7 +124,15 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
 
     packagedDir = mkdtempSync(join(tmpdir(), "rvs-equiv-packaged-"));
     cpSync(fixture, packagedDir, { recursive: true });
-    execFileSync("npm", ["install", tarballPath], { cwd: packagedDir, stdio: "inherit" });
+    // --no-save: this install exists only to produce a runnable `rvs` binary
+    // to compare against the source checkout. Without it, npm writes
+    // "@rvs/cli" into packagedDir's package.json (but never sourceDir's),
+    // which — since the root-level-manifest CLI-detection fix (§6 above)
+    // makes `rvs inspect` treat every root package.json's own dependency
+    // list as WorkspacePackage evidence — made repository-model.json's
+    // workspace_packages[0].dependencyNames genuinely diverge between the
+    // two runs for reasons entirely unrelated to the CLI's own behavior.
+    execFileSync("npm", ["install", "--no-save", tarballPath], { cwd: packagedDir, stdio: "inherit" });
 
     rmSync(fixture, { recursive: true, force: true });
   }, 240_000);
@@ -160,6 +168,10 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
       run(["synthesize", "architecture"]);
       run(["synthesize", "capabilities"]);
       run(["export", "capabilities", "--output", "CAPABILITIES.md"]);
+      run(["synthesize", "product-identity"]);
+      run(["export", "product-identity", "--output", "product-identity.json"]);
+      run(["create", "slides", "--profile", "showcase", "--audience", "executive"]);
+      run(["export", "showcase-plan", "--output", "showcase-plan.json"]);
     }
 
     // .rvs/config.yml: identical project name (from the shared package.json)
@@ -297,5 +309,63 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     expect(
       stripTimestampLines(readFileSync(join(sourceDir, "CAPABILITIES.md"), "utf8")),
     ).toEqual(stripTimestampLines(readFileSync(join(packagedDir, "CAPABILITIES.md"), "utf8")));
+
+    // product-identity-model.json: same rationale as architecture-intelligence.json
+    // and capability-model.json above — generationMetadata.generated_at and
+    // .source_capability_model_generated_at are the only run-specific
+    // (wall-clock, chained from repository-model.json's own inspect-time
+    // stamp) fields; git_commit is legitimately identical.
+    const stripProductIdentityModel = (p: Record<string, unknown>) => {
+      const { generationMetadata, ...rest } = p as { generationMetadata: Record<string, unknown> } & Record<string, unknown>;
+      const { generated_at, source_capability_model_generated_at, ...metadataRest } = generationMetadata;
+      return { ...rest, generationMetadata: metadataRest };
+    };
+    expect(
+      stripProductIdentityModel(readJson(join(sourceDir, ".rvs/cache/product-identity-model.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripProductIdentityModel(readJson(join(packagedDir, ".rvs/cache/product-identity-model.json")) as Record<string, unknown>),
+    );
+    expect(
+      stripProductIdentityModel(readJson(join(sourceDir, "product-identity.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripProductIdentityModel(readJson(join(packagedDir, "product-identity.json")) as Record<string, unknown>),
+    );
+
+    // product-identity-candidates.json: a diagnostic dump with no timestamps
+    // of its own — byte-identical.
+    expect(readFileSync(join(sourceDir, ".rvs/cache/product-identity-candidates.json"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, ".rvs/cache/product-identity-candidates.json"), "utf8"),
+    );
+
+    // showcase-plan.json: `rvs create slides --profile showcase` stamps
+    // generationMetadata.generated_at from a direct `new Date().toISOString()`
+    // call (not chained from any cached, inspect-time timestamp the way the
+    // artifacts above are), and .source_product_identity_generated_at chains
+    // from product-identity-model.json's own generated_at — both are the
+    // only run-specific fields; strip both and deep-compare the rest,
+    // including every scene, claim, and evidence citation.
+    const stripShowcasePlan = (p: Record<string, unknown>) => {
+      const { generationMetadata, ...rest } = p as { generationMetadata: Record<string, unknown> } & Record<string, unknown>;
+      const { generated_at, source_product_identity_generated_at, ...metadataRest } = generationMetadata;
+      return { ...rest, generationMetadata: metadataRest };
+    };
+    expect(
+      stripShowcasePlan(readJson(join(sourceDir, ".rvs/cache/showcase-plan.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripShowcasePlan(readJson(join(packagedDir, ".rvs/cache/showcase-plan.json")) as Record<string, unknown>),
+    );
+    expect(
+      stripShowcasePlan(readJson(join(sourceDir, "showcase-plan.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripShowcasePlan(readJson(join(packagedDir, "showcase-plan.json")) as Record<string, unknown>),
+    );
+
+    // The showcase deck.html / visualdoc.json overwrite the earlier
+    // repository-inventory deck (both runs execute `create slides` then
+    // `create slides --profile showcase` in the same order above), so the
+    // deck.html/visualdoc.json assertions further up this test already
+    // re-verify the *showcase* deck's content-spec-hash, git-commit stamp,
+    // and scene-id ordering are identical between source and packaged — no
+    // separate showcase-specific deck assertion is needed here.
   });
 });

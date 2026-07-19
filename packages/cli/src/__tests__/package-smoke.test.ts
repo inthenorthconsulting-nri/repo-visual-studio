@@ -323,6 +323,73 @@ maybeDescribe("packaged CLI (npm tarball)", () => {
     expect(explainMessage).toContain("No capability or candidate found");
   });
 
+  it("runs synthesize product-identity -> export product-identity -> create slides --profile showcase -> export showcase-plan -> showcase explain against the pipeline's cached evidence", () => {
+    // Depends on the .rvs/cache/{architecture-intelligence,capability-model}.json
+    // produced by the prior two pipeline tests in this same installDir —
+    // mirrors this file's existing pattern of later it() blocks building on
+    // state left by earlier ones rather than rewriting the fixture from
+    // scratch. Milestone 5's five new product-identity/showcase CLI surfaces
+    // are exercised here through the packed npm tarball, not just workspace
+    // source (closure condition 1).
+    const identityOutput = rvs(["synthesize", "product-identity"]);
+    expect(identityOutput).toMatch(
+      /Synthesized product identity for ".+": archetype=\S+ confidence=\S+, \d+ value pillar\(s\), \d+ differentiator\(s\), \d+ candidate\(s\), \d+ error\(s\), \d+ warning\(s\)\./,
+    );
+    const identityModelPath = join(installDir, ".rvs/cache/product-identity-model.json");
+    expect(existsSync(identityModelPath)).toBe(true);
+    expect(existsSync(join(installDir, ".rvs/cache/product-identity-candidates.json"))).toBe(true);
+
+    const exportIdentityOutput = rvs(["export", "product-identity", "--output", "product-identity.json"]);
+    expect(exportIdentityOutput).toContain("Wrote");
+    const productIdentityJsonPath = join(installDir, "product-identity.json");
+    expect(existsSync(productIdentityJsonPath)).toBe(true);
+    interface ExportedProductIdentity {
+      identity: { displayName: string; archetype: string };
+    }
+    const exportedIdentity = JSON.parse(readFileSync(productIdentityJsonPath, "utf8")) as ExportedProductIdentity;
+    expect(exportedIdentity.identity.displayName.length).toBeGreaterThan(0);
+
+    const showcaseOutput = rvs(["create", "slides", "--profile", "showcase", "--audience", "executive"]);
+    expect(showcaseOutput).toMatch(/Rendered \d+ showcase scenes to artifacts\/visuals\/deck\.html using ".+" \(audience: "executive", theme: ".+"\)/);
+    expect(showcaseOutput).toContain("Cached to .rvs/cache/showcase-plan.json");
+    const showcasePlanCachePath = join(installDir, ".rvs/cache/showcase-plan.json");
+    expect(existsSync(showcasePlanCachePath)).toBe(true);
+
+    const exportShowcaseOutput = rvs(["export", "showcase-plan", "--output", "showcase-plan.json"]);
+    expect(exportShowcaseOutput).toMatch(/Wrote .+ \(\d+ scene\(s\), \d+ approved claim\(s\), \d+ rejected claim\(s\)\)\./);
+    const showcasePlanJsonPath = join(installDir, "showcase-plan.json");
+    expect(existsSync(showcasePlanJsonPath)).toBe(true);
+
+    interface ExportedShowcasePlan {
+      narrative: {
+        approvedClaims: Array<{ id: string; text: string }>;
+        rejectedClaims: Array<{ id: string; text: string }>;
+        runtimeVerificationClaims: Array<{ id: string; text: string }>;
+      };
+    }
+    const exportedPlan = JSON.parse(readFileSync(showcasePlanJsonPath, "utf8")) as ExportedShowcasePlan;
+    const allClaims = [
+      ...exportedPlan.narrative.approvedClaims,
+      ...exportedPlan.narrative.rejectedClaims,
+      ...exportedPlan.narrative.runtimeVerificationClaims,
+    ];
+    expect(allClaims.length).toBeGreaterThan(0);
+    const [firstClaim] = allClaims;
+    const explainOutput = rvs(["showcase", "explain", firstClaim.id]);
+    expect(explainOutput.length).toBeGreaterThan(0);
+
+    let explainFailed = false;
+    let explainMessage = "";
+    try {
+      rvs(["showcase", "explain", "definitely-not-a-real-claim-id"]);
+    } catch (err) {
+      explainFailed = true;
+      explainMessage = String((err as { stderr?: string }).stderr ?? "");
+    }
+    expect(explainFailed).toBe(true);
+    expect(explainMessage).toContain('No claim found matching "definitely-not-a-real-claim-id"');
+  });
+
   it("exports a PDF when Chromium is available, or fails clearly when it is not", () => {
     let chromiumAvailable: boolean;
     try {

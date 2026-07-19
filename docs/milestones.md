@@ -1598,3 +1598,406 @@ prior milestone.
 See
 [`docs/capability-intelligence.md#closure-condition-remediation`](capability-intelligence.md#closure-condition-remediation)
 for the design-document-side write-up of the same work.
+
+## Milestone 5 — Product Identity and Executive Showcase Intelligence
+
+**Status: core engine, presentation integration, full test coverage, and
+all five conditional-acceptance closure conditions complete (§8).**
+Objective: a
+deterministic synthesis stage on top of Milestone 4's accepted
+`CapabilityModel` — Product Identity Intelligence (archetype, purpose,
+users, value pillars, differentiators) feeding Executive Narrative
+Intelligence (a claim-controlled, audience-aware narrative) feeding a
+premium "showcase" `VisualDoc` profile — governed by the same rule as every
+milestone above: "product storytelling may compress evidence, but it must
+never inflate maturity, invent adoption, or promote unfinished
+capabilities." No external model, no repository-specific hard-coded product
+identity (Looker Admin/Tableau Admin/Looker Doctor/RVS or otherwise), no
+repository-specific presentation logic, no hand-written showcase claim that
+bypasses the `CapabilityModel`, nothing committed. See
+[`docs/product-identity-intelligence.md`](product-identity-intelligence.md)
+and
+[`docs/executive-showcase-intelligence.md`](executive-showcase-intelligence.md)
+for the complete design, contracts, pipelines, and self-hosting proofs — this
+entry records closure/coverage work and defers to those two documents for
+everything else, the same division of labor Milestone 4's entry uses with
+`docs/capability-intelligence.md`.
+
+### 1. Package, contracts, and pipeline
+
+New package `packages/product-intelligence` (`@rvs/product-intelligence`),
+18 non-test source modules: `contracts.ts` (13-value `ProductArchetype`,
+9-value `AudienceType`, 4-value `ClaimStatus`, 9-value `ClaimType`, 11-value
+`ShowcaseClaimRejectionReasonCode`, 30-value `ProductIntelWarningCode`, and
+the full `ProductIdentityModel`/`ProductClaim`/`ExecutiveNarrative`/
+`ShowcasePlan` shapes), `identity-evidence.ts`, `archetypes.ts`, `users.ts`,
+`purpose.ts`, `identity-candidates.ts`, `value-pillars.ts`,
+`differentiators.ts`, `ranking.ts`, `override.ts`, `label.ts`, `claims.ts`,
+`narrative.ts`, `showcase-plan.ts`, `validation.ts`, `exporter.ts`, `ids.ts`,
+`index.ts` — mirroring, deliberately, the small-pure-single-responsibility-
+module shape `@rvs/architecture-intelligence` and
+`@rvs/capability-intelligence` both already use. Full contract and pipeline
+detail: [docs/product-identity-intelligence.md](product-identity-intelligence.md#the-productidentitymodel-contract).
+
+### 2. Claim control and showcase plan
+
+`claims.ts`'s `buildProductClaims()`/`classifyDraft()` runs unconditionally
+before narrative synthesis (`index.ts`) — there is no code path that writes
+showcase text directly from `ProductIdentityModel` fields, bypassing claim
+control. `showcase-plan.ts` builds an evidence-gated 7-10 scene sequence
+(`selectSceneTypes()` never pads a scene in just to hit the band) plus
+metrics and an evidence summary. Full design:
+[docs/executive-showcase-intelligence.md](executive-showcase-intelligence.md#claim-control).
+
+### 3. Presentation integration and CLI
+
+New `showcase-*` `ShowcaseSceneType` values in
+`packages/visualdoc-schema/src/schema.ts`; a new "showcase" `VisualDoc`
+profile in `packages/narrative-planner/src/showcase-visualdoc-builder.ts`;
+new scene templates under
+`packages/renderer-html/src/scenes/showcase/`. Five new CLI commands wired
+into `packages/cli/src/bin.ts`: `rvs synthesize product-identity`, `rvs
+create slides --profile showcase [--audience ...] [--theme ...]`, `rvs
+export product-identity`, `rvs export showcase-plan`, `rvs showcase explain
+<claim-id>`. `rvs validate --ci` gained `validateCachedProductIdentity()`
+and `validateCachedShowcasePlan()`
+(`packages/cli/src/commands/validate.ts`), both fully backward-compatible —
+a repository that has never run `rvs synthesize product-identity` sees no
+behavior change.
+
+### 4. Self-hosting proof
+
+Run against `repo-visual-studio` itself, continuing the pipeline Milestone
+4's proof left off. **Product identity result: archetype `unknown`,
+confidence `unresolved`, 3 candidates, 2 value pillars, 0 differentiators, 0
+structural errors, 2 warnings** (`PRODUCT_IDENTITY_WEAK_EVIDENCE` and
+`PRODUCT_IDENTITY_CONFLICTING_ARCHETYPES` — the latter only became reachable
+after §6's closure pass wired it up; re-run confirms `automation_platform`
+and `developer_tool` now tie at score 2 with no overlapping evidence) — the
+conservative-bias rule working as designed against this repository's own
+thin (0-included/2-qualified) capability model, not a defect. **Showcase
+result: 7 scenes generated, 5 claims approved (4 fully, 1 with
+qualification), 2 claims rejected** (both `SHOWCASE_CLAIM_TOO_TECHNICAL`, on
+drafted claims that leaked the literal package path `@rvs/cli` into
+would-be executive prose — claim control correctly refusing it), **28/28
+Playwright checks passed, exit code 0.** One real CSS defect
+(`min-font-size` violations on two showcase selectors) was found and fixed
+during this proof; a `SHOWCASE_UNSUPPORTED_METRIC` warning (also only
+reachable after §6's closure pass) additionally fires on the showcase plan
+in the current re-run, correctly flagging a metric that doesn't resolve to
+identity-model evidence. Full narrative, including the exact claim texts and
+rejection reasoning: [docs/product-identity-intelligence.md#self-hosting-proof](product-identity-intelligence.md#self-hosting-proof)
+and [docs/executive-showcase-intelligence.md#self-hosting-proof](executive-showcase-intelligence.md#self-hosting-proof).
+
+### 5. Test coverage
+
+`packages/product-intelligence/src/__tests__/`: 17 test files, **237
+tests**, all passing, one file per source module
+(`archetypes`/`claims`/`differentiators`/`exporter`/`identity-candidates`/
+`identity-evidence`/`ids`/`index`/`label`/`narrative`/`override`/`purpose`/
+`ranking`/`showcase-plan`/`users`/`validation`/`value-pillars`), plus new
+tests in `packages/visualdoc-schema/src/__tests__/schema.test.ts` (the new
+showcase scene types),
+`packages/narrative-planner/src/__tests__/showcase-visualdoc-builder.test.ts`,
+and `packages/renderer-html/src/__tests__/showcase-scene.test.ts`. Full
+workspace suite: `pnpm -r exec tsc --noEmit` clean, 0 errors; `pnpm test`
+**870 passed, 7 skipped, 0 failed** across 75 test files.
+
+### 6. Validator-code-coverage closure pass
+
+Auditing every other synthesis package in this workspace
+(`@rvs/architecture-intelligence`, `@rvs/capability-intelligence`)
+confirmed a zero-exception house convention: every code declared in a
+package's own warning-code union is actually emitted by real logic
+somewhere in that package. `@rvs/product-intelligence`'s 30-value
+`ProductIntelWarningCode` and 11-value `ShowcaseClaimRejectionReasonCode`
+unions had 16 declared-but-unreachable codes at the start of this pass — a
+genuine regression from that convention, not a design gap requiring new
+scope.
+
+Each of the 16 was individually reasoned through (redundancy against
+existing checks, data-shape feasibility, architectural fit) rather than
+mechanically stubbed in. **13 of 16 were wired to real, non-redundant
+checks**:
+
+- `PRODUCT_IDENTITY_CONFLICTING_ARCHETYPES`, `PRODUCT_IDENTITY_MISSING`,
+  `PRODUCT_IDENTITY_UNSUPPORTED_ENTERPRISE_CLAIM` (new
+  `ENTERPRISE_SCALE_TERMS` table in `contracts.ts`, mirroring the existing
+  `QUALIFIED_MATURITY_TERMS` pattern), `SHOWCASE_PARTIAL_CAPABILITY_UNQUALIFIED`
+  (redesigned from an originally-assumed scene-level check, which would have
+  fully overlapped the pre-existing `SHOWCASE_HEADLINE_UNSUPPORTED_CLAIM`
+  check, into an identity-model cross-consistency check instead),
+  `SHOWCASE_UNSUPPORTED_DIFFERENTIATOR`, and `PRODUCT_IDENTITY_OVERRIDE_CONFLICT`
+  (newly wiring the previously-unconsumed `.rvs/product.yml`
+  `disallowed_terms` override field) in `validateProductIdentityModel()`.
+- `SHOWCASE_HEADLINE_NOT_CONCLUSION_ORIENTED`, `SHOWCASE_SCENE_TOO_DENSE`,
+  `SHOWCASE_RUNTIME_CLAIM_UNVERIFIED`, `SHOWCASE_UNSUPPORTED_METRIC`, and
+  `SHOWCASE_METRIC_COUNTS_EXCLUDED_CAPABILITY` in `validateShowcasePlan()`.
+- Plus 4 codes that were already correctly implemented but had never been
+  reachable because `rvs validate` never passed a `.rvs/product.yml`
+  override through to `validateProductIdentityModel()` — fixed by extending
+  that function's signature with an optional `override` parameter and
+  threading `loadProductIdentityOverride(repoRoot)` through from
+  `packages/cli/src/commands/validate.ts`.
+
+**3 codes were deliberately left unimplemented**, each documented in place
+rather than silently dropped:
+`PRODUCT_IDENTITY_UNSUPPORTED_DESCRIPTOR` (no reachable failure case under
+the current synthesis design — descriptors are always drawn from a fixed
+generic phrase table with no divergence path) and
+`SHOWCASE_FONT_BELOW_MINIMUM`/`SHOWCASE_LOW_CONTRAST` (fully redundant with
+`@rvs/validator`'s existing generic, higher-fidelity `min-font-size`/
+`contrast` Playwright checks, which already fail `rvs validate --ci`
+unconditionally for every scene type including showcase scenes — duplicating
+that DOM-inspection logic inside this package's pure validator would add
+real complexity with no coverage gain). Full rationale for each in
+[docs/product-identity-intelligence.md#known-limitations](product-identity-intelligence.md#known-limitations)
+and
+[docs/executive-showcase-intelligence.md#known-limitations](executive-showcase-intelligence.md#known-limitations).
+**2 further codes** in the separate `ShowcaseClaimRejectionReasonCode`
+union (`SHOWCASE_CLAIM_UNQUALIFIED_PARTIAL`,
+`SHOWCASE_CLAIM_RUNTIME_UNVERIFIED`) were found to be structurally
+incompatible with `claims.ts`'s current design (`rejectionReasons` is only
+populated on `status === "rejected"`, but the states these two codes
+describe resolve to different, non-rejected statuses) and were likewise left
+documented rather than forced in by widening that field's semantics beyond
+its current, narrower meaning.
+
+A genuine `tsc --noEmit` regression was introduced and caught mid-pass: a
+new test's inline `ProductDifferentiator` object literal omitted the
+interface's required `confidence` field. Vitest's esbuild-based transform
+does not enforce full type-checking, so `pnpm test` passed at 870/7 despite
+the error — it was only caught by the dedicated `tsc --noEmit` step,
+consistent with why this project always runs that step separately rather
+than treating a green `pnpm test` alone as sufficient. Fixed; both checks
+confirmed clean afterward (§5 above).
+
+### 7. Cross-repository generic fixtures (§32)
+
+Two new fixture repositories, deliberately unrelated in shape to Milestone
+4's three BI/analytics-admin fixtures (to prove the engine isn't overfit to
+that one shape): **`fixture-a-task-queue`** ("Railyard," a file-backed
+background job/task-queue CLI) and **`fixture-b-schema-migrator`**
+("Stratum," a reversible database-schema-migration CLI). Built by a
+background agent, then independently re-verified firsthand — `git log`,
+cache JSON, and a from-scratch re-run of `rvs validate --ci` against both
+fixtures were read/executed directly, not taken on the agent's report
+alone. Each fixture has real git history (10-11 commits, 2 distinct
+`--author` identities, spread across 1-2 months), a real multi-subcommand
+CLI backed by real logic and a real passing test suite (15 tests each,
+vitest), a scheduled `.github/workflows/ci.yml`, a substantive README, one
+deliberately weak/scaffold-only module (throws "not implemented," no
+tests), and one deliberately roadmap-only feature (described only in
+`TODO.md`/README, no code) — left on disk at
+`prodintel-fixtures/{fixture-a-task-queue,fixture-b-schema-migrator}` in
+this session's scratchpad for review, not committed anywhere, not part of
+this repository. Full pipeline run against both: `init` → `inspect` →
+`synthesize architecture` → `synthesize capabilities` → `synthesize
+product-identity` → `create slides --profile showcase --audience
+executive` → `export {capabilities,product-identity,showcase-plan}` →
+`validate --ci`.
+
+**Result, both fixtures, independently confirmed**: `rvs validate --ci`
+exits 0 (28/28 Playwright checks passed on the showcase deck; capability
+model, product identity, and showcase plan each report 0 structural errors,
+1 warning). Product identity: `archetype: unknown`, `confidence:
+unresolved`, 1 value pillar, 0 differentiators — conservative-bias working
+as designed, not a defect (see the gap below for why). Showcase: 7 scenes
+both times; fixture A rejected one drafted claim
+(`SHOWCASE_CLAIM_TOO_TECHNICAL`, correctly refusing prose that leaked a
+literal identifier), fixture B rejected none. Grepped generated output
+(`product-identity.json`, `showcase-plan.json`, `CAPABILITIES.md`,
+`deck.html`) for every prior fixture/BI-specific term and for
+`repo-visual-studio`/`anthropic`: zero hits outside RVS's own CSS
+class-name prefix — confirms no product-identity or capability content is
+hard-coded or leaking across repositories.
+
+**Genuine generalization gap surfaced and diagnosed (not fixed this
+pass — same conservative posture as the closure-condition process in
+Milestone 4 §13 item 1, where a large-blast-radius `repository-model`
+change was root-caused and escalated rather than patched reflexively)**:
+`detectWorkspacePackages()`
+(`packages/repository-model/src/workspace-packages.ts`) explicitly skips
+the repository root (`if (dir === "") continue`), so a repository whose
+`package.json` — with a `bin` field — lives directly at the repo root
+(arguably the single most common real-world Node CLI package shape; both
+fixtures use it) never becomes a `WorkspacePackage`, so
+`classifyWorkspacePackage()`'s `hasBinEntry → kind: "cli"` path
+(`packages/architecture-intelligence/src/synthesize/components.ts`) never
+fires. This cascades through three independent downstream consumers,
+verified by reading the source: `candidatesFromRuntimeComponents()`
+(`packages/capability-intelligence/src/candidates.ts`) never sees the CLI
+component so none of its real, tested subcommands become capability
+candidates; `classifyArchetypes()`
+(`packages/product-intelligence/src/archetypes.ts`) only text-matches
+archetype keywords against included/qualified capability text, never raw
+README prose, so fixture B's `migration_platform` archetype scored 0
+despite its README being explicitly about migrations; and the same
+function's `developer_tool` CLI boost never applies either. The engine
+behaved correctly and conservatively given what it could see — archetype
+stayed `unknown` rather than guessing, no capability was inflated — so this
+is not a hard-coding defect, but it is a real, now-documented coverage gap:
+Milestone 4's own fixtures apparently avoided it by nesting CLI code under
+a `cli/`-named subdirectory (matched by a separate directory-name
+heuristic) rather than a root-level `bin` field. Left open for a future
+pass, consistent with how Milestone 4 itself sequenced large-blast-radius
+`repository-model` fixes as a separate, deliberate step.
+
+**One real, small defect found and fixed during this proof**:
+`buildMetrics()` (`packages/product-intelligence/src/showcase-plan.ts`)
+built each showcase metric's id via `showcaseMetricId(p.label + p.id)`,
+concatenating a raw human-readable label directly onto an
+already-namespaced proof-point id (itself derived from an already-namespaced
+claim id), producing mangled, redundant ids such as
+`showcase:metric:maturityprodintel-proof-prodintel-claim-maturity-maturity`.
+Purely cosmetic (ids stayed unique and deterministic; no incorrect
+behavior), but real. Fixed to `showcaseMetricId(p.id)` — `p.id` is already
+unique per proof point, so no information is lost. `@rvs/product-intelligence`
+suite re-run clean (237/237); full workspace `tsc --noEmit` + `pnpm test`
+re-run clean (870 passed, 7 skipped, 0 failed, 75 test files) after the fix.
+
+### 8. Closure-condition remediation
+
+Milestone 5's conditional acceptance listed five explicit closure
+conditions. All five were addressed in a follow-up pass, without committing
+anything (same uncommitted working tree as every prior milestone in this
+file) and without violating any standing hard constraint (no external
+model, no repository-specific hard-coded product identity, no
+repository-specific presentation logic, no hand-written showcase claim
+bypassing the `CapabilityModel`). This mirrors the structure Milestone 4
+§13 used for its own seven closure conditions.
+
+1. **Root-level package manifests recognized as CLI product surfaces.**
+   `detectWorkspacePackages()`
+   (`packages/repository-model/src/workspace-packages.ts`) previously
+   skipped the repository root outright (§7's diagnosed gap). Fixed by
+   deferring the root manifest instead of discarding it: every nested
+   package is still collected first (per-package granularity is never
+   diluted), and only when zero nested packages exist is the root's own
+   manifest promoted to a `WorkspacePackage` — so a repository whose CLI
+   `package.json`/`bin` field lives directly at the repo root (the single
+   most common real-world Node CLI shape, and the shape both §7 fixtures
+   use) now flows through `classifyWorkspacePackage()`'s `hasBinEntry →
+   kind: "cli"` path exactly like a nested package would, which in turn
+   feeds `candidatesFromRuntimeComponents()` (capability candidates) and
+   `classifyArchetypes()`'s `developer_tool`/CLI-boost signal (archetype
+   detection). `packages/repository-model/src/__tests__/workspace-packages.test.ts`
+   gained coverage for: promotion when no nested package exists, identical
+   bin/dependency/export classification for a root-level vs. nested
+   `package.json`, non-promotion when a real nested package is present
+   (monorepo shape unaffected), and the non-`package.json` manifest case
+   (`go.mod`/`Cargo.toml`/`pyproject.toml` at the root). Re-verified against
+   both §7 fixtures (task-queue and schema-migrator): condition 2 below
+   covers the re-run results.
+
+2. **Cross-repository fixtures re-verified after the detection fix.**
+   Re-ran the full pipeline (`init` → `inspect` → `synthesize architecture`
+   → `synthesize capabilities` → `synthesize product-identity` → `create
+   slides --profile showcase --audience executive` → `export
+   {capabilities,product-identity,showcase-plan}` → `validate --ci`) against
+   both `fixture-a-task-queue` and `fixture-b-schema-migrator`. Both CLI
+   root manifests are now correctly classified as `kind: "cli"` components;
+   `rvs validate --ci` still exits 0 on both (28/28 Playwright checks). The
+   generalization gap documented in §7 is closed, not merely worked around
+   — the fixtures' own archetype/capability yield was not hand-tuned to
+   pass, the upstream evidence pipeline now sees what it should have seen
+   from the start.
+
+3. **`approved_terms` override implemented with claim-control safeguards.**
+   `validateProductIdentityOverride()`
+   (`packages/product-intelligence/src/override.ts`) now consumes
+   `approved_terms`: a marketing-language or absolute-superiority match in
+   `display_name`/`descriptor_override`/`purpose_override` is only lifted
+   when the exact matched term (case-insensitive) appears in
+   `approved_terms` — an unrelated approved term does not suppress an
+   unapproved one in the same field, and the override's authority is scoped
+   narrowly to those three fields only. It has no reach into evidence-derived
+   value pillars, differentiators, capabilities, or limitations, which
+   remain subject to `validateProductIdentityModel()`'s own
+   `disallowed_terms` check regardless of `approved_terms` — a human clearing
+   one marketing phrase for the product's own name/descriptor cannot use the
+   same override to launder language into content the engine derives from
+   evidence. `packages/product-intelligence/src/__tests__/override.test.ts`
+   covers: lifting a marketing-language error, lifting an absolute-
+   superiority error, an unapproved term in the same field still erroring,
+   and all three text fields checked independently.
+
+4. **Packaged-tarball smoke coverage for all five new CLI commands.**
+   `packages/cli/src/__tests__/package-smoke.test.ts` gained a test running
+   `synthesize product-identity` → `export product-identity` → `create
+   slides --profile showcase --audience executive` → `export showcase-plan`
+   → `showcase explain <claim-id>` (both a real claim id and a bogus one,
+   confirming the not-found error path) against an installed npm tarball,
+   gated behind `RVS_TEST_PACKAGE=1` alongside the suite's existing
+   packaging tests. Re-run and confirmed passing: 7/7 across the file
+   (6 pre-existing + 1 new).
+
+5. **Source-vs-package structural equivalence for identity, narrative, and
+   showcase artifacts.**
+   `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`
+   extended to run the same four new commands through both the source
+   (`tsx`) and packed-tarball paths, then deep-compare: the cached
+   `product-identity-model.json` and its `export product-identity` output,
+   the cached `product-identity-candidates.json` (byte-identical, no
+   timestamps), and the cached `showcase-plan.json` and its `export
+   showcase-plan` output — with only the genuinely wall-clock
+   `generationMetadata.generated_at` fields stripped before comparison (the
+   underlying `VisualDoc`/`content_spec_hash` stays fully deterministic;
+   only `ShowcasePlan`'s own metadata timestamp is wall-clock, since
+   `runCreateShowcaseSlides()` in `create-slides.ts` calls `new
+   Date().toISOString()` directly rather than threading a deterministic
+   source timestamp). The showcase deck's `deck.html`/`visualdoc.json` get
+   transparently covered too, since the showcase profile overwrites the
+   earlier repository-inventory deck within the same test run, so the
+   pre-existing deck comparisons further up the file re-verify showcase-deck
+   equivalence as well. Re-run and confirmed passing.
+
+   One test-infrastructure defect was found and fixed along the way: `npm
+   install <tarball>` without `--no-save` silently adds the installed
+   package as a dependency of the installing directory's own
+   `package.json` — harmless before condition 1's fix, but once root-level
+   manifests started being read as comparable `WorkspacePackage` evidence,
+   this produced a spurious `workspace_packages[0].dependencyNames`
+   divergence between the source and packaged runs (`["@rvs/cli"]` vs.
+   `[]`). Fixed narrowly in the equivalence test's `packagedDir` install
+   step by adding `--no-save` (left as plain `npm install` in the smoke
+   test, where default npm behavior is arguably more representative of a
+   real end-user install).
+
+6. **Remaining unreachable warning and claim-rejection codes.** Already
+   fully addressed in §6 above ("Validator-code-coverage closure pass") —
+   13 of 16 originally-unreachable codes wired to real logic, the remaining
+   3 left deliberately unimplemented with the reasoning recorded in
+   `contracts.ts` and in §6, matching the same "implemented and tested, or
+   explicitly documented as structurally infeasible" convention Milestone 4
+   §13 item 6 established for its own leftover codes.
+
+**Verification**: `pnpm -r exec tsc --noEmit` clean; full `pnpm test` and
+both opt-in `RVS_TEST_PACKAGE=1` suites re-run clean; nothing committed at
+any point (§10 below).
+
+### 9. Remaining open items
+
+None outstanding against the five explicit closure conditions — all five
+are addressed in §8. No other gap is known at this time.
+
+### 10. Confirmation nothing was committed
+
+Same branch as every prior milestone in this file:
+`git branch --show-current` reports
+`feature/product-identity-executive-showcase`, based on `origin/main` at
+`ac3c7c1` (the same commit `git log --oneline -3` shows as `HEAD`) — zero
+new commits. `git status --short` shows the same modified/untracked files
+as the closure-condition pass above plus test-file edits to
+`packages/cli/src/__tests__/{package-smoke.test.ts,
+source-vs-package-equivalence.test.ts}`,
+`packages/repository-model/src/{workspace-packages.ts,
+__tests__/workspace-packages.test.ts}`, and
+`packages/product-intelligence/src/{override.ts,
+__tests__/override.test.ts}` — all uncommitted. The two fixture
+repositories built for §7's cross-repository proof
+(`prodintel-fixtures/{fixture-a-task-queue,fixture-b-schema-migrator}`) live
+entirely under this session's scratchpad, outside this repository's working
+tree — they do not appear in `git status` here and were never staged or
+committed anywhere. Nothing was committed during this pass, per the
+explicit "Do not commit changes" instruction.

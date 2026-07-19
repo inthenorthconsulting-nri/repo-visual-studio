@@ -174,4 +174,66 @@ describe("VisualDocSchema", () => {
     });
     expect(() => parseVisualDoc(doc)).not.toThrow();
   });
+
+  it("accepts a valid showcase-scene pointer scene (plan_id + scene_id only, mirroring the model_id/artifact_id pointer-scene contract)", () => {
+    const doc = baseDoc();
+    doc.scenes.push({
+      id: "s2",
+      type: "showcase-scene",
+      headline: "Widget Platform governs widget operations",
+      evidence: [],
+      plan_id: "Widget Platform",
+      scene_id: "showcase:scene:showcase-hero:0",
+    });
+    const parsed = parseVisualDoc(doc);
+    const scene = parsed.scenes[1];
+    expect(scene?.type).toBe("showcase-scene");
+    if (scene?.type === "showcase-scene") {
+      expect(scene.plan_id).toBe("Widget Platform");
+      expect(scene.scene_id).toBe("showcase:scene:showcase-hero:0");
+      expect(scene.evidence).toEqual([]);
+    }
+  });
+
+  it("rejects a showcase-scene missing plan_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "showcase-scene", headline: "Widget Platform governs widget operations", evidence: [], scene_id: "showcase:scene:showcase-hero:0" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a showcase-scene missing scene_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "showcase-scene", headline: "Widget Platform governs widget operations", evidence: [], plan_id: "Widget Platform" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a showcase-scene with an empty-string plan_id or scene_id (min(1) is enforced, not just presence)", () => {
+    const doc = baseDoc();
+    const rawDocEmptyPlan: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "showcase-scene", headline: "Widget Platform governs widget operations", evidence: [], plan_id: "", scene_id: "showcase:scene:showcase-hero:0" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyPlan)).toThrow();
+
+    const rawDocEmptyScene: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "showcase-scene", headline: "Widget Platform governs widget operations", evidence: [], plan_id: "Widget Platform", scene_id: "" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyScene)).toThrow();
+  });
+
+  it("rejects a showcase-scene missing a headline (inherited from BaseSceneSchema)", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "showcase-scene", evidence: [], plan_id: "Widget Platform", scene_id: "showcase:scene:showcase-hero:0" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
 });

@@ -2,9 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArchitectureIntelligence, NarrativeProfileId } from "@rvs/architecture-intelligence";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
-import type { EvidenceManifest, Logger } from "@rvs/core";
+import type { EvidenceManifest, Logger, RvsConfig } from "@rvs/core";
 import { loadConfig } from "@rvs/core";
-import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
+import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildShowcaseVisualDoc, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
+import type {
+  AudienceType,
+  ProductIdentityModel,
+  ShowcasePlan,
+} from "@rvs/product-intelligence";
+import { loadProductIdentityOverride, synthesizeExecutiveNarrative, synthesizeShowcasePlan, validateShowcasePlan } from "@rvs/product-intelligence";
+import type { DesignTokens } from "@rvs/renderer-html";
 import { loadDesignTokens, renderVisualDocToHtml } from "@rvs/renderer-html";
 import type { RepositoryModel } from "@rvs/repository-model";
 import type { TerraformTopology } from "@rvs/terraform-graph";
@@ -17,14 +24,26 @@ import { DESIGN_SYSTEMS_ROOT } from "../paths.js";
 // pre-Milestone-3 behavior byte-for-byte: buildVisualDoc() off the narrative
 // brief, no architecture-intelligence synthesis required. Any other profile
 // switches to buildArchitectureVisualDoc() off a cached ArchitectureIntelligence
-// artifact (produced by `rvs synthesize architecture`).
+// artifact (produced by `rvs synthesize architecture`). "showcase" (Milestone 5)
+// is a third, separate path: it never touches the narrative brief or
+// ArchitectureIntelligence narrative profiles at all — it is built entirely
+// from the cached ProductIdentityModel plus a freshly synthesized
+// ExecutiveNarrative/ShowcasePlan for the requested audience/theme.
 const DEFAULT_PROFILE: NarrativeProfileId = "repository-inventory";
+const SHOWCASE_PROFILE = "showcase";
+const DEFAULT_SHOWCASE_AUDIENCE: AudienceType = "executive";
+
+export interface CreateSlidesOptions {
+  audience?: string;
+  theme?: string;
+}
 
 export async function runCreateSlides(
   repoRoot: string,
   designSystemId: string | undefined,
   logger: Logger,
   profileId: string = DEFAULT_PROFILE,
+  options: CreateSlidesOptions = {},
 ): Promise<void> {
   const config = loadConfig(repoRoot);
   const model = readCachedJson<RepositoryModel>(repoRoot, "repository-model.json");
@@ -34,6 +53,11 @@ export async function runCreateSlides(
   const tokens = loadDesignTokens(DESIGN_SYSTEMS_ROOT, themeId);
   const workflowGraphs = readCachedJsonOptional<WorkflowGraph[]>(repoRoot, "workflow-graphs.json") ?? [];
   const terraformTopologies = readCachedJsonOptional<TerraformTopology[]>(repoRoot, "terraform-topologies.json") ?? [];
+
+  if (profileId === SHOWCASE_PROFILE) {
+    await runCreateShowcaseSlides(repoRoot, model, evidence, tokens, themeId, workflowGraphs, terraformTopologies, options, config, logger);
+    return;
+  }
 
   let doc;
   let architectureArtifacts: ArchitectureIntelligence[] = [];
@@ -94,4 +118,87 @@ export async function runCreateSlides(
   logger.info(
     `Rendered ${doc.scenes.length} scenes to ${config.defaults.output_dir}/deck.html using "${themeId}" (profile: "${profileId}")`,
   );
+}
+
+const SHOWCASE_AUDIENCES: readonly AudienceType[] = [
+  "executive",
+  "product_leader",
+  "platform_leader",
+  "architect",
+  "engineering_leader",
+  "developer",
+  "operator",
+  "portfolio",
+  "conference",
+];
+
+function resolveShowcaseAudience(raw: string | undefined): AudienceType {
+  if (!raw) return DEFAULT_SHOWCASE_AUDIENCE;
+  if (!(SHOWCASE_AUDIENCES as readonly string[]).includes(raw)) {
+    throw new Error(`Invalid --audience "${raw}"; expected one of: ${SHOWCASE_AUDIENCES.join(", ")}.`);
+  }
+  return raw as AudienceType;
+}
+
+// The "showcase" profile (Milestone 5) is deliberately isolated from the
+// repository-inventory/architecture-review branches above: it never reads
+// the narrative brief or an ArchitectureIntelligence artifact, and it is the
+// only profile that synthesizes fresh, audience-scoped content
+// (ExecutiveNarrative + ShowcasePlan) on every run rather than replaying a
+// single cached artifact — narrative/claims are audience-dependent, so they
+// cannot be produced once by `rvs synthesize product-identity` the way the
+// archetype-independent ProductIdentityModel is.
+async function runCreateShowcaseSlides(
+  repoRoot: string,
+  model: RepositoryModel,
+  evidence: EvidenceManifest,
+  tokens: DesignTokens,
+  designSystemId: string,
+  workflowGraphs: WorkflowGraph[],
+  terraformTopologies: TerraformTopology[],
+  options: CreateSlidesOptions,
+  config: RvsConfig,
+  logger: Logger,
+): Promise<void> {
+  const identityModel = readCachedJsonOptional<ProductIdentityModel>(repoRoot, "product-identity-model.json");
+  if (!identityModel) {
+    throw new Error('No cached product identity found. Run `rvs synthesize product-identity` first.');
+  }
+  const capabilityModel = readCachedJson<CapabilityModel>(repoRoot, "capability-model.json");
+  const override = loadProductIdentityOverride(repoRoot);
+
+  const audience = resolveShowcaseAudience(options.audience);
+  const theme = options.theme ?? designSystemId;
+
+  const { narrative, claims } = synthesizeExecutiveNarrative({ identityModel, capabilityModel, override, audience });
+  const plan: ShowcasePlan = synthesizeShowcasePlan({
+    identityModel,
+    narrative,
+    claims,
+    capabilityModel,
+    audience,
+    theme,
+    gitCommit: model.git.commit,
+    generatedAt: new Date().toISOString(),
+  });
+
+  for (const warning of validateShowcasePlan(plan, capabilityModel)) {
+    if (warning.severity === "error") logger.error(`${warning.code}: ${warning.message}`);
+    else logger.warn(`${warning.code}: ${warning.message}`);
+  }
+
+  const doc = buildShowcaseVisualDoc(plan);
+
+  const html = renderVisualDocToHtml(doc, tokens, evidence, { gitCommit: model.git.commit }, workflowGraphs, terraformTopologies, [], [capabilityModel], [plan]);
+
+  const outputDir = resolve(repoRoot, config.defaults.output_dir);
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(resolve(outputDir, "deck.html"), html);
+  writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
+  writeFileSync(resolve(cacheDir(repoRoot), "showcase-plan.json"), JSON.stringify(plan, null, 2));
+
+  logger.info(
+    `Rendered ${doc.scenes.length} showcase scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}" (audience: "${audience}", theme: "${theme}")`,
+  );
+  logger.info(`Cached to .rvs/cache/showcase-plan.json`);
 }

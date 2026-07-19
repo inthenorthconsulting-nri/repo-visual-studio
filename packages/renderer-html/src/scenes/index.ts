@@ -1,5 +1,6 @@
 import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
+import type { ShowcasePlan } from "@rvs/product-intelligence";
 import type { TerraformTopology } from "@rvs/terraform-graph";
 import type { Scene } from "@rvs/visualdoc-schema";
 import type { WorkflowGraph } from "@rvs/workflow-graph";
@@ -9,6 +10,7 @@ import { renderCapabilityIntelligenceOverviewScene } from "./capability-intellig
 import { renderHeadlineScene } from "./headline.js";
 import { renderMetricScene } from "./metric.js";
 import { renderSectionDividerScene } from "./section-divider.js";
+import { renderShowcaseScene } from "./showcase/index.js";
 import { renderTitleScene } from "./title.js";
 import { renderTopologyScene } from "./topology.js";
 import { renderWorkflowScene } from "./workflow.js";
@@ -20,6 +22,7 @@ export function renderSceneInner(
   terraformTopologies: Map<string, TerraformTopology>,
   architectureArtifacts: Map<string, ArchitectureIntelligence>,
   capabilityModels: Map<string, CapabilityModel>,
+  showcasePlans: Map<string, ShowcasePlan>,
 ): string {
   switch (scene.type) {
     case "title":
@@ -40,6 +43,8 @@ export function renderSceneInner(
       return renderArchitectureIntelligenceScene(scene, architectureArtifacts.get(scene.artifact_id));
     case "capability-intelligence-overview":
       return renderCapabilityIntelligenceOverviewScene(scene, capabilityModels.get(scene.model_id));
+    case "showcase-scene":
+      return renderShowcaseScene(scene, showcasePlans.get(scene.plan_id), capabilityModels.get(scene.plan_id));
     default: {
       const exhaustive: never = scene;
       throw new Error(`Unhandled scene type: ${JSON.stringify(exhaustive)}`);

@@ -59,11 +59,11 @@ function classifyWorkspacePackage(pkg: WorkspacePackage): LogicalComponentKind {
 }
 
 function buildWorkspacePackageComponent(pkg: WorkspacePackage, samplePaths: string[]): LogicalComponent {
-  const displayName = pkg.name ?? lastSegment(pkg.path);
+  const displayName = pkg.name ?? (pkg.path ? lastSegment(pkg.path) : "root");
   const manifestPath = pkg.path ? `${pkg.path}/${pkg.manifestFile}` : pkg.manifestFile;
   const sortedPaths = [...samplePaths].sort();
   return {
-    id: componentId(pkg.path),
+    id: componentId(pkg.path || "root"),
     label: normalizeLabel(displayName),
     kind: classifyWorkspacePackage(pkg),
     origin: "repository-directory" as const,
@@ -118,8 +118,13 @@ export function buildComponentsFromRepository(model: RepositoryModel): LogicalCo
 
   const uncovered: string[] = [];
   for (const path of model.files.sampledPaths) {
+    // A root package (path "") only ever appears when detectWorkspacePackages
+    // found no nested package to prefer over it (see that function's own
+    // guard), so treating it as owning every otherwise-unmatched path here
+    // can never dilute a real monorepo's per-package granularity — there is
+    // never a nested package present alongside a root entry to compete with.
     const owningPackage = packages
-      .filter((pkg) => path === pkg.path || path.startsWith(`${pkg.path}/`))
+      .filter((pkg) => pkg.path === "" || path === pkg.path || path.startsWith(`${pkg.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0];
     if (owningPackage) {
       pathsByPackage.get(owningPackage.path)!.push(path);

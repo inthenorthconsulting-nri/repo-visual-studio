@@ -90,6 +90,19 @@ describe("buildComponentsFromRepository", () => {
     expect(widgets?.kind).toBe("unknown");
   });
 
+  it("classifies a root-level workspace package (path \"\") with a bin entry as a cli component and attributes every sampled path to it", () => {
+    const model = makeModel({
+      workspace_packages: [makePackage({ path: "", name: "root-cli", hasBinEntry: true, binPaths: ["bin/cli.js"] })],
+      files: { total: 2, byExtension: { ".ts": 1, ".js": 1 }, sampledPaths: ["src/index.ts", "bin/cli.js"] },
+    });
+    const components = buildComponentsFromRepository(model);
+    expect(components).toHaveLength(1);
+    expect(components[0]?.kind).toBe("cli");
+    expect(components[0]?.label.sourceLabel).toBe("root-cli");
+    expect(components[0]?.sourcePaths).toEqual(["bin/cli.js", "src/index.ts"]);
+    expect(components[0]?.implementation.entryPoints).toEqual(["bin/cli.js"]);
+  });
+
   it("groups every sampled path under the deepest owning workspace package, not a shallower ancestor", () => {
     const model = makeModel({
       workspace_packages: [
