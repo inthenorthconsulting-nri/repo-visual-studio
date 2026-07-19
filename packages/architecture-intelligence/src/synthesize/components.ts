@@ -1,4 +1,5 @@
 import type { RepositoryModel } from "@rvs/repository-model";
+import type { WorkspacePackage } from "@rvs/repository-model";
 import type { TerraformTopology } from "@rvs/terraform-graph";
 import { confirmed, derived } from "../inference.js";
 import { componentId } from "../ids.js";
@@ -6,7 +7,30 @@ import { normalizeLabel } from "../label.js";
 import type { LogicalComponent, LogicalComponentKind, WorkflowFamily } from "../types.js";
 
 const IGNORED_TOP_LEVEL = new Set(["node_modules", ".git", "dist", "build", ".rvs", "coverage", ".next", ".turbo"]);
-const MAX_CODE_COMPONENTS = 12;
+// Raised from 12 alongside per-package (rather than per-top-level-directory)
+// component synthesis: a monorepo can legitimately have more real,
+// independently-evidenced components than a single-package repo ever could.
+const MAX_CODE_COMPONENTS = 24;
+
+// Generic, ecosystem-standard server-framework package names (not specific
+// to any one repository) — a dependency on one of these is real evidence a
+// package runs as a service, the same class of signal detectTechStack
+// already uses dependency names for (framework detection).
+const SERVICE_FRAMEWORK_DEPENDENCIES = [
+  "express",
+  "fastify",
+  "koa",
+  "hapi",
+  "@nestjs/core",
+  "restify",
+  "django",
+  "flask",
+  "fastapi",
+  "gin",
+  "echo",
+  "actix-web",
+  "spring-boot",
+];
 
 function classifyDirectory(name: string): LogicalComponentKind {
   if (/^(cli|bin)$/i.test(name)) return "cli";
@@ -16,38 +40,112 @@ function classifyDirectory(name: string): LogicalComponentKind {
   return "unknown";
 }
 
-/** Groups sampled file paths by top-level directory to derive one component per structural grouping — never a synthetic dependency edge, only a grouping backed by real file paths. */
+function lastSegment(path: string): string {
+  return path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path;
+}
+
+function classifyWorkspacePackage(pkg: WorkspacePackage): LogicalComponentKind {
+  if (pkg.hasBinEntry) return "cli";
+  if (pkg.dependencyNames.some((dep) => SERVICE_FRAMEWORK_DEPENDENCIES.includes(dep))) return "service";
+  // Manifest-declared exports are stronger, direct evidence than a
+  // name-substring match, so they take priority over the directory-name
+  // heuristic below — e.g. a "terraform-graph" library package should not
+  // be misclassified as infrastructure just because its name contains
+  // "terraform".
+  if (pkg.hasLibraryExport) return "library";
+  const byDirectoryName = classifyDirectory(lastSegment(pkg.path));
+  if (byDirectoryName !== "unknown") return byDirectoryName;
+  return "unknown";
+}
+
+function buildWorkspacePackageComponent(pkg: WorkspacePackage, samplePaths: string[]): LogicalComponent {
+  const displayName = pkg.name ?? lastSegment(pkg.path);
+  const manifestPath = pkg.path ? `${pkg.path}/${pkg.manifestFile}` : pkg.manifestFile;
+  const sortedPaths = [...samplePaths].sort();
+  return {
+    id: componentId(pkg.path),
+    label: normalizeLabel(displayName),
+    kind: classifyWorkspacePackage(pkg),
+    origin: "repository-directory" as const,
+    description: confirmed(
+      pkg.description ?? `Workspace package "${displayName}" (${pkg.manifestFile}) with ${samplePaths.length} scanned file${samplePaths.length === 1 ? "" : "s"}.`,
+      [{ path: manifestPath }],
+    ),
+    sourcePaths: sortedPaths,
+    evidence: [{ path: manifestPath }],
+    implementation: {
+      filePaths: sortedPaths,
+      workflowGraphIds: [],
+      terraformTopologyIds: [],
+      entryPoints: pkg.binPaths,
+    },
+  };
+}
+
+function buildTopLevelDirectoryComponent(name: string, paths: string[]): LogicalComponent {
+  const sortedPaths = [...paths].sort();
+  return {
+    id: componentId(name),
+    label: normalizeLabel(name),
+    kind: classifyDirectory(name),
+    origin: "repository-directory" as const,
+    description: confirmed(`${paths.length} scanned file${paths.length === 1 ? "" : "s"} under ${name}/.`, [{ path: sortedPaths[0] }]),
+    sourcePaths: sortedPaths,
+    evidence: [{ path: sortedPaths[0] }],
+    implementation: {
+      filePaths: sortedPaths,
+      workflowGraphIds: [],
+      terraformTopologyIds: [],
+      entryPoints: [],
+    },
+  };
+}
+
+/**
+ * Derives one component per real structural grouping backed by scanned file
+ * paths — never a synthetic dependency edge. Every directory that declares
+ * its own package manifest (workspace_packages, detected at scan time from
+ * the full, untruncated file list) becomes its own component instead of
+ * collapsing into its parent top-level directory; any sampled path not
+ * covered by a workspace package still falls back to the previous top-level
+ * directory grouping, so a single-package repository behaves exactly as
+ * before.
+ */
 export function buildComponentsFromRepository(model: RepositoryModel): LogicalComponent[] {
-  const byTopLevel = new Map<string, string[]>();
+  const packages = model.workspace_packages ?? [];
+  const pathsByPackage = new Map<string, string[]>();
+  for (const pkg of packages) pathsByPackage.set(pkg.path, []);
+
+  const uncovered: string[] = [];
   for (const path of model.files.sampledPaths) {
+    const owningPackage = packages
+      .filter((pkg) => path === pkg.path || path.startsWith(`${pkg.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (owningPackage) {
+      pathsByPackage.get(owningPackage.path)!.push(path);
+    } else {
+      uncovered.push(path);
+    }
+  }
+
+  const packageComponents = packages
+    .filter((pkg) => (pathsByPackage.get(pkg.path)?.length ?? 0) > 0)
+    .map((pkg) => buildWorkspacePackageComponent(pkg, pathsByPackage.get(pkg.path)!));
+
+  const byTopLevel = new Map<string, string[]>();
+  for (const path of uncovered) {
     const top = path.split("/")[0];
     if (!top || IGNORED_TOP_LEVEL.has(top) || top.startsWith(".")) continue;
     const bucket = byTopLevel.get(top) ?? [];
     bucket.push(path);
     byTopLevel.set(top, bucket);
   }
+  const topLevelComponents = [...byTopLevel.entries()].map(([name, paths]) => buildTopLevelDirectoryComponent(name, paths));
 
-  const ranked = [...byTopLevel.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-  const selected = ranked.slice(0, MAX_CODE_COMPONENTS);
-
-  return selected.map(([name, paths]) => {
-    const sortedPaths = [...paths].sort();
-    return {
-      id: componentId(name),
-      label: normalizeLabel(name),
-      kind: classifyDirectory(name),
-      origin: "repository-directory" as const,
-      description: confirmed(`${paths.length} scanned file${paths.length === 1 ? "" : "s"} under ${name}/.`, [{ path: sortedPaths[0] }]),
-      sourcePaths: sortedPaths,
-      evidence: [{ path: sortedPaths[0] }],
-      implementation: {
-        filePaths: sortedPaths,
-        workflowGraphIds: [],
-        terraformTopologyIds: [],
-        entryPoints: [],
-      },
-    };
-  });
+  const ranked = [...packageComponents, ...topLevelComponents].sort(
+    (a, b) => b.sourcePaths.length - a.sourcePaths.length || a.id.localeCompare(b.id),
+  );
+  return ranked.slice(0, MAX_CODE_COMPONENTS);
 }
 
 export function buildComponentsFromTerraform(topologies: TerraformTopology[]): LogicalComponent[] {

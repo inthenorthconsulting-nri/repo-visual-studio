@@ -26,6 +26,7 @@ function buildRepositoryModel(): RepositoryModel {
     git: { commit: "abc1234", branch: "main", recentCommits: [], contributorCount: 3, commitsLast90Days: 12 },
     files: { total: 4, byExtension: { ".ts": 3, ".yml": 1 }, sampledPaths: ["packages/cli/src/bin.ts", "packages/core/src/index.ts", ".github/workflows/release.yml", "infra/main.tf"] },
     tech_stack: { primaryLanguage: "TypeScript", languages: ["TypeScript"], packageManagers: ["pnpm"], frameworks: ["commander"], manifestFile: "package.json" },
+    workspace_packages: [],
     markdown_documents: [
       { path: "README.md", title: "sample-platform", leadParagraph: "sample-platform automates release governance for internal services.", sections: [] },
     ],

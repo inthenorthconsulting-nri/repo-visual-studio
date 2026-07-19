@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@rvs/architecture-intelligence": "workspace:*",
+    "@rvs/capability-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",
     "@rvs/terraform-svg": "workspace:*",

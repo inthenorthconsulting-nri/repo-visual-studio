@@ -24,6 +24,7 @@ const RUN = process.env.RVS_TEST_PACKAGE === "1";
 const maybeDescribe = RUN ? describe : describe.skip;
 
 const repoRoot = join(__dirname, "../../../..");
+const cliRoot = join(repoRoot, "packages/cli");
 const tsxBin = join(repoRoot, "node_modules/.bin/tsx");
 const cliEntry = join(repoRoot, "packages/cli/src/bin.ts");
 
@@ -101,8 +102,13 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
   beforeAll(() => {
     execFileSync("pnpm", ["--filter", "@rvs/cli", "build"], { cwd: repoRoot, stdio: "inherit" });
     packDir = mkdtempSync(join(tmpdir(), "rvs-equiv-pack-"));
-    execFileSync("pnpm", ["--filter", "@rvs/cli", "pack", "--pack-destination", packDir], {
-      cwd: repoRoot,
+    // See package-smoke.test.ts: `pnpm --filter @rvs/cli pack` fails under
+    // pnpm 10.9.0 (this repo's pinned packageManager version) with "Unknown
+    // option: 'recursive'". Run `pack` with cwd set to the package
+    // directory instead — same tarball, no --filter/recursive-mode
+    // dependency.
+    execFileSync("pnpm", ["pack", "--pack-destination", packDir], {
+      cwd: cliRoot,
       stdio: "inherit",
     });
     tarballPath = join(packDir, readdirSync(packDir).find((f) => f.endsWith(".tgz"))!);
@@ -145,6 +151,15 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
       run(["create", "workflow", "--all", "--renderer", "both", "--format", "visualdoc"]);
       run(["create", "topology", "--all", "--renderer", "both", "--format", "visualdoc"]);
       run(["create", "slides"]);
+      // synthesize architecture reads repository-model.json plus the
+      // workflow-graphs.json/terraform-topologies.json caches just written
+      // above by create workflow/create topology; synthesize capabilities
+      // in turn requires architecture-intelligence.json — both must run in
+      // this order, after inspect and after the graph/topology caches
+      // exist, exactly like the packaged-CLI smoke suite's pipeline.
+      run(["synthesize", "architecture"]);
+      run(["synthesize", "capabilities"]);
+      run(["export", "capabilities", "--output", "CAPABILITIES.md"]);
     }
 
     // .rvs/config.yml: identical project name (from the shared package.json)
@@ -229,5 +244,58 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     const sceneIds = (html: string) => [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => m[1]);
     expect(sceneIds(sourceHtml)).toEqual(sceneIds(packagedHtml));
     expect(sceneIds(sourceHtml).length).toBeGreaterThan(0);
+
+    // architecture-intelligence.json: both runs scan the identical
+    // committed fixture, so metadata.git_commit is legitimately identical
+    // (same rationale as deck.html's git-commit attribute above) and is
+    // compared, but metadata.generated_at and
+    // metadata.source_repository_model_generated_at are each stamped from
+    // that run's own repository-model.json inspect pass and are the only
+    // genuinely run-specific (wall-clock) fields — strip only those two.
+    const stripArchIntel = (a: Record<string, unknown>) => {
+      const { metadata, ...rest } = a as { metadata: Record<string, unknown> } & Record<string, unknown>;
+      const { generated_at, source_repository_model_generated_at, ...metadataRest } = metadata;
+      return { ...rest, metadata: metadataRest };
+    };
+    expect(
+      stripArchIntel(readJson(join(sourceDir, ".rvs/cache/architecture-intelligence.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripArchIntel(readJson(join(packagedDir, ".rvs/cache/architecture-intelligence.json")) as Record<string, unknown>),
+    );
+
+    // capability-model.json: same rationale — generationMetadata.git_commit
+    // is identical, generationMetadata.generated_at and
+    // generationMetadata.source_architecture_intelligence_generated_at are
+    // the only run-specific (wall-clock) fields.
+    const stripCapabilityModel = (c: Record<string, unknown>) => {
+      const { generationMetadata, ...rest } = c as { generationMetadata: Record<string, unknown> } & Record<string, unknown>;
+      const { generated_at, source_architecture_intelligence_generated_at, ...metadataRest } = generationMetadata;
+      return { ...rest, generationMetadata: metadataRest };
+    };
+    expect(
+      stripCapabilityModel(readJson(join(sourceDir, ".rvs/cache/capability-model.json")) as Record<string, unknown>),
+    ).toEqual(
+      stripCapabilityModel(readJson(join(packagedDir, ".rvs/cache/capability-model.json")) as Record<string, unknown>),
+    );
+
+    // CAPABILITIES.md: deterministic markdown derived purely from
+    // capability-model.json, except two lines that embed
+    // generationMetadata.generated_at / source_architecture_intelligence_generated_at
+    // (see packages/capability-intelligence/src/exporter.ts) — strip only
+    // those lines (mirrors this file's deck.html generated_at handling)
+    // and byte-compare everything else, including the git-commit line.
+    const stripTimestampLines = (md: string) =>
+      md
+        .split("\n")
+        .filter(
+          (line) =>
+            !line.startsWith("> Generated by Repo Visual Studio's Capability Intelligence engine at ") &&
+            !line.startsWith("- Generated at:") &&
+            !line.startsWith("- Source Architecture Intelligence generated at:"),
+        )
+        .join("\n");
+    expect(
+      stripTimestampLines(readFileSync(join(sourceDir, "CAPABILITIES.md"), "utf8")),
+    ).toEqual(stripTimestampLines(readFileSync(join(packagedDir, "CAPABILITIES.md"), "utf8")));
   });
 });

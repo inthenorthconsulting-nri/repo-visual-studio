@@ -127,6 +127,21 @@ export const BASE_CSS = `
   .arch-confidence-legend { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 15px; }
   .arch-confidence-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
 
+  .cap-overview { overflow-y: auto; }
+  .cap-summary-line { font-size: 18px; color: var(--rvs-color-text-secondary); margin: 0 0 12px; }
+  .cap-domain { margin-bottom: 20px; }
+  .cap-card-grid { gap: 16px; }
+  .cap-card-title { font-family: var(--rvs-font-heading); font-size: 18px; margin: 0 0 8px; color: var(--rvs-color-text-primary); }
+  .cap-card-badges { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .cap-badge { display: inline-block; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; background: var(--rvs-color-border); color: var(--rvs-color-text-secondary); }
+  .cap-badge-status { background: var(--rvs-color-accent); color: var(--rvs-color-text-primary); }
+  .cap-badge-confidence { background: rgba(120, 160, 220, 0.2); color: #9dc0ff; }
+  .cap-badge-qualified { background: rgba(220, 170, 60, 0.2); color: #ffcf70; }
+  .cap-card-purpose { font-size: 14px; margin: 0; }
+  .cap-card-meta { font-size: 14px; color: var(--rvs-color-text-secondary); opacity: 0.85; margin: 6px 0 0; }
+  .cap-gaps { margin-top: 12px; }
+  .cap-limitations-note { margin-top: 16px; }
+
   .citations {
     position: absolute;
     left: 96px;

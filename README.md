@@ -52,6 +52,21 @@ inference-class guarantees. See
 [`docs/milestones.md`](docs/milestones.md#milestone-31--architecture-presentation-quality-remediation)
 for the full closure record.
 
+**Milestone 4** adds the Capability Intelligence Engine: a conservative,
+evidence-gated synthesis stage on top of Architecture Intelligence that
+decides which capabilities are real enough to appear in a generated
+`CAPABILITIES.md` or an executive slide — a candidate found is never treated
+as a capability implemented. Every candidate passes through evidence
+aggregation, five-dimension maturity scoring, a weighted 0-100 readiness
+score, and hard gates that apply independent of that score, before a
+conservative-bias inclusion policy sorts it into `include` /
+`include_with_qualification` / `roadmap_only` / `gap_only` / `exclude` — weak
+and excluded candidates are kept, not deleted, for auditability. No external
+model, no repository-specific hard-coded capability list. See
+[`docs/capability-intelligence.md`](docs/capability-intelligence.md) for the
+full design, the 13 exclusion reason codes, and the self-hosting result
+against this repository itself.
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -75,6 +90,8 @@ pnpm rvs brief --audience executive                   # or: architecture-review
 pnpm rvs create workflow --all --renderer both         # optional: GitHub Actions -> WorkflowGraph
 pnpm rvs create topology --all --renderer both         # optional: Terraform -> TerraformTopology
 pnpm rvs synthesize architecture                        # optional: synthesize ArchitectureIntelligence
+pnpm rvs synthesize capabilities                        # optional: synthesize CapabilityModel (requires synthesize architecture)
+pnpm rvs export capabilities --output CAPABILITIES.md   # optional: render the evidence-gated capability model
 pnpm rvs create slides --design-system executive-dark # or: editorial-light | technical-grid
 pnpm rvs create slides --profile architecture-review   # requires `synthesize architecture` first; see below
 pnpm rvs validate --ci                                # overflow/contrast/evidence checks
@@ -206,6 +223,38 @@ are consumed. See
 [`docs/architecture-intelligence.md#known-limitations`](docs/architecture-intelligence.md#known-limitations)
 for the complete list.
 
+### Capability Intelligence
+
+`rvs synthesize capabilities` reads the cached `architecture-intelligence.json`
+(required — run `rvs synthesize architecture` first) plus
+`repository-model.json`/`workflow-graphs.json`/`terraform-topologies.json`,
+and produces a conservative, evidence-gated `CapabilityModel`, cached to
+`.rvs/cache/capability-model.json`. See
+[`docs/capability-intelligence.md`](docs/capability-intelligence.md) for the
+full design. In short:
+
+**What it does**: discovers capability candidates from workflow families,
+CLI/service runtime components, Terraform modules, and README claims;
+aggregates evidence per candidate; scores five maturity dimensions
+(implementation, execution, verification, documentation, adoption) into a
+weighted 0-100 readiness score; applies hard gates independent of that score;
+and sorts every candidate into `include` / `include_with_qualification` /
+`roadmap_only` / `gap_only` / `exclude` — never promoting a capability past
+what its evidence actually supports.
+
+**`rvs export capabilities`** renders the resulting model to
+`CAPABILITIES.md` (`--include-partial`/`--include-gaps` on by default,
+`--include-roadmap`/`--include-excluded` opt-in). **`rvs capabilities explain
+<id>`** prints the full evidence/readiness/inclusion trail for one capability
+or excluded candidate.
+
+**Explicit limitations**: no external model; no repository-specific
+hard-coded capability list — every statement above is derived purely from
+the same cached evidence any repository produces. See
+[`docs/capability-intelligence.md#known-limitations`](docs/capability-intelligence.md#known-limitations)
+for the complete list, including this repository's own low-yield self-hosting
+result and its root cause.
+
 Run `pnpm rvs doctor` (or `npx rvs doctor` for a standalone install) if
 anything fails unexpectedly. It reports the CLI version, Node
 version/OS/architecture, installation type (packaged vs. workspace
@@ -253,6 +302,7 @@ packages/
   terraform-mermaid/   TerraformTopology -> Mermaid flowchart text
   terraform-svg/       TerraformTopology -> native SVG diagram (shared layout engine)
   architecture-intelligence/  RepositoryModel + WorkflowGraph[] + TerraformTopology[] -> synthesized ArchitectureIntelligence, narrative profiles
+  capability-intelligence/  ArchitectureIntelligence -> evidence-gated CapabilityModel, CAPABILITIES.md/JSON exporters
   narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence scenes)
   renderer-html/      VisualDoc + design tokens -> standalone HTML deck
   validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks
@@ -309,6 +359,22 @@ network-touching step in the whole system is the one-time, user-initiated
   density), but the shared `renderBoxDiagram` layout engine is still not
   density-aware in general — a sufficiently dense repository could still
   trip the same check on the true SVG-diagram scenes.
+- Capability Intelligence (Milestone 4) only discovers candidates from
+  workflow families, `cli`/`service`-kind runtime components, Terraform
+  modules, and README/markdown claims — a `library`/`data-store`/
+  `integration`/`unknown`-kind component never produces a candidate on its
+  own. This repository's own self-scan previously resolved to a thin result
+  (1 qualified capability of 21 candidates) because Architecture
+  Intelligence rolled the entire `packages/` tree into one coarse
+  `library`-kind, directory-origin component, denying most real candidates a
+  `cli`/`service` classification to begin with — that component-granularity
+  defect (plus a related default-scan-glob defect that silently skipped
+  nested manifests outside JS/TS workspace detection) has since been found
+  and fixed. Against the corrected pipeline, this repository's own self-scan
+  now resolves 22 real per-package components (up from one coarse bucket)
+  and 2 evidence-backed qualified capabilities. See
+  [`docs/capability-intelligence.md#closure-condition-remediation`](docs/capability-intelligence.md#closure-condition-remediation)
+  for the full traced explanation. No external model.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see
   [`docs/packaging.md`](docs/packaging.md#current-limitations-before-npm-publication)

@@ -51,6 +51,8 @@ jobs:
       - run: pnpm rvs brief --audience architecture-review
       - run: pnpm rvs create workflow --all --renderer both
       - run: pnpm rvs create slides
+      - run: pnpm rvs synthesize architecture
+      - run: pnpm rvs synthesize capabilities
       - run: pnpm rvs validate --ci
       - run: pnpm rvs export pdf
       - uses: actions/upload-artifact@v4

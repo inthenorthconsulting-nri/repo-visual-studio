@@ -82,6 +82,7 @@ function buildRepositoryModel(generatedAt: string): RepositoryModel {
     git: { commit: "abc1234", branch: "main", recentCommits: [], contributorCount: 3, commitsLast90Days: 12 },
     files: { total: 2, byExtension: { ".ts": 1, ".md": 1 }, sampledPaths: ["src/index.ts", "README.md"] },
     tech_stack: { primaryLanguage: "TypeScript", languages: ["TypeScript"], packageManagers: ["pnpm"], frameworks: [], manifestFile: "package.json" },
+    workspace_packages: [],
     markdown_documents: [],
     ci_workflows: [],
   };
