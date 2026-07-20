@@ -124,3 +124,28 @@ browser is installed (`npx playwright install chromium` if not).
 VisualDoc intermediate representation (the CLI's internal `create slides`
 output before HTML rendering) — useful if building a new renderer or
 validating a hand-edited `.rvs/cache/visualdoc.json`.
+
+## Agent operating model
+
+Routing into this skill, branch/PR governance, and repository maintenance
+are no longer decided ad hoc — they're governed by `MASTER_AGENT.md` at the
+repository root. Read it first. It decides which intelligence layer(s) a
+task actually needs (don't run the whole stack for a one-line fix) and
+whether a task needs its own branch and PR (`skills/pr-governance/SKILL.md`)
+before this skill's workflow even starts.
+
+Once `MASTER_AGENT.md` has routed here, use these references instead of
+re-deriving the routing decision:
+
+- `references/intelligence-routing.md` — which layer(s) a given request
+  needs, and the freshness/reuse rule for already-generated artifacts.
+- `references/architecture-intelligence.md`,
+  `references/capability-intelligence.md`,
+  `references/product-intelligence.md`,
+  `references/portfolio-intelligence.md` — one reference per intelligence
+  layer: prerequisites, commands, outputs, and a pointer to the full
+  technical doc at the repo root (`docs/*.md`).
+- `references/presentation-and-export.md` — turning a synthesized model
+  into a deck (`create slides`), validating it, and exporting it.
+- `references/audience-profiles.md`, `references/quality-policy.md` — the
+  pre-existing Milestone 1 references, unchanged.
