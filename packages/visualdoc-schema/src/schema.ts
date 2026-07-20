@@ -177,6 +177,20 @@ export const PortfolioSceneSchema = BaseSceneSchema.extend({
   scene_id: z.string().min(1),
 });
 
+// A governance scene never embeds a GovernancePlan — it points at one (built
+// by @rvs/governance-intelligence and cached separately) by plan_id, plus
+// scene_id to select which single GovernanceSceneContent within that plan's
+// own `scenes` array this VisualDoc scene renders — mirroring
+// PortfolioSceneSchema's plan_id/scene_id contract exactly. The renderer
+// switches on GovernancePlan.scenes[].kind; the narrative-significant
+// ordering and per-scene content stay entirely owned by
+// governance-intelligence.
+export const GovernanceSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("governance-scene"),
+  plan_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -189,6 +203,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   CapabilityIntelligenceOverviewSceneSchema,
   ShowcaseSceneSchema,
   PortfolioSceneSchema,
+  GovernanceSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -207,6 +222,7 @@ export type ArchitectureIntelligenceScene = z.infer<typeof ArchitectureIntellige
 export type CapabilityIntelligenceOverviewScene = z.infer<typeof CapabilityIntelligenceOverviewSceneSchema>;
 export type ShowcaseScene = z.infer<typeof ShowcaseSceneSchema>;
 export type PortfolioScene = z.infer<typeof PortfolioSceneSchema>;
+export type GovernanceScene = z.infer<typeof GovernanceSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

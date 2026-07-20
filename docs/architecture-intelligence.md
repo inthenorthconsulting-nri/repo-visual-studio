@@ -387,6 +387,15 @@ warning the check exists to catch, previously silently missed because
 a real, non-spurious finding, not a regression introduced by this
 milestone.
 
+`architecture-intelligence.json` is also consumed by Milestone 7's
+Architecture Governance and Continuous Intelligence layer:
+`@rvs/governance-intelligence`'s `architecture-diff.ts` diffs two snapshots'
+copies of this artifact to detect component/flow/boundary/dependency changes
+between a baseline and the current repository state, feeding blast-radius
+assessment and policy evaluation — it never re-synthesizes or mutates
+`ArchitectureIntelligence` itself. See
+[`docs/architecture-governance.md`](architecture-governance.md).
+
 ## Known limitations
 
 - **No model-assisted synthesis (`--assist`).** Every statement above is

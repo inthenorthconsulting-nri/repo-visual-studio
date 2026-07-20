@@ -2,6 +2,7 @@ export * from "./architecture-visualdoc-builder.js";
 export * from "./audience-profiles.js";
 export * from "./brief.js";
 export * from "./capability-intelligence-visualdoc-builder.js";
+export * from "./governance-visualdoc-builder.js";
 export * from "./portfolio-visualdoc-builder.js";
 export * from "./serialize.js";
 export * from "./showcase-visualdoc-builder.js";

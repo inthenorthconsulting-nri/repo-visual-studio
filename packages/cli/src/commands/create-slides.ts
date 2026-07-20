@@ -4,7 +4,9 @@ import type { ArchitectureIntelligence, NarrativeProfileId } from "@rvs/architec
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { EvidenceManifest, Logger, RvsConfig } from "@rvs/core";
 import { loadConfig } from "@rvs/core";
-import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildPortfolioVisualDoc, buildShowcaseVisualDoc, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
+import { GOVERNANCE_OUTPUT_FILES } from "@rvs/governance-intelligence";
+import type { GovernancePlan } from "@rvs/governance-intelligence";
+import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildGovernanceVisualDoc, buildPortfolioVisualDoc, buildShowcaseVisualDoc, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
 import type {
   AudienceType,
   ProductIdentityModel,
@@ -20,6 +22,7 @@ import type { TerraformTopology } from "@rvs/terraform-graph";
 import { runArchitectureIntelligenceChecks } from "@rvs/validator";
 import type { WorkflowGraph } from "@rvs/workflow-graph";
 import { cacheDir, readCachedJson, readCachedJsonOptional } from "../cache.js";
+import { readGovernanceCachedJsonOptional } from "../governance-cache.js";
 import { DESIGN_SYSTEMS_ROOT } from "../paths.js";
 
 // "repository-inventory" is the default and preserves `rvs create slides`'s
@@ -42,6 +45,14 @@ const DEFAULT_SHOWCASE_AUDIENCE: AudienceType = "executive";
 // `rvs synthesize portfolio`) — only the narrative/plan step is redone here.
 const PORTFOLIO_PROFILE = "portfolio";
 const DEFAULT_PORTFOLIO_AUDIENCE: AudienceType = "portfolio";
+// "governance" (Milestone 7) is the simplest of the three cached-artifact
+// profiles: unlike showcase/portfolio it never synthesizes anything fresh
+// here — a governance comparison is never audience-scoped (it is an
+// inspection/comparison report, not a narrative tailored to a reader), so
+// this profile just reads the already-cached GovernancePlan (produced by
+// `rvs governance compare`/`rvs governance check`, the only commands that
+// run the diff engines + policy evaluation) and renders it directly.
+const GOVERNANCE_PROFILE = "governance";
 
 export interface CreateSlidesOptions {
   audience?: string;
@@ -71,6 +82,11 @@ export async function runCreateSlides(
 
   if (profileId === PORTFOLIO_PROFILE) {
     await runCreatePortfolioSlides(repoRoot, model, evidence, tokens, themeId, options, config, logger);
+    return;
+  }
+
+  if (profileId === GOVERNANCE_PROFILE) {
+    await runCreateGovernanceSlides(repoRoot, model, evidence, tokens, themeId, config, logger);
     return;
   }
 
@@ -271,4 +287,39 @@ async function runCreatePortfolioSlides(
     `Rendered ${doc.scenes.length} portfolio scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}" (audience: "${audience}", theme: "${theme}")`,
   );
   logger.info(`Cached to .rvs/cache/portfolio-plan.json`);
+}
+
+// The "governance" profile (Milestone 7) reads the already-computed
+// GovernancePlan cache directly rather than synthesizing anything fresh —
+// unlike showcase/portfolio's audience-scoped narrative/plan step, a
+// governance comparison is a single deterministic artifact of the two
+// snapshots being compared, not something re-derived per reader. This
+// profile intentionally skips --audience entirely (buildGovernanceVisualDoc
+// hardcodes audience: "governance", theme: "technical-grid" -- see
+// governance-visualdoc-builder.ts's doc comment) and only honors
+// --design-system/--theme for the overall deck's visual theme.
+async function runCreateGovernanceSlides(
+  repoRoot: string,
+  model: RepositoryModel,
+  evidence: EvidenceManifest,
+  tokens: DesignTokens,
+  designSystemId: string,
+  config: RvsConfig,
+  logger: Logger,
+): Promise<void> {
+  const plan = readGovernanceCachedJsonOptional<GovernancePlan>(repoRoot, GOVERNANCE_OUTPUT_FILES.governancePlan);
+  if (!plan) {
+    throw new Error("No cached governance plan found. Run `rvs governance compare` first.");
+  }
+
+  const doc = buildGovernanceVisualDoc(plan);
+
+  const html = renderVisualDocToHtml(doc, tokens, evidence, { gitCommit: model.git.commit }, [], [], [], [], [], [], [plan]);
+
+  const outputDir = resolve(repoRoot, config.defaults.output_dir);
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(resolve(outputDir, "deck.html"), html);
+  writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
+
+  logger.info(`Rendered ${doc.scenes.length} governance scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}"`);
 }

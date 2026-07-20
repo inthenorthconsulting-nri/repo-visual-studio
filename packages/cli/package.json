@@ -27,6 +27,7 @@
     "@rvs/capability-intelligence": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/exporter": "workspace:*",
+    "@rvs/governance-intelligence": "workspace:*",
     "@rvs/narrative-planner": "workspace:*",
     "@rvs/portfolio-intelligence": "workspace:*",
     "@rvs/product-intelligence": "workspace:*",

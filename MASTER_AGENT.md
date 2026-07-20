@@ -115,6 +115,7 @@ actual ask).
 | 2.7 | Documentation task | "Update the README", "Document a feature", "Correct stale commands" | Inspect implementation → verify commands/contracts against source → update docs → run documentation/link validation where it exists |
 | 2.8 | Repository maintenance | "Remove dead code", "Review dependencies", "Clean stale artifacts", "Prepare a release" | Load `repository-maintenance` skill → relevant maintenance sub-workflow (§9) |
 | 2.9 | PR review / review feedback | "Review this PR", "Address review comments", "Is this safe to merge?" | Load `pr-governance` skill → read PR context/diff → inspect unresolved comments/checks → validate findings → apply only authorized fixes → re-run validation |
+| 2.10 | Governance / continuous intelligence | "What changed architecturally between the last release and now?", "Is this PR a CI-blocking regression?", "Explain this governance finding" | Validate/build `IntelligenceSnapshot`s → Governance Intelligence (`rvs governance compare`/`check`/`explain`) → findings/report — diagnosis only, never a code fix |
 
 Class-specific rules:
 
@@ -136,25 +137,41 @@ Class-specific rules:
   directly.
 - **2.9** — do not open a new PR when the actual task is to update an
   existing one (see `skills/pr-governance/references/task-boundaries.md`).
+- **2.10** — Governance Intelligence never re-scans a repository and never
+  calls an external model; it only reads already-cached
+  `IntelligenceSnapshot`s and the artifacts the other four layers already
+  produced (§3, §4). A request to *fix* what a governance finding surfaced
+  is a separate Code implementation task (§2.5), routed through
+  `pr-governance` and the relevant code-owning skill — Governance
+  Intelligence itself never modifies code.
 
 ---
 
 ## 3. Intelligence routing matrix
 
-| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence |
-|---|---|---|---|---|
-| Explain repository structure | Required | No | No | No |
-| Identify implemented capabilities | Required | Required | No | No |
-| Create a product showcase | Required | Required | Required | No |
-| Compare products | Artifact validation only | Artifact validation only | Required as input | Required |
-| Fix a code defect | Optional (only if orientation is needed) | No | No | No |
-| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No |
-| Update the README | Optional | Optional | No | No |
-| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required |
+| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence | Governance Intelligence |
+|---|---|---|---|---|---|
+| Explain repository structure | Required | No | No | No | No |
+| Identify implemented capabilities | Required | Required | No | No | No |
+| Create a product showcase | Required | Required | Required | No | No |
+| Compare products | Artifact validation only | Artifact validation only | Required as input | Required | No |
+| Fix a code defect | Optional (only if orientation is needed) | No | No | No | No |
+| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No | No |
+| Update the README | Optional | Optional | No | No | No |
+| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required | No |
+| What changed architecturally between two states | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required |
+| Is this PR/change a CI-blocking regression | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required |
+| Explain a governance finding or report | No | No | No | No | Required |
 
 "Artifact validation only" and "Inputs only" mean: read and structurally
 validate the already-generated artifact; do not re-synthesize it from
 scratch. See §5 for exactly when regeneration is warranted instead.
+"Cached snapshot input only" means the same thing one layer further up:
+Governance Intelligence never re-derives architecture, capability, product,
+or portfolio state itself — it reads the `IntelligenceSnapshot` fingerprint
+those layers' already-cached artifacts were reduced to
+(`rvs snapshot create`) and never re-scans source or calls an external
+model (`docs/architecture-governance.md`).
 
 Full per-layer usage detail, prerequisites, and CLI commands are in
 `skills/repo-visual-studio/references/intelligence-routing.md` and the
@@ -182,6 +199,13 @@ Never regenerate portfolio inputs (`capability-model.json`,
 step is about to run — regenerate only the specific product artifact(s)
 that actually fail the freshness check above.
 
+The same rule applies one layer further up for Governance Intelligence:
+prefer an existing `IntelligenceSnapshot`/baseline
+(`rvs governance baseline show`) over building a new one with
+`rvs snapshot create`, and never rebuild a snapshot merely because a
+comparison is about to run — rebuild only the specific upstream artifact
+that actually fails the freshness check, then re-snapshot.
+
 ---
 
 ## 5. Skill routing rules
@@ -195,6 +219,7 @@ Load the smallest applicable set of skills — never all three by default.
 | PR review or review-feedback task | `pr-governance` → `references/review-policy.md` |
 | Repository cleanup, dependency review, doc/test maintenance, release prep | `repository-maintenance` → the matching reference, plus `pr-governance` once a branch/PR is needed for the resulting change |
 | Portfolio presentation / export | `repo-visual-studio` → `references/portfolio-intelligence.md` + `references/presentation-and-export.md` |
+| Governance / continuous-intelligence question (what changed, CI-blocking regression, explain a finding) | No dedicated skill yet — read `docs/architecture-governance.md` and `docs/continuous-intelligence.md` directly, then use the CLI surface they document (`rvs snapshot create`; `rvs governance baseline show\|set\|validate`; `rvs governance compare`/`check`/`explain`; `rvs export governance-report`/`governance-summary`) |
 
 ---
 
@@ -284,6 +309,10 @@ This document routes; it does not restate. For the full procedure, read:
   technical detail in `docs/architecture-intelligence.md`,
   `docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
   `docs/portfolio-intelligence.md`, `docs/portfolio-showcase.md`.
+- **Architecture governance and continuous intelligence** (comparison of
+  two `IntelligenceSnapshot`s, policy findings, CI gating; no dedicated
+  skill file yet, read these directly): `docs/architecture-governance.md`
+  and `docs/continuous-intelligence.md`.
 - **Why this operating model exists, and the reasoning behind §1-§8**:
   `docs/agent-operating-model.md`.
 
@@ -348,3 +377,29 @@ task, so it gets its own branch and its own PR, never folded into whatever
 branch happens to be checked out → inventory versions and breaking changes
 → split unrelated major upgrades where appropriate → validate build,
 package, and runtime behavior → do not publish anything automatically.
+
+**F — What changed architecturally.** *"What changed architecturally
+between the last release and now?"* Classify as governance / continuous
+intelligence (§2.10) → read `docs/architecture-governance.md` → confirm a
+baseline is configured (`rvs governance baseline show`) or establish one
+(`rvs snapshot create`, `rvs governance baseline set <snapshot>`) → run
+`rvs governance compare` to diff the baseline against the current state →
+report findings from the cached `governance-report.json` (and blast-radius/
+compatibility status) with citations, using `rvs governance explain <id>`
+for any specific change or finding → no branch needed, this is read-only —
+Governance Intelligence never re-scans the repository itself.
+
+**G — Is this PR a CI-blocking regression, then fix it.** *"Is this PR a
+CI-blocking regression? If so, fix it."* Two classes in one request, handled
+in order. First, governance / continuous intelligence (§2.10): run `rvs
+governance check --ci` against the configured baseline and report the exact
+fail count and severities from its output — never guess at "blocking"
+status. Second, only if a real blocking finding exists and a fix is
+actually requested: reclassify as code implementation (§2.5), load
+`pr-governance` plus whatever skill owns the affected code, and treat it as
+a new, separately authorized task branch — Governance Intelligence
+diagnoses the regression, it never edits code itself (per
+`docs/architecture-governance.md`'s package summary: snapshotting,
+diffing, compatibility/blast-radius assessment, policy evaluation,
+narrative/plan synthesis — no code-modification capability anywhere in its
+command surface).

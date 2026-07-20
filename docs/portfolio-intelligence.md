@@ -671,6 +671,15 @@ product does not fabricate a relationship just to make the portfolio look
 more connected — this is the same conservative-bias rule this whole
 milestone is built on, demonstrated against real (not fixture) data.
 
+`portfolio-model.json` is also consumed by Milestone 7's Architecture
+Governance and Continuous Intelligence layer: `@rvs/governance-intelligence`'s
+`portfolio-diff.ts` diffs two snapshots' copies of this artifact to detect
+relationship/dependency/overlap/gap changes between a baseline and the
+current state, feeding governance's cross-product blast-radius assessment —
+the only portfolio-layer input governance reads (portfolio fingerprinting is
+opt-in via `rvs snapshot create --include-portfolio`). See
+[`docs/architecture-governance.md`](architecture-governance.md).
+
 ## Known limitations
 
 - **`detectGaps()` computes only 4 of the 8 declared `PortfolioGapType`

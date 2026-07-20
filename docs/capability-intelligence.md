@@ -555,6 +555,14 @@ agent did the work), and the full workspace test suite (`pnpm -r exec tsc
 commit was made — all changes remain in the working tree, per the standing
 "do not commit" constraint.
 
+`capability-model.json` is also consumed by Milestone 7's Architecture
+Governance and Continuous Intelligence layer: `@rvs/governance-intelligence`'s
+`capability-diff.ts` diffs two snapshots' copies of this artifact to detect
+capability status regressions (e.g. `operational` regressing to `planned`)
+between a baseline and the current state, feeding the governance policy
+engine's `forbid_operational_to_planned_regression` rule kind. See
+[`docs/architecture-governance.md`](architecture-governance.md).
+
 ## Known limitations
 
 - **`candidatesFromRuntimeComponents()` only considers `kind: "cli"` and

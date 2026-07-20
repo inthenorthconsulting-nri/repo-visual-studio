@@ -110,6 +110,9 @@ importers:
       '@rvs/exporter':
         specifier: workspace:*
         version: link:../exporter
+      '@rvs/governance-intelligence':
+        specifier: workspace:*
+        version: link:../governance-intelligence
       '@rvs/narrative-planner':
         specifier: workspace:*
         version: link:../narrative-planner
@@ -191,6 +194,25 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  packages/governance-intelligence:
+    dependencies:
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.0
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@24.13.3)
+
   packages/narrative-planner:
     dependencies:
       '@rvs/architecture-intelligence':
@@ -202,6 +224,9 @@ importers:
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
+      '@rvs/governance-intelligence':
+        specifier: workspace:*
+        version: link:../governance-intelligence
       '@rvs/portfolio-intelligence':
         specifier: workspace:*
         version: link:../portfolio-intelligence
@@ -295,6 +320,9 @@ importers:
       '@rvs/core':
         specifier: workspace:*
         version: link:../core
+      '@rvs/governance-intelligence':
+        specifier: workspace:*
+        version: link:../governance-intelligence
       '@rvs/portfolio-intelligence':
         specifier: workspace:*
         version: link:../portfolio-intelligence

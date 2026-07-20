@@ -16,13 +16,19 @@ range.
 **Scope note**: the base workflow below (Milestone 1) covers the single-repo
 HTML/PDF deck pipeline. Later milestones added `synthesize architecture`,
 `synthesize capabilities`, `synthesize product-identity`, a `showcase` slide
-profile, and — for multi-repository ecosystems — Portfolio and Ecosystem
+profile, — for multi-repository ecosystems — Portfolio and Ecosystem
 Intelligence (`synthesize portfolio` and a `portfolio` slide profile,
 summarized below; full reference in `docs/portfolio-intelligence.md` and
-`docs/portfolio-showcase.md` at the repo root). There is still no Canvas
-renderer, no animation/video export, no plugin registry, and no non-generic
-language adapters beyond the generic file-inventory, Markdown, git-history,
-GitHub Actions, and Terraform adapters already implemented.
+`docs/portfolio-showcase.md` at the repo root), and — for change detection
+and CI gating — Architecture Governance and Continuous Intelligence
+(`rvs snapshot create` / `rvs governance compare|check` and a `governance`
+slide profile, summarized below; full reference in
+`docs/architecture-governance.md`, `docs/continuous-intelligence.md`,
+`docs/governance-policies.md`, and `docs/governance-baselines.md` at the
+repo root). There is still no Canvas renderer, no animation/video export, no
+plugin registry, and no non-generic language adapters beyond the generic
+file-inventory, Markdown, git-history, GitHub Actions, and Terraform
+adapters already implemented.
 
 ## When to use this skill
 
@@ -102,6 +108,44 @@ capability files disagree, or the two files are stale relative to each
 other — see `docs/portfolio-intelligence.md`'s "Intake and compatibility
 gate" section for the exact rules before telling a user why their product
 was dropped.
+
+## Architecture Governance and Continuous Intelligence (change detection / CI gating)
+
+Use this when the user wants to know "what changed architecturally between
+two states" or "is this a CI-blocking regression" — e.g. "did this PR remove
+a component the API depends on" or "block the merge if a capability
+regressed from operational to planned." It never re-scans a repository and
+never re-synthesizes an upstream artifact; it only diffs already-generated
+architecture/capability/product(/portfolio) artifacts and evaluates a fixed
+set of policy rules against the differences.
+
+Prerequisite: the repository must already have run `synthesize architecture`
++ `synthesize capabilities` (+ `synthesize product-identity`, and
+`synthesize portfolio` if a policy needs a portfolio-level check) for both
+the state to compare from and the state to compare to, since `rvs snapshot
+create` fingerprints whatever is currently cached — capture one snapshot per
+state you want to compare.
+
+```bash
+rvs snapshot create [--include-portfolio]   # -> .rvs/cache/governance/snapshots/<id>.json
+rvs governance baseline set <snapshot-id>   # pin the "from" side once
+rvs governance compare                      # -> cached ContinuousIntelligenceReport (baseline vs. current cached artifacts)
+rvs governance check --ci                   # same comparison, concise output; --ci fails the build on blocking findings
+rvs governance explain <id>                 # prints one change/finding/claim's full reasoning + evidence
+rvs export governance-report --output governance-report.json
+rvs export governance-summary --output governance-summary.md   # PR-paste-ready Markdown
+rvs create slides --profile governance
+```
+
+`--ci` exits non-zero only when an un-excepted finding's severity is in the
+configured `.rvs/governance.yml` `comparison.fail_on` list (default:
+`blocking`) — without `--ci`, `governance compare`/`check` never touch the
+process exit code, so both are safe to run for inspection alone. Policy
+rules are a fixed, finite set of 11 kinds, never a free-form expression
+language — read `docs/governance-policies.md`'s kind reference before
+telling a user why a policy can or can't express something they're asking
+for, and `docs/governance-baselines.md` before explaining how baseline
+promotion/`--from`/`--to` resolve a snapshot reference.
 
 ## Quality gate
 
