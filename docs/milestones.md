@@ -2195,6 +2195,87 @@ and forward-reference notes in `docs/architecture-intelligence.md`,
 `docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
 and `README.md`). Nothing from this milestone has been committed.
 
+## Milestone 6.2 — Master Agent Routing, PR Governance, and Repository Maintenance Skills
+
+**Status: complete, uncommitted.** Objective: a deterministic,
+documentation-only repository operating layer that tells a repository agent
+(Claude Code, Cursor, or similar) which of the four intelligence layers
+above (Architecture, Capability, Product, Portfolio) a task actually
+requires, when a task needs its own branch and PR versus continuing
+existing work, and which Git publication boundaries — commit, push, PR,
+merge — require separate, explicit authorization. Unlike every milestone
+above, this one adds no synthesis engine, no CLI command, and no runtime
+code: the deliverable is read by an agent, not executed by one, per its own
+explicit design mandate against building "a complex new policy engine."
+
+### 1. Deliverables
+
+Root routing authority [`MASTER_AGENT.md`](../MASTER_AGENT.md) (~350
+lines): task classification into 9 classes, an intelligence-routing matrix,
+artifact freshness/reuse rules, a 12-step task-startup protocol, a
+task-completion-report shape, an agent-handoff-record template, an explicit
+destructive-operation guard list (`git reset --hard`, `git push --force`,
+`git rebase`, `git commit --amend`, `rm -rf`, and others), and 5 worked
+examples. Two new skills: `skills/pr-governance/` (branch/commit/PR/review/
+merge policy across 6 reference files) and `skills/repository-maintenance/`
+(health/dependency/documentation/test/dead-code/release workflows across 6
+reference files), both alongside 6 new references under the existing
+`skills/repo-visual-studio/` skill routing to the intelligence layers
+Milestones 3-6 already built. Narrative companions
+[`docs/agent-operating-model.md`](agent-operating-model.md),
+[`docs/pr-governance.md`](pr-governance.md), and
+[`docs/repository-maintenance.md`](repository-maintenance.md). Thin tool
+adapters `AGENTS.md`, `CLAUDE.md`, and `.cursorrules` at repo root, each
+pointing at `MASTER_AGENT.md` rather than duplicating it. A
+`.github/PULL_REQUEST_TEMPLATE.md` with conditional-wording sections so it
+doesn't force fields that don't apply to documentation-only or test-only
+PRs, and explicitly no automated-approval or automated-merge language.
+
+### 2. Explicit exclusions
+
+Per its own binding scope, this milestone adds none of: architecture drift
+detection, continuous repository monitoring, scheduled portfolio synthesis,
+automated PR approval or merging, autonomous production changes, GitHub
+organization scanning, remote repository crawling, live telemetry, an
+external LLM call, Milestone 7-class governance policy, product
+consolidation recommendations, automatic issue creation, automatic branch
+deletion, or automatic dependency upgrades. `tests/agent-governance.test.ts`
+includes a structural check that the routing/governance layer never
+describes any of these as implemented.
+
+### 3. Validation
+
+Because the deliverable is documentation, not a runtime engine, validation
+is structural rather than behavioral: a new root-level
+`tests/agent-governance.test.ts` (86 tests) confirms every file the
+operating model promises exists, every relative markdown link across
+`MASTER_AGENT.md`, the three skill files, and the three narrative docs
+resolves to a real file, skill frontmatter names match their directories
+with no duplicates, the tool adapters point at `MASTER_AGENT.md` without
+restating its routing table or authorization list, `MASTER_AGENT.md` names
+every Git publication boundary and states that authorizing one never
+authorizes the next, the PR-governance skill distinguishes new tasks from
+continuations and forbids bundling unrelated work, and the
+repository-maintenance skill's dead-code evidence bar and dependency
+routing rules are present as written. Full workspace `pnpm -r exec tsc
+--noEmit` and `pnpm test` were re-run against this milestone's changes with
+no regressions introduced; this milestone's own code footprint does not
+touch CLI packaging, so `RVS_TEST_PACKAGE=1 pnpm test` was not re-run for
+it specifically.
+
+### 4. Current repository state
+
+Built directly on top of Milestone 6's uncommitted work on
+`feature/portfolio-ecosystem-intelligence` (Milestone 6 itself later landed
+as commit `7d1a12f`, hardened by a follow-up commit `0f4a212`, and Milestone
+6's pull request — PR #4 — was opened during the same working session that
+produced this milestone's request, ahead of this entry being written).
+Per this milestone's own explicit, repeated instruction, none of this
+milestone's files were committed, pushed, merged, or included in any pull
+request; everything above is left staged in the working tree for review.
+Neither `7d1a12f` nor `0f4a212` was modified, amended, squashed, or
+rewritten.
+
 ## Milestone 7 — Architecture Governance and Continuous Intelligence
 
 **Status: core engine, presentation integration, and CLI complete.**

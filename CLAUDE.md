@@ -1,0 +1,12 @@
+# Claude Repository Instructions
+
+Read and follow, in order:
+
+1. [`MASTER_AGENT.md`](MASTER_AGENT.md) — routing, intelligence selection,
+   authorization boundaries, task startup/completion protocol.
+2. The task-specific skill `MASTER_AGENT.md` routes to
+   (`skills/repo-visual-studio/`, `skills/pr-governance/`, or
+   `skills/repository-maintenance/`).
+3. Repository-local contribution and security rules, where they exist.
+
+Do not duplicate the master routing or PR-governance rules here.
