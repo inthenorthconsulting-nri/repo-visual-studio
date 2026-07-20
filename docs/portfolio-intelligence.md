@@ -680,6 +680,14 @@ the only portfolio-layer input governance reads (portfolio fingerprinting is
 opt-in via `rvs snapshot create --include-portfolio`). See
 [`docs/architecture-governance.md`](architecture-governance.md).
 
+`portfolio-model.json` is also consumed by Milestone 8's Architecture
+Decision Intelligence layer: `@rvs/decision-intelligence`'s
+`portfolio-links.ts` resolves a decision's declared `domain: portfolio`
+links against this artifact's own entity ids, using the same bounded
+structural-walk pattern the other 3 upstream-artifact resolvers use. See
+[`docs/architecture-decision-intelligence.md`](architecture-decision-intelligence.md)
+and [`docs/decision-linking.md`](decision-linking.md).
+
 ## Known limitations
 
 - **`detectGaps()` computes only 4 of the 8 declared `PortfolioGapType`

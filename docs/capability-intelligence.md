@@ -563,6 +563,15 @@ between a baseline and the current state, feeding the governance policy
 engine's `forbid_operational_to_planned_regression` rule kind. See
 [`docs/architecture-governance.md`](architecture-governance.md).
 
+`capability-model.json` is also consumed by Milestone 8's Architecture
+Decision Intelligence layer: `@rvs/decision-intelligence`'s
+`capability-links.ts` resolves a decision's declared `domain: capability`
+links against this artifact's own entity ids, using the same bounded
+structural-walk pattern `architecture-links.ts` uses (decision-intelligence
+never imports this package's types). See
+[`docs/architecture-decision-intelligence.md`](architecture-decision-intelligence.md)
+and [`docs/decision-linking.md`](decision-linking.md).
+
 ## Known limitations
 
 - **`candidatesFromRuntimeComponents()` only considers `kind: "cli"` and

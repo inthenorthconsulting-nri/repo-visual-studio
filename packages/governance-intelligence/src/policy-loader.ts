@@ -127,6 +127,80 @@ const RequireCompatibleSnapshotConditionSchema = z
   })
   .strict();
 
+// ---------------------------------------------------------------------------
+// §36-38 decision-aware condition schemas. Field sets copied verbatim from
+// contracts.ts's per-kind condition interfaces, same as every schema above.
+// ---------------------------------------------------------------------------
+
+const RequireDecisionForChangeConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_for_change"),
+    entity_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const RequireAcceptedDecisionConditionSchema = z
+  .object({
+    kind: z.literal("require_accepted_decision"),
+    entity_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const RequireDecisionImplementationConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_implementation"),
+    entity_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const ForbidContradictedAssumptionConditionSchema = z
+  .object({
+    kind: z.literal("forbid_contradicted_assumption"),
+    decision_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const ForbidActiveSupersededDecisionConditionSchema = z
+  .object({
+    kind: z.literal("forbid_active_superseded_decision"),
+    decision_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const RequireDecisionEvidenceConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_evidence"),
+    entity_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const RequireDecisionForPolicyExceptionConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_for_policy_exception"),
+    rule_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
+const RequireDecisionForBaselineReplacementConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_for_baseline_replacement"),
+  })
+  .strict();
+
+const LimitUnresolvedDecisionConflictsConditionSchema = z
+  .object({
+    kind: z.literal("limit_unresolved_decision_conflicts"),
+    max_unresolved: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const RequireDecisionReviewForDriftConditionSchema = z
+  .object({
+    kind: z.literal("require_decision_review_for_drift"),
+    decision_id_pattern: z.string().min(1).optional(),
+  })
+  .strict();
+
 const GovernanceRuleConditionSchema = z.discriminatedUnion("kind", [
   ForbidComponentRemovalConditionSchema,
   RequireRuntimeEntrypointConditionSchema,
@@ -139,6 +213,16 @@ const GovernanceRuleConditionSchema = z.discriminatedUnion("kind", [
   RequireProductRoleConditionSchema,
   LimitUnresolvedRelationshipsConditionSchema,
   RequireCompatibleSnapshotConditionSchema,
+  RequireDecisionForChangeConditionSchema,
+  RequireAcceptedDecisionConditionSchema,
+  RequireDecisionImplementationConditionSchema,
+  ForbidContradictedAssumptionConditionSchema,
+  ForbidActiveSupersededDecisionConditionSchema,
+  RequireDecisionEvidenceConditionSchema,
+  RequireDecisionForPolicyExceptionConditionSchema,
+  RequireDecisionForBaselineReplacementConditionSchema,
+  LimitUnresolvedDecisionConflictsConditionSchema,
+  RequireDecisionReviewForDriftConditionSchema,
 ]);
 
 const GOVERNANCE_RULE_KINDS = [
@@ -153,6 +237,16 @@ const GOVERNANCE_RULE_KINDS = [
   "require_product_role",
   "limit_unresolved_relationships",
   "require_compatible_snapshot",
+  "require_decision_for_change",
+  "require_accepted_decision",
+  "require_decision_implementation",
+  "forbid_contradicted_assumption",
+  "forbid_active_superseded_decision",
+  "require_decision_evidence",
+  "require_decision_for_policy_exception",
+  "require_decision_for_baseline_replacement",
+  "limit_unresolved_decision_conflicts",
+  "require_decision_review_for_drift",
 ] as const;
 
 const PolicyFileRuleSchema = z
@@ -188,6 +282,10 @@ const PolicyFileExceptionSchema = z
     reason: z.string().min(1),
     approval_reference: z.string().min(1),
     expiry: z.string().min(1).optional(),
+    // §38: optional pointer to a decision-intelligence ArchitectureDecision
+    // id. Carried through verbatim -- see contracts.ts's GovernanceException
+    // doc comment for why this package never validates it itself.
+    decision_ref: z.string().min(1).optional(),
     evidence_refs: z.array(EvidenceRefSchema).default([]),
   })
   .strict();
@@ -288,6 +386,7 @@ export function loadPolicyFile(filePath: string, generatedAt: string): Governanc
       reason: exception.reason,
       approval_reference: exception.approval_reference,
       expiry: exception.expiry,
+      decision_ref: exception.decision_ref,
       evidence_refs: exception.evidence_refs as EvidenceRef[],
     };
   });

@@ -191,6 +191,19 @@ export const GovernanceSceneSchema = BaseSceneSchema.extend({
   scene_id: z.string().min(1),
 });
 
+// A decision scene never embeds a DecisionPlan -- it points at one (built by
+// @rvs/decision-intelligence and cached separately) by plan_id, plus
+// scene_id to select which single decision scene within that plan's own
+// `scenes` array this VisualDoc scene renders -- mirroring
+// GovernanceSceneSchema's plan_id/scene_id contract exactly. The renderer
+// switches on DecisionPlan.scenes[].kind; the narrative-significant ordering
+// and per-scene content stay entirely owned by decision-intelligence.
+export const DecisionSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("decision-scene"),
+  plan_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -204,6 +217,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   ShowcaseSceneSchema,
   PortfolioSceneSchema,
   GovernanceSceneSchema,
+  DecisionSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -223,6 +237,7 @@ export type CapabilityIntelligenceOverviewScene = z.infer<typeof CapabilityIntel
 export type ShowcaseScene = z.infer<typeof ShowcaseSceneSchema>;
 export type PortfolioScene = z.infer<typeof PortfolioSceneSchema>;
 export type GovernanceScene = z.infer<typeof GovernanceSceneSchema>;
+export type DecisionScene = z.infer<typeof DecisionSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

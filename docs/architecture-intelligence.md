@@ -396,6 +396,17 @@ assessment and policy evaluation — it never re-synthesizes or mutates
 `ArchitectureIntelligence` itself. See
 [`docs/architecture-governance.md`](architecture-governance.md).
 
+`architecture-intelligence.json` is also consumed by Milestone 8's
+Architecture Decision Intelligence layer: `@rvs/decision-intelligence`'s
+`architecture-links.ts` resolves a decision's declared `domain:
+architecture` links against this artifact's own entity ids (via a bounded
+structural walk, since decision-intelligence never imports this package's
+types), and `decision-drift.ts` flags `linked_entity_removed`/
+`linked_entity_materially_changed` drift when a linked architecture entity
+disappears or materially changes between runs. See
+[`docs/architecture-decision-intelligence.md`](architecture-decision-intelligence.md)
+and [`docs/decision-linking.md`](decision-linking.md).
+
 ## Known limitations
 
 - **No model-assisted synthesis (`--assist`).** Every statement above is

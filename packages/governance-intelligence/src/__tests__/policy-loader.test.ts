@@ -197,6 +197,218 @@ exceptions:
   });
 });
 
+const DECISION_AWARE_POLICY_YAML = `
+schema_version: 1
+id: decision-policy
+name: Decision Policy
+rules:
+  - id: change-needs-decision
+    title: Require decision for change
+    description: Changed entities must be linked to a decision.
+    kind: require_decision_for_change
+    condition:
+      kind: require_decision_for_change
+      entity_id_pattern: "component:.*"
+    severity: blocking
+    enabled: true
+  - id: change-needs-accepted-decision
+    title: Require accepted decision
+    description: Changed entities must have an accepted decision.
+    kind: require_accepted_decision
+    condition:
+      kind: require_accepted_decision
+    severity: blocking
+    enabled: true
+  - id: change-needs-implemented-decision
+    title: Require decision implementation
+    description: Changed entities must have an implemented decision.
+    kind: require_decision_implementation
+    condition:
+      kind: require_decision_implementation
+    severity: review_required
+    enabled: true
+  - id: no-contradicted-assumptions
+    title: Forbid contradicted assumption
+    description: No decision may have a contradicted assumption.
+    kind: forbid_contradicted_assumption
+    condition:
+      kind: forbid_contradicted_assumption
+      decision_id_pattern: "decision:.*"
+    severity: blocking
+    enabled: true
+  - id: no-active-superseded
+    title: Forbid active superseded decision
+    description: No decision may be simultaneously active and superseded.
+    kind: forbid_active_superseded_decision
+    condition:
+      kind: forbid_active_superseded_decision
+    severity: blocking
+    enabled: true
+  - id: change-needs-decision-evidence
+    title: Require decision evidence
+    description: Changed entities must carry decision-sourced evidence.
+    kind: require_decision_evidence
+    condition:
+      kind: require_decision_evidence
+    severity: advisory
+    enabled: true
+  - id: exception-needs-decision
+    title: Require decision for policy exception
+    description: Policy exceptions must reference a valid decision.
+    kind: require_decision_for_policy_exception
+    condition:
+      kind: require_decision_for_policy_exception
+      rule_id_pattern: "change-needs-decision"
+    severity: blocking
+    enabled: true
+  - id: baseline-needs-decision
+    title: Require decision for baseline replacement
+    description: Baseline replacement must be backed by a decision.
+    kind: require_decision_for_baseline_replacement
+    condition:
+      kind: require_decision_for_baseline_replacement
+    severity: blocking
+    enabled: true
+  - id: limit-conflicts
+    title: Limit unresolved decision conflicts
+    description: Unresolved decision conflicts must stay under the limit.
+    kind: limit_unresolved_decision_conflicts
+    condition:
+      kind: limit_unresolved_decision_conflicts
+      max_unresolved: 3
+    severity: review_required
+    enabled: true
+  - id: drift-needs-review
+    title: Require decision review for drift
+    description: Drifted decisions must be reviewed.
+    kind: require_decision_review_for_drift
+    condition:
+      kind: require_decision_review_for_drift
+    severity: review_required
+    enabled: true
+exceptions:
+  - rule_id: change-needs-decision
+    scope: "component:legacy-.*"
+    reason: Legacy component slated for planned decommission.
+    approval_reference: APPROVAL-123
+    decision_ref: "decision:legacy-removal"
+`;
+
+describe("loadPolicyFile: §36-38 decision-aware rule kinds", () => {
+  it("loads all 10 decision-aware rule kinds with their condition payloads intact", () => {
+    const path = writeYaml("decision-policy.yml", DECISION_AWARE_POLICY_YAML);
+    const policy = loadPolicyFile(path, GENERATED_AT);
+
+    const kinds = policy.rules.map((r) => r.kind).sort();
+    expect(kinds).toEqual(
+      [
+        "require_decision_for_change",
+        "require_accepted_decision",
+        "require_decision_implementation",
+        "forbid_contradicted_assumption",
+        "forbid_active_superseded_decision",
+        "require_decision_evidence",
+        "require_decision_for_policy_exception",
+        "require_decision_for_baseline_replacement",
+        "limit_unresolved_decision_conflicts",
+        "require_decision_review_for_drift",
+      ].sort(),
+    );
+
+    const forChange = policy.rules.find((r) => r.kind === "require_decision_for_change")!;
+    expect(forChange.condition).toEqual({ kind: "require_decision_for_change", entity_id_pattern: "component:.*" });
+
+    const forbidContradicted = policy.rules.find((r) => r.kind === "forbid_contradicted_assumption")!;
+    expect(forbidContradicted.condition).toEqual({ kind: "forbid_contradicted_assumption", decision_id_pattern: "decision:.*" });
+
+    const limitConflicts = policy.rules.find((r) => r.kind === "limit_unresolved_decision_conflicts")!;
+    expect(limitConflicts.condition).toEqual({ kind: "limit_unresolved_decision_conflicts", max_unresolved: 3 });
+
+    const baselineReplacement = policy.rules.find((r) => r.kind === "require_decision_for_baseline_replacement")!;
+    expect(baselineReplacement.condition).toEqual({ kind: "require_decision_for_baseline_replacement" });
+  });
+
+  it("loads an exception's optional decision_ref field", () => {
+    const path = writeYaml("decision-policy-exception.yml", DECISION_AWARE_POLICY_YAML);
+    const policy = loadPolicyFile(path, GENERATED_AT);
+    expect(policy.exceptions).toHaveLength(1);
+    expect(policy.exceptions[0].decision_ref).toBe("decision:legacy-removal");
+  });
+
+  it("leaves an exception's decision_ref undefined when the YAML omits it (backward compatible with pre-Milestone-8 policy files)", () => {
+    const path = writeYaml("no-decision-ref.yml", VALID_POLICY_YAML);
+    const policy = loadPolicyFile(path, GENERATED_AT);
+    expect(policy.exceptions).toHaveLength(1);
+    expect(policy.exceptions[0].decision_ref).toBeUndefined();
+  });
+
+  it("rejects a decision-aware condition that carries fields belonging to a different kind (strict schema)", () => {
+    const path = writeYaml(
+      "decision-wrong-kind-fields.yml",
+      `
+schema_version: 1
+id: bad-decision-policy
+name: Bad Decision Policy
+rules:
+  - id: r1
+    title: Rule 1
+    description: A rule.
+    kind: forbid_contradicted_assumption
+    condition:
+      kind: forbid_contradicted_assumption
+      decision_id_pattern: "decision:.*"
+      max_unresolved: 3
+    severity: advisory
+    enabled: true
+`,
+    );
+    expect(() => loadPolicyFile(path, GENERATED_AT)).toThrow(/Invalid policy file/);
+  });
+
+  it("rejects limit_unresolved_decision_conflicts when max_unresolved is missing", () => {
+    const path = writeYaml(
+      "missing-max-unresolved.yml",
+      `
+schema_version: 1
+id: bad-decision-policy
+name: Bad Decision Policy
+rules:
+  - id: r1
+    title: Rule 1
+    description: A rule.
+    kind: limit_unresolved_decision_conflicts
+    condition:
+      kind: limit_unresolved_decision_conflicts
+    severity: advisory
+    enabled: true
+`,
+    );
+    expect(() => loadPolicyFile(path, GENERATED_AT)).toThrow(/Invalid policy file/);
+  });
+
+  it("accepts require_decision_for_baseline_replacement with no extra condition fields at all", () => {
+    const path = writeYaml(
+      "baseline-only.yml",
+      `
+schema_version: 1
+id: baseline-policy
+name: Baseline Policy
+rules:
+  - id: r1
+    title: Rule 1
+    description: A rule.
+    kind: require_decision_for_baseline_replacement
+    condition:
+      kind: require_decision_for_baseline_replacement
+    severity: advisory
+    enabled: true
+`,
+    );
+    const policy = loadPolicyFile(path, GENERATED_AT);
+    expect(policy.rules[0].condition).toEqual({ kind: "require_decision_for_baseline_replacement" });
+  });
+});
+
 describe("loadPolicyFiles", () => {
   it("loads multiple valid policy files", () => {
     const path1 = writeYaml("policy-1.yml", VALID_POLICY_YAML);

@@ -2515,3 +2515,416 @@ same deliberate, user-confirmed decision recorded immediately above — the
 two branches share no commits beyond their common ancestor at `main`/
 `origin/main`'s `3873113`, and neither this pass nor any prior one has
 merged, rebased, or cherry-picked work between them.
+
+## Milestone 8 — Architecture Decision Intelligence
+
+**Status: complete.** Governance CLI wiring, blast-radius computation,
+4-source criticality resolution, config-driven missing-decision rules, and
+`target_domain: "decision"` link resolution — all disclosed as gaps below at
+this milestone's original completion — were closed by the Milestone 8.1
+hardening pass; see that entry below for what changed and how it was
+verified. Objective: a
+deterministic, offline decision-record intelligence layer sitting beside
+(not above) the Repository Evidence → Architecture Intelligence →
+Capability Intelligence → Product Identity Intelligence → Portfolio
+Intelligence → Architecture Governance stack Milestones 1-7 built —
+Architecture Decision Intelligence discovers ADR/RFC/design-decision/
+decision-log documents already present in a repository, parses and
+normalizes them into `ArchitectureDecision` records with content-derived
+identity, resolves their declared links against 5 of the upstream
+artifacts, tracks dependency cycles and supersession consistency, detects
+drift and debt, extends `@rvs/governance-intelligence` with 10 new
+decision-aware policy rule kinds, and composes the result into a
+`DecisionIntelligenceReport`, a claim-controlled `DecisionNarrative`, and a
+`"decisions"` `VisualDoc` profile. It never re-scans a repository outside
+the configured decision-document paths, never re-synthesizes an upstream
+artifact, never authors or mutates a decision document, and never calls an
+external model. See
+[`docs/architecture-decision-intelligence.md`](architecture-decision-intelligence.md),
+[`docs/decision-record-format.md`](decision-record-format.md),
+[`docs/decision-linking.md`](decision-linking.md),
+[`docs/decision-drift.md`](decision-drift.md),
+[`docs/decision-debt.md`](decision-debt.md),
+[`docs/decision-governance.md`](decision-governance.md), and
+[`docs/decision-showcase.md`](decision-showcase.md) for the complete
+design, contracts, and presentation layer — this entry records summary/
+coverage facts and defers to those seven documents for everything else,
+the same division of labor every milestone entry above uses with its own
+design documents.
+
+### 1. Package, contracts, and pipeline
+
+New package `packages/decision-intelligence` (`@rvs/decision-intelligence`),
+43 non-test source modules: `contracts.ts` (the full `ArchitectureDecision`/
+`DecisionSnapshot`/`DecisionLink`/`DecisionDependency`/
+`DecisionSupersessionIssue`/`DecisionConflict`/`DecisionDrift`/
+`DecisionDebtFinding`/`DecisionChangeSet`/`DecisionNarrative`/`DecisionPlan`/
+`DecisionIntelligenceReport` shapes, a 16-value `DecisionLinkType`, a
+6-value `DecisionLinkTargetDomain`, a 13-value `DecisionDriftCause`, a
+14-value `DecisionDebtCategory`, a 17-value `DecisionSceneKind`, a 14-value
+`DecisionClaimRejectionCode`), `ids.ts` (27 content-derived id-builder
+functions), `constants.ts`, `discovery.ts`, `frontmatter.ts`,
+`source-classification.ts`, `markdown-parser.ts`, `normalization.ts`,
+`identity.ts`, `status.ts`, `decisions-config.ts`, `links.ts` +
+`architecture-links.ts`/`capability-links.ts`/`product-links.ts`/
+`portfolio-links.ts`/`governance-links.ts`, `dependencies.ts`,
+`decision-graph.ts`, `supersession.ts`, `assumptions.ts`, `consequences.ts`,
+`alternatives.ts`, `conflicts.ts`, `coverage.ts`, `implementation-state.ts`,
+`missing-decisions.ts`, `missing-implementation.ts`, `criticality.ts`,
+`blast-radius.ts`, `decision-drift.ts`, `decision-debt.ts`, `snapshot.ts`,
+`compatibility.ts`, `diff.ts`, `change-classification.ts`,
+`governance-policy-extension.ts`, `claims.ts`, `narrative.ts`,
+`decision-plan.ts`, `validation.ts`, `explain.ts`, `index.ts` — the same
+small-pure-single-responsibility-module shape every upstream intelligence
+package already uses. `package.json` declares dependencies on only
+`fast-glob`, `mdast-util-to-string`, `remark-gfm`, `remark-parse`,
+`unified`, `unist-util-visit`, `yaml`, and `zod` — no dependency on
+`@rvs/architecture-intelligence`, `@rvs/capability-intelligence`,
+`@rvs/product-intelligence`, `@rvs/portfolio-intelligence`, or
+`@rvs/governance-intelligence`, at either the runtime or the type level.
+Full contract and pipeline detail:
+[docs/architecture-decision-intelligence.md](architecture-decision-intelligence.md).
+
+### 2. Presentation integration and CLI
+
+New `DecisionSceneKind` values (17, canonical order declared in
+`decision-plan.ts` — corrects an earlier "15" estimate; the implemented and
+rendered count on this branch is 17, confirmed by `renderer-html`'s
+exhaustive switch statement), a new `"decisions"` `VisualDoc` profile in
+`packages/narrative-planner/src/decision-visualdoc-builder.ts` (hardcoded
+`audience: "decisions"`/`theme: "technical-grid"`, no `--audience`
+support); new scene templates under
+`packages/renderer-html/src/scenes/decision/`; a new `decision-scene`
+member of the `VisualDoc` discriminated union in
+`packages/visualdoc-schema/src/schema.ts`. New CLI surfaces wired into
+`packages/cli/src/bin.ts`: `rvs decisions analyze`, `rvs decisions validate
+[--ci]`, `rvs decisions compare [--from] [--to]`, `rvs decisions explain
+<id>`, `rvs export decision-report [--output]`, `rvs export
+decision-summary [--output]`, plus `"decisions"` added to `rvs create
+slides --profile <id>`'s accepted profile list. A new
+`packages/cli/src/decision-cache.ts` module defines the CLI-layer decision
+cache layout under `.rvs/cache/decisions/`. One additive extension to
+`@rvs/governance-intelligence`: 10 new `GovernanceRuleKind` values, their
+condition schemas (`policy-loader.ts`), 10 new `evaluate<Kind>` functions
+plus shared helpers (`policy-evaluator.ts`), a `DecisionGovernanceContext`
+type and `decisionChanges?`/`decision_changes?` optional fields
+(`contracts.ts`), and a `decision_ref?` field on `GovernanceException` —
+all additive and opt-in; behavior is byte-identical when absent. Full
+design: [docs/decision-showcase.md](decision-showcase.md) and
+[docs/decision-governance.md](decision-governance.md).
+
+### 3. Key design decisions
+
+- **Content-derived ids everywhere.** `ids.ts` mirrors
+  `@rvs/governance-intelligence/src/ids.ts`'s pattern exactly: every
+  decision/link/dependency/supersession/conflict/drift/debt/change/claim id
+  is a pure function of stable content already present in the decision
+  documents being analyzed — never a timestamp or array index.
+- **Zero type coupling to any other package, upstream or sibling.**
+  `@rvs/decision-intelligence` never imports
+  `@rvs/architecture-intelligence`/`@rvs/capability-intelligence`/
+  `@rvs/product-intelligence`/`@rvs/portfolio-intelligence`/
+  `@rvs/governance-intelligence` types. Where a shape needs to echo a
+  concept from one of those packages (e.g. governance's own
+  `DecisionGovernanceContext`), each side declares its own independent
+  structural echo rather than importing the real type — the same pattern
+  `@rvs/governance-intelligence`'s own "Layering note" established in
+  Milestone 7, now applied bidirectionally between two sibling packages for
+  the first time.
+- **Links are extracted from structured syntax only.** `links.ts`'s own
+  header states it directly: a decision's frontmatter `links:` array of
+  `{ type, domain, target }` entries — never inferred from prose mentions.
+  "A textual mention of an entity's name is never sufficient to create a
+  link." Unresolved links are always kept, never dropped, per the
+  conservative-bias convention every layer below Governance already
+  follows.
+- **A conservative floor on governance's decision-aware rules, never an
+  assumed pass.** `policy-evaluator.ts`'s
+  `evaluateDecisionEntailedCoverageRule()` states this explicitly: an
+  entity with no linked decision at all is a confirmed `fail`; an entity
+  with some linked decision can only reach `unverifiable`, since
+  `DecisionGovernanceContext`'s flat id arrays cannot confirm the stronger
+  claim (accepted/implemented/evidenced).
+- **Severity always derives from an explicit signal, never from staleness
+  or age alone.** `decision-drift.ts`'s own header states this directly;
+  `decision-debt.ts`'s one age-based category
+  (`stale_proposed_decision`) uses a single fixed threshold
+  (`DEFAULT_STALE_PROPOSED_THRESHOLD_DAYS = 90`) and is kept deliberately
+  separate from drift's evidence-state model.
+- **No cost or effort estimation anywhere in the debt detector**, an
+  explicit, disclosed scope trim from the originating spec — see
+  [docs/decision-debt.md](decision-debt.md).
+- **No automatic decision creation.** There is no `rvs decisions new`
+  command and no code path anywhere in `packages/decision-intelligence` or
+  the `rvs decisions *` CLI surface that writes, edits, approves, or
+  rejects a decision document — analysis and explanation only. See
+  [docs/decision-record-format.md](decision-record-format.md).
+
+### 4. Known, disclosed scope trims
+
+- **17 `DecisionSceneKind` values are implemented, not 15.** The
+  originating design plan estimated 15 decision scene kinds; the actual,
+  compiler-enforced (exhaustive switch) count implemented in
+  `renderer-html/src/scenes/decision/render.ts` is 17. Documented as a
+  correction, not a gap, in
+  [docs/decision-showcase.md](decision-showcase.md).
+- **4 of `decision-drift.ts`'s 13 causes are effectively inert from the
+  `rvs decisions analyze` CLI path.** `implementation_regressed`,
+  `governance_status_downgraded`, `conflict_introduced`, and
+  `criticality_upgraded_without_review` all require a `previous` snapshot
+  argument that `decisions-analyze.ts` never supplies (it runs a single-
+  snapshot pass). The detector logic is implemented and unit-tested against
+  a supplied `previous` snapshot; no CLI command on this branch supplies
+  one. Full detail:
+  [docs/decision-drift.md#known-limitations](decision-drift.md#known-limitations).
+  Not in scope for Milestone 8.1's hardening pass (see below).
+- The following four trims disclosed at this milestone's original
+  completion were closed by Milestone 8.1 (see that entry below for detail):
+  governance CLI wiring for the 10 decision-aware rule kinds; the missing
+  `target_domain: "decision"` link resolver; `detectMissingDecisions()`
+  always receiving an empty rules array; and `assessDecisionBlastRadius()`
+  never being called from the CLI path.
+- Full rationale for all trims above, plus every other declared-but-not-
+  yet-fully-wired value: each new document's own "Known limitations"
+  section, indexed from
+  [docs/architecture-decision-intelligence.md](architecture-decision-intelligence.md).
+
+### 5. Test coverage and verification
+
+`packages/decision-intelligence/src/__tests__/`: 44 test files (one per
+source module, plus `decision-fixtures.ts` as a shared, non-test fixture
+helper) — including dedicated `determinism.test.ts` and
+`no-change-identity.test.ts` suites mirroring
+`@rvs/governance-intelligence`'s own Milestone 7 convention, plus
+`adversarial.test.ts`, `regression.test.ts`, and `scale.test.ts`. Plus new
+`packages/cli/src/__tests__/decisions-cli.test.ts` (in-process CLI command
+tests matching `governance-cli.test.ts`/`portfolio-cli.test.ts`'s
+established no-subprocess convention),
+`packages/narrative-planner/src/__tests__/decision-visualdoc-builder.test.ts`,
+and `packages/renderer-html/src/__tests__/decision-scene.test.ts`; plus
+modifications to `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`
+and `packages/visualdoc-schema/src/__tests__/schema.test.ts` for the new
+`decision-scene` VisualDoc type, and to
+`packages/governance-intelligence/src/__tests__/{policy-evaluator,
+policy-loader}.test.ts` for the 10 new decision-aware rule kinds.
+
+This documentation pass did not itself re-run the full workspace test
+suite or `tsc --noEmit` — verifying and, where needed, extending that
+coverage is a separate item on this milestone's own checklist, tracked and
+executed independently of this documentation pass. The file-level test
+coverage described above was confirmed by direct inspection of
+`packages/decision-intelligence/src/__tests__/` and the sibling packages'
+`__tests__/` directories, not by a fresh `pnpm test` run captured at
+documentation time; a milestone-closing pass should replace this section
+with concrete pass/fail/skip counts the same way Milestone 7's entry above
+does, once that separate checklist item completes.
+
+### 6. Current repository state
+
+Milestone 8's work sits, uncommitted, on
+`feature/architecture-decision-intelligence`, branched from `origin/main`
+at `e84b5dd` ("Merge pull request #7 from
+.../feature/governance-agent-integration"). `git status --short` shows: the
+new `packages/decision-intelligence/` package; new CLI command files
+(`decisions-analyze.ts`, `decisions-compare.ts`, `decisions-explain.ts`,
+`decisions-validate.ts`, `export-decision-report.ts`,
+`export-decision-summary.ts`) and the new `decision-cache.ts` module; new
+`decision-visualdoc-builder.ts` and its test; new `scenes/decision/`
+renderer files and their test; modifications to
+`packages/cli/src/{bin.ts, commands/create-slides.ts,
+__tests__/source-vs-package-equivalence.test.ts}` and `package.json`;
+modifications to `packages/governance-intelligence/src/{contracts.ts,
+policy-evaluator.ts, policy-loader.ts,
+__tests__/policy-evaluator.test.ts, __tests__/policy-loader.test.ts}` (the
+one cross-package extension, with `governance-compare.ts`/
+`governance-check.ts` deliberately left unmodified — see "Known, disclosed
+scope trims" above); modifications to `packages/narrative-planner/src/index.ts`
+and `package.json`; modifications to `packages/renderer-html/src/{render.ts,
+scenes/index.ts, styles.ts}` and `package.json`; modifications to
+`packages/visualdoc-schema/src/{schema.ts, __tests__/schema.test.ts}` wiring
+the new `decision-scene` VisualDoc type in; a `pnpm-lock.yaml` update; plus
+this documentation pass (`docs/architecture-decision-intelligence.md`,
+`docs/decision-record-format.md`, `docs/decision-linking.md`,
+`docs/decision-drift.md`, `docs/decision-debt.md`,
+`docs/decision-governance.md`, `docs/decision-showcase.md`, this entry,
+forward-reference cross-link paragraphs in `docs/architecture-intelligence.md`,
+`docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
+`docs/portfolio-intelligence.md`, `docs/architecture-governance.md`,
+`docs/continuous-intelligence.md`, and `README.md`; a new decisions
+workflow entry in `skills/repo-visual-studio/SKILL.md`; 6 new skill
+reference files under `skills/repo-visual-studio/references/`; an updated
+`skills/repo-visual-studio/references/intelligence-routing.md`; and a
+routing addition to `MASTER_AGENT.md`).
+
+Nothing from this milestone has been committed, pushed, merged, or opened
+as a pull request.
+
+## Milestone 8.1 — Decision Governance Pipeline Integration
+
+**Status: complete.** A hardening pass on top of Milestone 8, closing five
+disclosed gaps in the original decision-intelligence pipeline without
+changing any already-shipped contract shape: (1) wiring decision
+intelligence's output into `governance-compare.ts`/`governance-check.ts` so
+the 10 decision-aware governance rule kinds actually evaluate; (2) passing a
+real `decisionContext` into `evaluatePolicy()`; (3) loading configured
+missing-decision rules from `.rvs/decisions.yml` instead of an empty array;
+(4) computing blast radius during `rvs decisions analyze` and threading it
+through the decision report, summary, explain output, decision debt, drift
+findings, narrative, and presentation plan; (5) resolving decision
+criticality from 4 independent sources instead of an unconditional
+`{ signalsAvailable: false }` placeholder; and, as a sixth closely related
+fix discovered while wiring links, adding a resolver for
+`target_domain: "decision"` link declarations. See
+[docs/architecture-decision-intelligence.md](architecture-decision-intelligence.md)
+and [docs/decision-governance.md](decision-governance.md) for the complete,
+current design — this entry records summary/coverage facts only, the same
+division of labor Milestone 8's own entry above established.
+
+### 1. Package and pipeline changes
+
+`packages/decision-intelligence/src/decision-links.ts` (new file) resolves
+`target_domain: "decision"` links against the set of decision ids known
+within a single analysis run — no upstream artifact needed, since every
+decision's id is already in hand by the time links are assembled. A
+decision linking to itself always resolves `"unresolved"` with a
+self-link-specific detail message.
+
+`packages/cli/src/commands/decisions-analyze.ts` gained, all inside the
+existing `runDecisionAnalysis()` pipeline function (no new CLI flags, no new
+output files beyond what `DECISION_OUTPUT_FILES` already declared):
+
+- `buildDecisionToDecisionLinks()` added to the link-assembly step, folded
+  into the existing sorted `links[]` output alongside the 5 pre-existing
+  link builders.
+- `assessDecisionBlastRadius()` called every run, `blast_radius_id` merged
+  onto every drift finding, and blast-radius-by-level counts added to the
+  assembled decision report — mirroring `decisions-analyze.ts`'s existing
+  "merge back onto finalDecisions" pattern used for implementation/
+  governance status.
+- `config.missing_decision_rules` (from `.rvs/decisions.yml`, already
+  Zod-validated by `decisions-config.ts`) mapped into
+  `MissingDecisionRuleInput[]` and passed to `detectMissingDecisions()` in
+  place of the previous unconditional `[]`.
+- A `criticalityInputs` object assembled from 4 independent sources —
+  configured `critical_decision_ids`, decision frontmatter's own
+  `criticality` field, governance-link membership, and configured
+  shared-contract/runtime-entrypoint/portfolio-dependency/critical-capability
+  entity id sets matched against each decision's own resolved links —
+  replacing the previous hardcoded `signalsAvailable: false`. Full source
+  breakdown: [docs/architecture-decision-intelligence.md](architecture-decision-intelligence.md#implementation-state-coverage-criticality).
+
+`packages/cli/src/commands/governance-compare.ts`'s `runGovernanceComparison()`
+gained one best-effort read —
+`readDecisionCachedJsonOptional<DecisionGovernanceContext>(repoRoot,
+DECISION_OUTPUT_FILES.decisionGovernanceContext)` — passed straight through
+as `evaluatePolicy({ ..., decisionChanges })` for every policy, and attached
+to the assembled report as `ContinuousIntelligenceReport.decision_changes`.
+`governance-check.ts` required no changes of its own — it already calls
+`runGovernanceComparison()` and inherits the new behavior automatically. No
+`@rvs/governance-intelligence` contract, evaluator, or Zod schema changed;
+this milestone is CLI-layer wiring only, consuming the extension point
+Milestone 8 already built. Full detail:
+[docs/decision-governance.md](decision-governance.md#wiring-status-connected-end-to-end-milestone-81).
+
+### 2. Key design decisions
+
+- **The opt-in guarantee stayed mechanical, not just re-documented.**
+  `readDecisionCachedJsonOptional()` returns `undefined` when no decision
+  snapshot has ever been cached, and `decisionChanges: undefined` is exactly
+  what `evaluatePolicy()` already treated as "domain absent" before this
+  milestone — a repository that never runs `rvs decisions analyze` sees zero
+  change in governance's evaluation output, verified by the existing
+  governance test suite passing unmodified.
+- **No new CLI flags, no new cache files, no new contract fields.** Every
+  change in this milestone consumes an already-declared extension point
+  (`DecisionGovernanceContext`, `DECISION_OUTPUT_FILES`,
+  `MissingDecisionRuleInput`, `DecisionBlastRadiusLevel`,
+  `CriticalityInputs`) rather than adding a new one — the milestone is
+  entirely about closing the gap between "implemented and unit-tested at
+  the package level" and "reachable end-to-end via the CLI command surface"
+  that Milestone 8's own "Known, disclosed scope trims" section called out.
+- **Criticality's governance-linked signal is a coarse membership check, by
+  design.** `governance-links.ts`'s link model carries no policy-severity
+  reference — "has any resolved/partially-resolved governance link" is the
+  most specific honestly-scoped signal available without additional
+  plumbing genuinely out of this milestone's scope; documented as a
+  disclosed trim, not silently narrowed.
+- **True end-to-end proof, not just wiring-level unit tests.** Both named
+  workflows (missing-decision → governance-check exit code;
+  contradicted-assumption → drift → governance finding → CI result) are
+  driven through the real in-process CLI command functions
+  (`runDecisionAnalysis()` → `runGovernanceCheck()`), and separately through
+  both the tsx source CLI and an installed `npx rvs` tarball, rather than
+  asserted only at the individual evaluator-function level.
+
+### 3. Test coverage and verification
+
+New `packages/cli/src/__tests__/decisions-governance-e2e.test.ts` (4 tests):
+Workflow A (missing-decision, fail + pass cases) and Workflow B
+(contradicted-assumption, fail + pass cases), each driving
+`runDecisionAnalysis()` then `runGovernanceCheck()` in-process against an
+isolated temp repo root, asserting on `process.exitCode`, the cached
+`decision-governance-context.json`, and the specific `GovernanceFinding`
+(matched by `buildRuleId(buildPolicyId(policyKey), ruleKey)`, not a bare
+rule-id string — governance's actual `rule_id` construction, confirmed by
+tracing `policy-loader.ts`).
+
+Extended `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`
+with one new test combining both workflows into a single fixture, run
+independently through the tsx source CLI and an installed `npx rvs`
+tarball (gated behind `RVS_TEST_PACKAGE=1`): both engines produce
+byte-identical `decision-governance-context.json` and equivalent
+`governance-findings.json` field subsets, and both exit `--ci` with status
+`1`.
+
+Full verification run this milestone:
+
+- `pnpm -r exec tsc --noEmit` — clean.
+- `pnpm test` (full workspace, from repo root) — **175 files, 2876 tests
+  passed, 10 skipped.**
+- `pnpm --filter @rvs/cli exec vitest run` (CLI package, packaged suites
+  skipped by default) — 5 files (54 tests) passed, 2 files (10 tests)
+  skipped.
+- `RVS_TEST_PACKAGE=1 pnpm --filter @rvs/cli exec vitest run
+  src/__tests__/source-vs-package-equivalence.test.ts` — **1 file, 2 tests
+  passed** (the pre-existing full-pipeline equivalence test and the new
+  decision-governance workflow-equivalence test), confirming source and
+  packaged engines independently produce identical governance findings and
+  `--ci` exit codes.
+
+### 4. Known, disclosed scope trims
+
+- **`require_decision_for_baseline_replacement` still always resolves
+  `unverifiable`.** Unaffected by this milestone — no available context
+  signals a baseline-replacement event; this is `@rvs/governance-intelligence`'s
+  own unconditional, disclosed trim from Milestone 8, not something this
+  pipeline-wiring pass could close.
+- **The 4 previous-snapshot-dependent drift causes remain inert from the
+  CLI path.** `implementation_regressed`, `governance_status_downgraded`,
+  `conflict_introduced`, and `criticality_upgraded_without_review` still
+  require a `previous` snapshot argument `decisions-analyze.ts` never
+  supplies (single-snapshot pass) — out of this milestone's 8-item scope.
+- **Criticality's governance-linked signal remains a coarse membership
+  check, not a severity read** — see "Key design decisions" above; a
+  disclosed trim, not a regression from this milestone's work.
+- Full rationale, as always, in each document's own "Known limitations"
+  section, indexed from
+  [docs/architecture-decision-intelligence.md](architecture-decision-intelligence.md).
+
+### 5. Current repository state
+
+Milestone 8.1's work sits, uncommitted, on
+`feature/architecture-decision-intelligence` (the same branch Milestone 8
+used), branched from `origin/main` at `e84b5dd`. Changes beyond Milestone
+8's own file list: `packages/decision-intelligence/src/decision-links.ts`
+(new); modifications to `packages/decision-intelligence/src/index.ts`
+(barrel export) and its `__tests__/`; modifications to
+`packages/cli/src/commands/decisions-analyze.ts` and
+`packages/cli/src/commands/governance-compare.ts`; a new
+`packages/cli/src/__tests__/decisions-governance-e2e.test.ts`; a further
+modification to `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`;
+and this documentation pass (`docs/architecture-decision-intelligence.md`,
+`docs/decision-governance.md`, `docs/decision-linking.md`, this entry).
+
+Nothing from this milestone has been committed, pushed, merged, or opened
+as a pull request.

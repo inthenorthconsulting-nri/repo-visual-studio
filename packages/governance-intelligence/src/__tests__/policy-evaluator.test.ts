@@ -4,6 +4,7 @@ import type {
   ArchitectureChangeSet,
   BlastRadiusAssessment,
   CapabilityChangeSet,
+  DecisionGovernanceContext,
   GovernanceChangeClassification,
   GovernanceChangeEntry,
   GovernanceCompatibilityStatus,
@@ -69,6 +70,17 @@ function emptyBlastRadius(): BlastRadiusAssessment {
   return { schema_version: 1, id: "blast-radius:test", source_snapshot_id: "source", target_snapshot_id: "target", entries: [], evidence_refs: [], generation: { generated_at: GENERATED_AT } };
 }
 
+function decisionChanges(overrides: Partial<DecisionGovernanceContext> = {}): DecisionGovernanceContext {
+  return {
+    changes_missing_decision: overrides.changes_missing_decision ?? [],
+    decisions_with_contradicted_assumptions: overrides.decisions_with_contradicted_assumptions ?? [],
+    decisions_active_and_superseded: overrides.decisions_active_and_superseded ?? [],
+    exceptions_with_invalid_decision_ref: overrides.exceptions_with_invalid_decision_ref ?? [],
+    unresolved_conflict_decision_ids: overrides.unresolved_conflict_decision_ids ?? [],
+    decisions_requiring_review_for_drift: overrides.decisions_requiring_review_for_drift ?? [],
+  };
+}
+
 function rule(kind: GovernanceRuleCondition["kind"], condition: GovernanceRuleCondition, overrides: Partial<GovernanceRule> = {}): GovernanceRule {
   const policyId = buildPolicyId("test-policy");
   return {
@@ -93,6 +105,7 @@ interface EvalArgs {
   capabilityChanges?: CapabilityChangeSet;
   productChanges?: ProductChangeSet;
   portfolioChanges?: PortfolioChangeSet;
+  decisionChanges?: DecisionGovernanceContext;
   blastRadius?: BlastRadiusAssessment;
   targetCompatibility?: GovernanceCompatibilityStatus;
   now?: string;
@@ -107,6 +120,7 @@ function runEval(args: EvalArgs) {
     capabilityChanges: args.capabilityChanges ?? capabilityChangeSet([]),
     productChanges: args.productChanges ?? productChangeSet([]),
     portfolioChanges: args.portfolioChanges,
+    decisionChanges: args.decisionChanges,
     blastRadius: args.blastRadius ?? emptyBlastRadius(),
     targetCompatibility: args.targetCompatibility ?? "compatible",
     generatedAt: GENERATED_AT,
@@ -318,6 +332,324 @@ describe("evaluatePolicy: require_compatible_snapshot", () => {
     const r = rule("require_compatible_snapshot", { kind: "require_compatible_snapshot", minimum_status: "partial" });
     const result = runEval({ policy: policy([r]), targetCompatibility: "compatible" });
     expect(result.findings[0].result).toBe("pass");
+  });
+});
+
+describe("evaluatePolicy: require_decision_for_change", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("require_decision_for_change", { kind: "require_decision_for_change" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("is not_applicable when decisionChanges is available but no changed entity is in scope", () => {
+    const r = rule("require_decision_for_change", { kind: "require_decision_for_change" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+
+  it("fails for a changed entity present in changes_missing_decision", () => {
+    const r = rule("require_decision_for_change", { kind: "require_decision_for_change" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"] }) });
+    expect(result.findings.some((f) => f.result === "fail")).toBe(true);
+  });
+
+  it("passes when every changed entity in scope is linked to a decision (absent from changes_missing_decision)", () => {
+    const r = rule("require_decision_for_change", { kind: "require_decision_for_change" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges() });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].result).toBe("pass");
+  });
+
+  it("respects entity_id_pattern scoping", () => {
+    const r = rule("require_decision_for_change", { kind: "require_decision_for_change", entity_id_pattern: "component:other-.*" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"] }) });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+});
+
+describe("evaluatePolicy: require_accepted_decision", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("require_accepted_decision", { kind: "require_accepted_decision" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("fails when the changed entity has no linked decision at all", () => {
+    const r = rule("require_accepted_decision", { kind: "require_accepted_decision" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"] }) });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("is unverifiable (never assumed to pass) when the entity has some linked decision but acceptance cannot be confirmed", () => {
+    const r = rule("require_accepted_decision", { kind: "require_accepted_decision" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("is not_applicable when no changed entity is in scope", () => {
+    const r = rule("require_accepted_decision", { kind: "require_accepted_decision" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+});
+
+describe("evaluatePolicy: require_decision_implementation", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("require_decision_implementation", { kind: "require_decision_implementation" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("fails when the changed entity has no linked decision at all", () => {
+    const r = rule("require_decision_implementation", { kind: "require_decision_implementation" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"] }) });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("is unverifiable (never assumed to pass) when the entity has some linked decision but implementation cannot be confirmed", () => {
+    const r = rule("require_decision_implementation", { kind: "require_decision_implementation" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+});
+
+describe("evaluatePolicy: require_decision_evidence", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("require_decision_evidence", { kind: "require_decision_evidence" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("fails when the changed entity has no linked decision at all", () => {
+    const r = rule("require_decision_evidence", { kind: "require_decision_evidence" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"] }) });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("is unverifiable (never assumed to pass) when the entity has some linked decision but decision-sourced evidence cannot be confirmed", () => {
+    const r = rule("require_decision_evidence", { kind: "require_decision_evidence" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "modified" })]);
+    const result = runEval({ policy: policy([r]), architectureChanges: changes, decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+});
+
+describe("evaluatePolicy: forbid_contradicted_assumption", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("forbid_contradicted_assumption", { kind: "forbid_contradicted_assumption" });
+    const result = runEval({ policy: policy([r]) });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("passes when no decision in scope has a contradicted assumption", () => {
+    const r = rule("forbid_contradicted_assumption", { kind: "forbid_contradicted_assumption" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("pass");
+  });
+
+  it("fails once per decision id with a contradicted assumption", () => {
+    const r = rule("forbid_contradicted_assumption", { kind: "forbid_contradicted_assumption" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ decisions_with_contradicted_assumptions: ["decision:a", "decision:b"] }) });
+    expect(result.findings).toHaveLength(2);
+    expect(result.findings.every((f) => f.result === "fail")).toBe(true);
+    expect(result.findings.flatMap((f) => f.affected_entity_ids).sort()).toEqual(["decision:a", "decision:b"]);
+  });
+
+  it("respects decision_id_pattern scoping", () => {
+    const r = rule("forbid_contradicted_assumption", { kind: "forbid_contradicted_assumption", decision_id_pattern: "decision:a" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ decisions_with_contradicted_assumptions: ["decision:a", "decision:b"] }) });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].affected_entity_ids).toEqual(["decision:a"]);
+  });
+});
+
+describe("evaluatePolicy: forbid_active_superseded_decision", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("forbid_active_superseded_decision", { kind: "forbid_active_superseded_decision" });
+    const result = runEval({ policy: policy([r]) });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("passes when no decision in scope is simultaneously active and superseded", () => {
+    const r = rule("forbid_active_superseded_decision", { kind: "forbid_active_superseded_decision" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("pass");
+  });
+
+  it("fails once per decision id that is simultaneously active and superseded", () => {
+    const r = rule("forbid_active_superseded_decision", { kind: "forbid_active_superseded_decision" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ decisions_active_and_superseded: ["decision:a"] }) });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].result).toBe("fail");
+    expect(result.findings[0].affected_entity_ids).toEqual(["decision:a"]);
+  });
+});
+
+describe("evaluatePolicy: require_decision_for_policy_exception", () => {
+  it("is not_applicable when no exception matches the rule's scope", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception" });
+    const result = runEval({ policy: policy([r]) });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+
+  it("is unverifiable when a matching exception exists but no decisionChanges context is available", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception" });
+    const exception: GovernanceException = { policy_id: policy([r]).id, rule_id: "some-other-rule", reason: "Reason.", approval_reference: "APPROVAL-1", decision_ref: "decision:a", evidence_refs: [] };
+    const result = runEval({ policy: policy([r], [exception]) });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("fails when a matching exception has no decision_ref at all", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception" });
+    const exception: GovernanceException = { policy_id: policy([r]).id, rule_id: "some-other-rule", reason: "Reason.", approval_reference: "APPROVAL-1", evidence_refs: [] };
+    const result = runEval({ policy: policy([r], [exception]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("fails when a matching exception's decision_ref is flagged invalid by decision-intelligence", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception" });
+    const exception: GovernanceException = {
+      policy_id: policy([r]).id,
+      rule_id: "some-other-rule",
+      reason: "Reason.",
+      approval_reference: "APPROVAL-1",
+      decision_ref: "decision:expired",
+      evidence_refs: [],
+    };
+    const result = runEval({ policy: policy([r], [exception]), decisionChanges: decisionChanges({ exceptions_with_invalid_decision_ref: ["decision:expired"] }) });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("passes when every matching exception references a valid decision", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception" });
+    const exception: GovernanceException = {
+      policy_id: policy([r]).id,
+      rule_id: "some-other-rule",
+      reason: "Reason.",
+      approval_reference: "APPROVAL-1",
+      decision_ref: "decision:valid",
+      evidence_refs: [],
+    };
+    const result = runEval({ policy: policy([r], [exception]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("pass");
+  });
+
+  it("respects rule_id_pattern scoping", () => {
+    const r = rule("require_decision_for_policy_exception", { kind: "require_decision_for_policy_exception", rule_id_pattern: "no-such-rule" });
+    const exception: GovernanceException = { policy_id: policy([r]).id, rule_id: "some-other-rule", reason: "Reason.", approval_reference: "APPROVAL-1", evidence_refs: [] };
+    const result = runEval({ policy: policy([r], [exception]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+});
+
+describe("evaluatePolicy: require_decision_for_baseline_replacement", () => {
+  it("is always unverifiable, regardless of whether decisionChanges is present", () => {
+    const rWithoutContext = rule("require_decision_for_baseline_replacement", { kind: "require_decision_for_baseline_replacement" }, { id: "no-context" });
+    const withoutContext = runEval({ policy: policy([rWithoutContext]) });
+    expect(withoutContext.findings[0].result).toBe("unverifiable");
+
+    const rWithContext = rule("require_decision_for_baseline_replacement", { kind: "require_decision_for_baseline_replacement" }, { id: "with-context" });
+    const withContext = runEval({ policy: policy([rWithContext]), decisionChanges: decisionChanges() });
+    expect(withContext.findings[0].result).toBe("unverifiable");
+  });
+});
+
+describe("evaluatePolicy: limit_unresolved_decision_conflicts", () => {
+  it("is not_applicable when no decisionChanges context is available", () => {
+    const r = rule("limit_unresolved_decision_conflicts", { kind: "limit_unresolved_decision_conflicts", max_unresolved: 1 });
+    const result = runEval({ policy: policy([r]) });
+    expect(result.findings[0].result).toBe("not_applicable");
+  });
+
+  it("fails when unresolved decision conflicts exceed the configured maximum", () => {
+    const r = rule("limit_unresolved_decision_conflicts", { kind: "limit_unresolved_decision_conflicts", max_unresolved: 1 });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ unresolved_conflict_decision_ids: ["decision:a", "decision:b"] }) });
+    expect(result.findings[0].result).toBe("fail");
+  });
+
+  it("passes when unresolved decision conflicts are within the configured maximum", () => {
+    const r = rule("limit_unresolved_decision_conflicts", { kind: "limit_unresolved_decision_conflicts", max_unresolved: 5 });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ unresolved_conflict_decision_ids: ["decision:a"] }) });
+    expect(result.findings[0].result).toBe("pass");
+  });
+});
+
+describe("evaluatePolicy: require_decision_review_for_drift", () => {
+  it("is unverifiable when no decisionChanges context is available", () => {
+    const r = rule("require_decision_review_for_drift", { kind: "require_decision_review_for_drift" });
+    const result = runEval({ policy: policy([r]) });
+    expect(result.findings[0].result).toBe("unverifiable");
+  });
+
+  it("passes when no decision in scope currently requires review for drift", () => {
+    const r = rule("require_decision_review_for_drift", { kind: "require_decision_review_for_drift" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges() });
+    expect(result.findings[0].result).toBe("pass");
+  });
+
+  it("fails once per decision id that requires review for drift", () => {
+    const r = rule("require_decision_review_for_drift", { kind: "require_decision_review_for_drift" });
+    const result = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ decisions_requiring_review_for_drift: ["decision:a"] }) });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].result).toBe("fail");
+    expect(result.findings[0].affected_entity_ids).toEqual(["decision:a"]);
+  });
+});
+
+describe("evaluatePolicy: decisionChanges is opt-in and additive", () => {
+  it("omitting decisionChanges entirely leaves pre-Milestone-8 rule kinds byte-identical to evaluating with it explicitly undefined", () => {
+    const r = rule("forbid_component_removal", { kind: "forbid_component_removal" }, { severity: "blocking" });
+    const p = policy([r]);
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "removed" })]);
+    const withoutField = evaluatePolicy({
+      policy: p,
+      sourceSnapshotId: "source",
+      targetSnapshotId: "target",
+      architectureChanges: changes,
+      capabilityChanges: capabilityChangeSet([]),
+      productChanges: productChangeSet([]),
+      blastRadius: emptyBlastRadius(),
+      targetCompatibility: "compatible",
+      generatedAt: GENERATED_AT,
+      now: NOW,
+    });
+    const withUndefinedField = runEval({ policy: p, architectureChanges: changes, decisionChanges: undefined });
+    const strip = (res: typeof withoutField) => JSON.stringify({ ...res, generation: undefined });
+    expect(strip(withoutField)).toBe(strip(withUndefinedField));
+  });
+
+  it("a policy with zero decision-aware rules produces identical findings whether decisionChanges is absent or populated with data", () => {
+    const r = rule("forbid_component_removal", { kind: "forbid_component_removal" }, { severity: "blocking" });
+    const changes = architectureChangeSet([entry({ domain_path: "components", entity_id: "component:api", type: "removed" })]);
+    const withoutContext = runEval({ policy: policy([r]), architectureChanges: changes });
+    const withContext = runEval({
+      policy: policy([r]),
+      architectureChanges: changes,
+      decisionChanges: decisionChanges({ changes_missing_decision: ["component:api"], decisions_with_contradicted_assumptions: ["decision:x"] }),
+    });
+    expect(withContext.findings).toEqual(withoutContext.findings);
+  });
+
+  it("a decision-aware rule surfaces new findings only when decisionChanges is actually supplied", () => {
+    const r = rule("forbid_contradicted_assumption", { kind: "forbid_contradicted_assumption" });
+    const withoutContext = runEval({ policy: policy([r]) });
+    expect(withoutContext.findings[0].result).toBe("unverifiable");
+
+    const withContext = runEval({ policy: policy([r]), decisionChanges: decisionChanges({ decisions_with_contradicted_assumptions: ["decision:a"] }) });
+    expect(withContext.findings[0].result).toBe("fail");
   });
 });
 

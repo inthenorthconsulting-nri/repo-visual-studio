@@ -322,7 +322,17 @@ export type GovernanceRuleKind =
   | "forbid_approved_claim_without_lineage"
   | "require_product_role"
   | "limit_unresolved_relationships"
-  | "require_compatible_snapshot";
+  | "require_compatible_snapshot"
+  | "require_decision_for_change"
+  | "require_accepted_decision"
+  | "require_decision_implementation"
+  | "forbid_contradicted_assumption"
+  | "forbid_active_superseded_decision"
+  | "require_decision_evidence"
+  | "require_decision_for_policy_exception"
+  | "require_decision_for_baseline_replacement"
+  | "limit_unresolved_decision_conflicts"
+  | "require_decision_review_for_drift";
 
 /**
  * Per-kind condition payloads. Every field is optional scoping (an absent
@@ -379,6 +389,55 @@ export interface RequireCompatibleSnapshotCondition {
   minimum_status: GovernanceCompatibilityStatus;
 }
 
+/**
+ * §36-38 (decision-aware policy extension): the 10 additional rule kinds
+ * added by Milestone 8's governance-policy-extension. Each condition below
+ * is scoped only by an id/rule pattern (or, for
+ * RequireDecisionForBaselineReplacementCondition, nothing at all) -- the
+ * evaluator's own doc comments in policy-evaluator.ts document exactly how
+ * far each rule can be verified given DecisionGovernanceContext's flat,
+ * id-array-only shape.
+ */
+export interface RequireDecisionForChangeCondition {
+  kind: "require_decision_for_change";
+  entity_id_pattern?: string;
+}
+export interface RequireAcceptedDecisionCondition {
+  kind: "require_accepted_decision";
+  entity_id_pattern?: string;
+}
+export interface RequireDecisionImplementationCondition {
+  kind: "require_decision_implementation";
+  entity_id_pattern?: string;
+}
+export interface ForbidContradictedAssumptionCondition {
+  kind: "forbid_contradicted_assumption";
+  decision_id_pattern?: string;
+}
+export interface ForbidActiveSupersededDecisionCondition {
+  kind: "forbid_active_superseded_decision";
+  decision_id_pattern?: string;
+}
+export interface RequireDecisionEvidenceCondition {
+  kind: "require_decision_evidence";
+  entity_id_pattern?: string;
+}
+export interface RequireDecisionForPolicyExceptionCondition {
+  kind: "require_decision_for_policy_exception";
+  rule_id_pattern?: string;
+}
+export interface RequireDecisionForBaselineReplacementCondition {
+  kind: "require_decision_for_baseline_replacement";
+}
+export interface LimitUnresolvedDecisionConflictsCondition {
+  kind: "limit_unresolved_decision_conflicts";
+  max_unresolved: number;
+}
+export interface RequireDecisionReviewForDriftCondition {
+  kind: "require_decision_review_for_drift";
+  decision_id_pattern?: string;
+}
+
 export type GovernanceRuleCondition =
   | ForbidComponentRemovalCondition
   | RequireRuntimeEntrypointCondition
@@ -390,7 +449,17 @@ export type GovernanceRuleCondition =
   | ForbidApprovedClaimWithoutLineageCondition
   | RequireProductRoleCondition
   | LimitUnresolvedRelationshipsCondition
-  | RequireCompatibleSnapshotCondition;
+  | RequireCompatibleSnapshotCondition
+  | RequireDecisionForChangeCondition
+  | RequireAcceptedDecisionCondition
+  | RequireDecisionImplementationCondition
+  | ForbidContradictedAssumptionCondition
+  | ForbidActiveSupersededDecisionCondition
+  | RequireDecisionEvidenceCondition
+  | RequireDecisionForPolicyExceptionCondition
+  | RequireDecisionForBaselineReplacementCondition
+  | LimitUnresolvedDecisionConflictsCondition
+  | RequireDecisionReviewForDriftCondition;
 
 /** §19: never implicit -- an exception must name a policy/scope/reason/approval reference to apply at all. */
 export interface GovernanceException {
@@ -400,6 +469,17 @@ export interface GovernanceException {
   reason: string;
   approval_reference: string;
   expiry?: string;
+  /**
+   * §38: an optional pointer to the ArchitectureDecision id (a concept owned
+   * entirely by @rvs/decision-intelligence) that supports this exception.
+   * governance-intelligence only carries this field through -- it never
+   * resolves, validates existence/expiry/scope-match of, or otherwise
+   * interprets the referenced decision itself; that validation is
+   * decision-intelligence's governance-links.ts's job. The linked decision
+   * supports the exception, it does not replace the exception record (the
+   * exception's own reason/approval_reference/expiry remain authoritative).
+   */
+  decision_ref?: string;
   evidence_refs: EvidenceRef[];
 }
 
@@ -484,6 +564,29 @@ export interface BlastRadiusAssessment {
   generation: GovernanceGenerationMetadata;
 }
 
+/**
+ * §36-38: the decision-derived facts @rvs/decision-intelligence hands to
+ * this package's policy evaluator as its optional 5th domain, exactly the
+ * way `portfolio_changes`/`portfolioChanges` was added as the optional 4th
+ * domain. Declared independently here as governance-intelligence's OWN
+ * structural echo of decision-intelligence's `DecisionGovernanceContextEcho`
+ * (packages/decision-intelligence/src/contracts.ts) -- governance never
+ * imports from @rvs/decision-intelligence, since governance stays the more
+ * foundational package and must not depend "up" on a layer built on top of
+ * it. Every field is a flat array of decision/change ids that
+ * decision-intelligence has already computed deterministically; governance
+ * only checks membership, it never re-derives the underlying decision
+ * analysis.
+ */
+export interface DecisionGovernanceContext {
+  changes_missing_decision: string[];
+  decisions_with_contradicted_assumptions: string[];
+  decisions_active_and_superseded: string[];
+  exceptions_with_invalid_decision_ref: string[];
+  unresolved_conflict_decision_ids: string[];
+  decisions_requiring_review_for_drift: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Continuous intelligence report -- the governance pipeline's terminal
 // rollup artifact
@@ -500,6 +603,8 @@ export interface ContinuousIntelligenceReport {
   capability_changes: CapabilityChangeSet;
   product_changes: ProductChangeSet;
   portfolio_changes?: PortfolioChangeSet;
+  /** Opt-in: present only when a decision snapshot existed for this comparison. Absent, governance evaluation is byte-identical to pre-Milestone-8 behavior. */
+  decision_changes?: DecisionGovernanceContext;
   evidence_changes: EvidenceChangeSet;
   blast_radius: BlastRadiusAssessment;
   /** Sorted by policy_id. */

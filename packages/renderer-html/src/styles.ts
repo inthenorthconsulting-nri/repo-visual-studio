@@ -257,6 +257,19 @@ export const BASE_CSS = `
 
   .governance-severity-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 
+  /* Architecture Decision Intelligence (Milestone 8) — reuses
+     .arch-empty/.arch-statement-list/.governance-count-list/
+     .governance-severity-badges/.arch-severity-blocking etc. directly
+     (DecisionDrift.severity shares governance's blocking/review_required/
+     advisory/informational vocabulary exactly), mirroring the Governance
+     profile's own reuse discipline above. */
+  .scene-decision { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+  .decision-status-row, .decision-coverage-row { display: flex; align-items: baseline; gap: 16px; font-size: 15px; border-left: 3px solid var(--rvs-color-accent); padding-left: 14px; margin-bottom: 8px; }
+  .decision-status-id, .decision-coverage-dimension { font-family: var(--rvs-font-code); color: var(--rvs-color-text-primary); }
+  .decision-status-field, .decision-coverage-value { color: var(--rvs-color-text-secondary); font-variant-numeric: tabular-nums; }
+  .decision-governance-impact-heading { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rvs-color-text-secondary); margin: 20px 0 8px; }
+
   .citations {
     position: absolute;
     left: 96px;

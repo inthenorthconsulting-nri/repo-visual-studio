@@ -372,8 +372,26 @@ given. Run `rvs governance baseline set <snapshot>` first, or pass --from
 `rvs governance check --ci`, `rvs governance explain`, and the two
 `rvs export governance-*` commands built on top of these cached files.
 
+## Decision-aware policy extension (Milestone 8)
+
+Milestone 8's Architecture Decision Intelligence layer adds 10 more
+`GovernanceRuleKind` values (kinds 12-21) and an optional 5th policy-input
+domain, `decisionChanges?: DecisionGovernanceContext` — additive and
+opt-in; a repository that never runs `rvs decisions analyze` sees zero
+change to this document's own 5-domain/11-rule-kind engine described
+above. **These 10 rule kinds are not wired into `rvs governance
+compare`/`rvs governance check` on this branch** — neither command reads a
+cached decision snapshot or constructs a `DecisionGovernanceContext`, so a
+policy file referencing one of them evaluates against an absent domain
+today. Full rule table, the `decision_ref` exception field, and the wiring
+gap: [docs/continuous-intelligence.md](continuous-intelligence.md#10-decision-aware-rule-kinds-milestone-8-additive--not-wired-into-this-cli)
+and [docs/decision-governance.md](decision-governance.md).
+
 ## Known limitations
 
+- **The 10 decision-aware rule kinds (Milestone 8) are implemented at the
+  package level but not wired into `rvs governance compare`/`check` on
+  this branch.** See "Decision-aware policy extension" above.
 - **`ArchitectureDependency` carries no `fromId`/`toId` (or any other
   consumer-linkage field).** Its blast radius is always `unresolved`, even
   when the architecture flow graph is otherwise available for every other

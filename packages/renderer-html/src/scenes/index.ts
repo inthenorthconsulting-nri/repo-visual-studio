@@ -1,5 +1,6 @@
 import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
+import type { DecisionPlan } from "@rvs/decision-intelligence";
 import type { GovernancePlan } from "@rvs/governance-intelligence";
 import type { PortfolioPlan } from "@rvs/portfolio-intelligence";
 import type { ShowcasePlan } from "@rvs/product-intelligence";
@@ -9,6 +10,7 @@ import type { WorkflowGraph } from "@rvs/workflow-graph";
 import { renderArchitectureScene } from "./architecture.js";
 import { renderArchitectureIntelligenceScene } from "./architecture-intelligence/index.js";
 import { renderCapabilityIntelligenceOverviewScene } from "./capability-intelligence/index.js";
+import { renderDecisionScene } from "./decision/index.js";
 import { renderGovernanceScene } from "./governance/index.js";
 import { renderHeadlineScene } from "./headline.js";
 import { renderMetricScene } from "./metric.js";
@@ -29,6 +31,7 @@ export function renderSceneInner(
   showcasePlans: Map<string, ShowcasePlan>,
   portfolioPlans: Map<string, PortfolioPlan>,
   governancePlans: Map<string, GovernancePlan>,
+  decisionPlans: Map<string, DecisionPlan>,
 ): string {
   switch (scene.type) {
     case "title":
@@ -55,6 +58,8 @@ export function renderSceneInner(
       return renderPortfolioScene(scene, portfolioPlans.get(scene.plan_id));
     case "governance-scene":
       return renderGovernanceScene(scene, governancePlans.get(scene.plan_id));
+    case "decision-scene":
+      return renderDecisionScene(scene, decisionPlans.get(scene.plan_id));
     default: {
       const exhaustive: never = scene;
       throw new Error(`Unhandled scene type: ${JSON.stringify(exhaustive)}`);

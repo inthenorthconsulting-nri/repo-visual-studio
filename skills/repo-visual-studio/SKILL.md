@@ -19,15 +19,19 @@ HTML/PDF deck pipeline. Later milestones added `synthesize architecture`,
 profile, — for multi-repository ecosystems — Portfolio and Ecosystem
 Intelligence (`synthesize portfolio` and a `portfolio` slide profile,
 summarized below; full reference in `docs/portfolio-intelligence.md` and
-`docs/portfolio-showcase.md` at the repo root), and — for change detection
+`docs/portfolio-showcase.md` at the repo root), — for change detection
 and CI gating — Architecture Governance and Continuous Intelligence
 (`rvs snapshot create` / `rvs governance compare|check` and a `governance`
 slide profile, summarized below; full reference in
 `docs/architecture-governance.md`, `docs/continuous-intelligence.md`,
 `docs/governance-policies.md`, and `docs/governance-baselines.md` at the
-repo root). There is still no Canvas renderer, no animation/video export, no
-plugin registry, and no non-generic language adapters beyond the generic
-file-inventory, Markdown, git-history, GitHub Actions, and Terraform
+repo root), and — for decision-record analysis — Architecture Decision
+Intelligence (`rvs decisions analyze|validate|compare|explain` and a
+`decisions` slide profile, summarized below; full reference in
+`docs/architecture-decision-intelligence.md` and its 6 companion documents
+at the repo root). There is still no Canvas renderer, no animation/video
+export, no plugin registry, and no non-generic language adapters beyond the
+generic file-inventory, Markdown, git-history, GitHub Actions, and Terraform
 adapters already implemented.
 
 ## When to use this skill
@@ -147,6 +151,53 @@ telling a user why a policy can or can't express something they're asking
 for, and `docs/governance-baselines.md` before explaining how baseline
 promotion/`--from`/`--to` resolve a snapshot reference.
 
+## Architecture Decision Intelligence (decision-record analysis)
+
+Use this when the user wants to know "what decisions explain this
+architecture," "which accepted decisions aren't implemented yet," or "did
+this change violate a documented decision" — e.g. "why does this component
+exist" or "list every decision debt finding." It never re-scans a
+repository outside the paths configured in `.rvs/decisions.yml`, never
+writes or edits a decision document, and never approves, rejects, or
+creates a decision on the user's behalf — this layer only discovers,
+parses, links, and reports on decision documents that already exist in the
+repository.
+
+Prerequisite: `.rvs/decisions.yml` must name at least one `sources` entry
+pointing at a directory of ADR/RFC/design-decision/decision-log Markdown
+documents (see `docs/decision-record-format.md` for the schema and the 3
+recognized document shapes). Resolving links to upstream artifacts also
+benefits from `synthesize architecture`/`capabilities`/`product-identity`/
+`portfolio` having already run, the same prerequisite pattern as Governance
+above — an unresolved link is kept and reported, never dropped, when the
+corresponding upstream artifact isn't available.
+
+```bash
+rvs decisions analyze                        # -> .rvs/cache/decisions/*.json
+rvs decisions validate [--ci]                 # structural validation findings
+rvs decisions compare [--from] [--to]         # diff two decision snapshots
+rvs decisions explain <id>                    # prints one decision/link/finding's full reasoning
+rvs export decision-report --output decision-report.json
+rvs export decision-summary --output decision-summary.md   # paste-ready Markdown
+rvs create slides --profile decisions
+```
+
+**Do not offer to create, approve, or reject a decision document as part of
+this workflow** — there is no `rvs decisions new` command, and none of
+`packages/decision-intelligence`'s modules write a Markdown file. If the
+user wants to record a new decision (e.g. "create an ADR for this change"),
+that is a separate, ordinary file-authoring task — write the Markdown
+yourself using the template in `docs/decision-record-format.md`, or ask the
+user to, and let the next `rvs decisions analyze` run discover it; it is
+never something this skill's commands do automatically.
+
+The 10 decision-aware governance rule kinds this layer adds to
+`@rvs/governance-intelligence` (see `docs/decision-governance.md`) are
+**not wired into `rvs governance compare`/`check`** on this branch — don't
+tell a user that a decisions-related policy rule is enforced by those
+commands today; it is evaluated only by `@rvs/governance-intelligence`'s
+own package-level test suite until that CLI wiring is added.
+
 ## Quality gate
 
 Always run `rvs validate --ci` before treating a deck as done, and read
@@ -189,6 +240,11 @@ re-deriving the routing decision:
   `references/portfolio-intelligence.md` — one reference per intelligence
   layer: prerequisites, commands, outputs, and a pointer to the full
   technical doc at the repo root (`docs/*.md`).
+- `references/architecture-decision-intelligence.md`,
+  `references/decision-discovery.md`, `references/decision-linking.md`,
+  `references/decision-governance.md`, `references/decision-drift.md`,
+  `references/decision-showcase.md` — one reference per decision-intelligence
+  concern, same shape as the layer references above.
 - `references/presentation-and-export.md` — turning a synthesized model
   into a deck (`create slides`), validating it, and exporting it.
 - `references/audience-profiles.md`, `references/quality-policy.md` — the

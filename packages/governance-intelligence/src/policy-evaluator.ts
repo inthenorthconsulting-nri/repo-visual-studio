@@ -4,9 +4,12 @@ import type {
   BlastRadiusAssessment,
   BlastRadiusLevel,
   CapabilityChangeSet,
+  DecisionGovernanceContext,
   EvidenceRef,
+  ForbidActiveSupersededDecisionCondition,
   ForbidApprovedClaimWithoutLineageCondition,
   ForbidComponentRemovalCondition,
+  ForbidContradictedAssumptionCondition,
   ForbidDependencyRemovalCondition,
   ForbidOperationalToPlannedRegressionCondition,
   GovernanceChangeEntry,
@@ -18,11 +21,18 @@ import type {
   GovernancePolicyResult,
   GovernanceRule,
   GovernanceSeverity,
+  LimitUnresolvedDecisionConflictsCondition,
   LimitUnresolvedRelationshipsCondition,
   PortfolioChangeSet,
   ProductChangeSet,
+  RequireAcceptedDecisionCondition,
   RequireCapabilityStatusAtLeastCondition,
   RequireCompatibleSnapshotCondition,
+  RequireDecisionEvidenceCondition,
+  RequireDecisionForChangeCondition,
+  RequireDecisionForPolicyExceptionCondition,
+  RequireDecisionImplementationCondition,
+  RequireDecisionReviewForDriftCondition,
   RequireEvidenceTypeCondition,
   RequireProductRoleCondition,
   RequireRuntimeEntrypointCondition,
@@ -62,6 +72,8 @@ export interface EvaluatePolicyInput {
   capabilityChanges: CapabilityChangeSet;
   productChanges: ProductChangeSet;
   portfolioChanges?: PortfolioChangeSet;
+  /** Opt-in 5th domain (§36-38): absent, the evaluator behaves byte-identically to pre-Milestone-8 behavior. See DecisionGovernanceContext's own doc comment in contracts.ts. */
+  decisionChanges?: DecisionGovernanceContext;
   blastRadius: BlastRadiusAssessment;
   targetCompatibility: GovernanceCompatibilityStatus;
   /** Caller-supplied wall-clock timestamp for `GovernanceEvaluation.generation.generated_at` -- this package never calls Date/Math.random itself (see snapshot.ts's `generatedAt` convention). */
@@ -677,6 +689,408 @@ function evaluateRequireCompatibleSnapshot(rule: GovernanceRule, policy: Governa
 }
 
 // ---------------------------------------------------------------------------
+// §36-38 decision-aware rule kinds (12-21). DecisionGovernanceContext
+// (contracts.ts) is a flat bundle of decision/change-id arrays that
+// @rvs/decision-intelligence has already computed deterministically --
+// governance only checks membership in these arrays, it never re-derives the
+// underlying decision analysis. Every evaluator below is opt-in: when
+// `ctx.decisionChanges` is undefined (no decision snapshot existed for this
+// comparison), each returns a single `not_applicable`/`unverifiable` finding
+// rather than a guessed pass, so a repository with no decision records sees
+// governance behave exactly as it did before this milestone.
+// ---------------------------------------------------------------------------
+
+/** A finding keyed by a bare decision/change id rather than a real GovernanceChangeEntry -- used by every decision-aware rule below, none of which have a GovernanceChangeEntry to point at (DecisionGovernanceContext carries ids only, never entry-shaped records or evidence). */
+function decisionIdFinding(rule: GovernanceRule, policy: GovernancePolicy, id: string, result: GovernancePolicyResult, statement: string): GovernanceFinding {
+  return {
+    id: buildFindingId(rule.id, id),
+    policy_id: policy.id,
+    rule_id: rule.id,
+    result,
+    severity: rule.severity,
+    statement,
+    affected_entity_ids: [id],
+    human_review_required: result === "fail" || result === "unverifiable",
+    excepted: false,
+    evidence_refs: [],
+  };
+}
+
+/** An aggregate finding scoped by a plain list of decision/change ids (rather than GovernanceChangeEntry[], which aggregateFinding expects) -- used for count-based and whole-list pass/fail/unverifiable summaries below. */
+function decisionIdsAggregateFinding(rule: GovernanceRule, policy: GovernancePolicy, ids: string[], result: GovernancePolicyResult, statement: string, suffix: string): GovernanceFinding {
+  return {
+    id: buildFindingId(policy.id, `${rule.id}:${suffix}`),
+    policy_id: policy.id,
+    rule_id: rule.id,
+    result,
+    severity: rule.severity,
+    statement,
+    affected_entity_ids: [...ids].sort(),
+    human_review_required: result === "fail" || result === "unverifiable",
+    excepted: false,
+    evidence_refs: [],
+  };
+}
+
+/**
+ * Shared cross-domain scan mirroring `evaluateRequireEvidenceType`'s domain
+ * loop: walks architecture/capability/product/portfolio change entries
+ * (skipping "unchanged" entries and any domain whose own compatibility is
+ * "partial"/"incompatible"), filtered by an optional entity-id pattern.
+ * Reused by every rule below that needs to relate a changed entity to
+ * `changes_missing_decision`.
+ */
+function scanDomainsForDecisionCoverage(ctx: DomainChangeSets, entityIdPattern: string | undefined): { scope: { label: string; entry: GovernanceChangeEntry }[]; anyUnverifiableDomain: boolean } {
+  const domains: { label: string; changes: { compatibility: GovernanceCompatibilityStatus; changes: GovernanceChangeEntry[] } | undefined }[] = [
+    { label: "architecture", changes: ctx.architectureChanges },
+    { label: "capability", changes: ctx.capabilityChanges },
+    { label: "product", changes: ctx.productChanges },
+    { label: "portfolio", changes: ctx.portfolioChanges },
+  ];
+  const scope: { label: string; entry: GovernanceChangeEntry }[] = [];
+  let anyUnverifiableDomain = false;
+  for (const domain of domains) {
+    if (!domain.changes) continue;
+    if (domain.changes.compatibility === "partial" || domain.changes.compatibility === "incompatible") {
+      anyUnverifiableDomain = true;
+      continue;
+    }
+    for (const entry of domain.changes.changes) {
+      if (entry.type === "unchanged") continue;
+      if (!matchesPattern(entry.entity_id, entityIdPattern)) continue;
+      scope.push({ label: domain.label, entry });
+    }
+  }
+  return { scope, anyUnverifiableDomain };
+}
+
+// ---------------------------------------------------------------------------
+// 12. require_decision_for_change -- every changed entity (across all four
+// upstream domains) matching the pattern must be linked to SOME decision.
+// This is the one decision-aware rule that CAN reach a clean "pass": absence
+// from `changes_missing_decision` means decision-intelligence itself already
+// confirmed a decision link exists.
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionForChange(rule: GovernanceRule, policy: GovernancePolicy, ctx: DomainChangeSets, decisionChanges: DecisionGovernanceContext | undefined, blastRadius: BlastRadiusAssessment): GovernanceFinding[] {
+  const condition = rule.condition as RequireDecisionForChangeCondition;
+  if (!decisionChanges) {
+    return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `No decision context is available in this comparison; decision coverage cannot be verified.`, suffix: "unverifiable" })];
+  }
+  const missing = new Set(decisionChanges.changes_missing_decision);
+  const { scope, anyUnverifiableDomain } = scanDomainsForDecisionCoverage(ctx, condition.entity_id_pattern);
+  if (scope.length === 0) {
+    if (anyUnverifiableDomain) {
+      return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `One or more domain change sets have compatibility "partial"/"incompatible"; decision coverage cannot be verified.`, suffix: "unverifiable" })];
+    }
+    return [aggregateFinding({ rule, policy, result: "not_applicable", statement: `No changed entity matching this rule's scope is present in this comparison.`, suffix: "not-applicable" })];
+  }
+  const findings: GovernanceFinding[] = [];
+  for (const { label, entry } of scope) {
+    if (missing.has(entry.entity_id)) {
+      findings.push(entityFinding({ rule, policy, entry, result: "fail", statement: `"${entry.entity_id}" (${label}) changed without a linked decision, violating rule "${rule.title}".`, blastRadius }));
+    }
+  }
+  if (findings.length === 0) {
+    return [aggregateFinding({ rule, policy, result: "pass", statement: `${scope.length} changed entit(y/ies) in scope; all are linked to a decision.`, suffix: "pass" })];
+  }
+  return findings;
+}
+
+/**
+ * Shared shape for require_accepted_decision / require_decision_implementation
+ * / require_decision_evidence. Judgment call: DecisionGovernanceContext is a
+ * flat bundle of decision-id arrays -- it does not carry per-decision
+ * decision_status/implementation_status/evidence-source detail, so none of
+ * these three rules can directly confirm their named condition ("accepted",
+ * "implemented", "evidenced"). What CAN be confirmed by strict logical
+ * entailment: an entity with NO linked decision at all (present in
+ * `changes_missing_decision`) definitely does not have an accepted/
+ * implemented/evidenced decision either, since it has no decision of any
+ * kind -- that case is a genuine "fail", not a guess. An entity that DOES
+ * have some linked decision cannot be confirmed to meet the stronger
+ * condition from this context alone, so it is "unverifiable" rather than
+ * assumed to pass (this package's conservative-bias rule). A richer context
+ * field carrying decision status/implementation/evidence detail would let
+ * these three rules narrow beyond this shared floor -- documented here as a
+ * disclosed scope trim, not silently guessed.
+ */
+function evaluateDecisionEntailedCoverageRule(args: {
+  rule: GovernanceRule;
+  policy: GovernancePolicy;
+  ctx: DomainChangeSets;
+  decisionChanges: DecisionGovernanceContext | undefined;
+  blastRadius: BlastRadiusAssessment;
+  entityIdPattern: string | undefined;
+  failStatement: (label: string, entry: GovernanceChangeEntry) => string;
+  unverifiableEntryStatement: (label: string, entry: GovernanceChangeEntry) => string;
+  notApplicableStatement: string;
+}): GovernanceFinding[] {
+  const { rule, policy, ctx, decisionChanges, blastRadius } = args;
+  if (!decisionChanges) {
+    return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `No decision context is available in this comparison; decision coverage cannot be verified.`, suffix: "unverifiable" })];
+  }
+  const missing = new Set(decisionChanges.changes_missing_decision);
+  const { scope, anyUnverifiableDomain } = scanDomainsForDecisionCoverage(ctx, args.entityIdPattern);
+  if (scope.length === 0) {
+    if (anyUnverifiableDomain) {
+      return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `One or more domain change sets have compatibility "partial"/"incompatible"; decision coverage cannot be verified.`, suffix: "unverifiable" })];
+    }
+    return [aggregateFinding({ rule, policy, result: "not_applicable", statement: args.notApplicableStatement, suffix: "not-applicable" })];
+  }
+  return scope.map(({ label, entry }) =>
+    missing.has(entry.entity_id)
+      ? entityFinding({ rule, policy, entry, result: "fail", statement: args.failStatement(label, entry), blastRadius })
+      : entityFinding({ rule, policy, entry, result: "unverifiable", statement: args.unverifiableEntryStatement(label, entry), blastRadius }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 13. require_accepted_decision -- see evaluateDecisionEntailedCoverageRule's
+// doc comment for exactly how far this rule can be verified.
+// ---------------------------------------------------------------------------
+
+function evaluateRequireAcceptedDecision(rule: GovernanceRule, policy: GovernancePolicy, ctx: DomainChangeSets, decisionChanges: DecisionGovernanceContext | undefined, blastRadius: BlastRadiusAssessment): GovernanceFinding[] {
+  const condition = rule.condition as RequireAcceptedDecisionCondition;
+  return evaluateDecisionEntailedCoverageRule({
+    rule,
+    policy,
+    ctx,
+    decisionChanges,
+    blastRadius,
+    entityIdPattern: condition.entity_id_pattern,
+    failStatement: (label, entry) => `"${entry.entity_id}" (${label}) changed with no linked decision at all, so it cannot have a required accepted decision, violating rule "${rule.title}".`,
+    unverifiableEntryStatement: (label, entry) => `"${entry.entity_id}" (${label}) has a linked decision, but this evaluator cannot confirm its decision_status is "accepted" from the available decision context.`,
+    notApplicableStatement: `No changed entity matching this rule's scope is present in this comparison.`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 14. require_decision_implementation -- see evaluateDecisionEntailedCoverageRule's
+// doc comment for exactly how far this rule can be verified.
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionImplementation(rule: GovernanceRule, policy: GovernancePolicy, ctx: DomainChangeSets, decisionChanges: DecisionGovernanceContext | undefined, blastRadius: BlastRadiusAssessment): GovernanceFinding[] {
+  const condition = rule.condition as RequireDecisionImplementationCondition;
+  return evaluateDecisionEntailedCoverageRule({
+    rule,
+    policy,
+    ctx,
+    decisionChanges,
+    blastRadius,
+    entityIdPattern: condition.entity_id_pattern,
+    failStatement: (label, entry) => `"${entry.entity_id}" (${label}) changed with no linked decision at all, so its required decision implementation cannot exist, violating rule "${rule.title}".`,
+    unverifiableEntryStatement: (label, entry) => `"${entry.entity_id}" (${label}) has a linked decision, but this evaluator cannot confirm its implementation_status from the available decision context.`,
+    notApplicableStatement: `No changed entity matching this rule's scope is present in this comparison.`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 15. require_decision_evidence -- see evaluateDecisionEntailedCoverageRule's
+// doc comment for exactly how far this rule can be verified. (Distinct from
+// require_evidence_type: EvidenceRef.source_artifact has no "decision"
+// literal in this package's own structural echo, and nothing in this
+// pipeline populates a change entry's evidence_refs from decision-intelligence,
+// so per-entry evidence-source scanning is not available to this rule.)
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionEvidence(rule: GovernanceRule, policy: GovernancePolicy, ctx: DomainChangeSets, decisionChanges: DecisionGovernanceContext | undefined, blastRadius: BlastRadiusAssessment): GovernanceFinding[] {
+  const condition = rule.condition as RequireDecisionEvidenceCondition;
+  return evaluateDecisionEntailedCoverageRule({
+    rule,
+    policy,
+    ctx,
+    decisionChanges,
+    blastRadius,
+    entityIdPattern: condition.entity_id_pattern,
+    failStatement: (label, entry) => `"${entry.entity_id}" (${label}) changed with no linked decision at all, so it has no decision-sourced evidence, violating rule "${rule.title}".`,
+    unverifiableEntryStatement: (label, entry) => `"${entry.entity_id}" (${label}) has a linked decision, but this evaluator cannot confirm decision-sourced evidence from the available decision context.`,
+    notApplicableStatement: `No changed entity matching this rule's scope is present in this comparison.`,
+  });
+}
+
+/**
+ * Shared shape for the three decision-governance rule kinds that check
+ * simple membership in one of DecisionGovernanceContext's flat decision-id
+ * arrays (forbid_contradicted_assumption / forbid_active_superseded_decision
+ * / require_decision_review_for_drift): every id decision-intelligence
+ * placed in the named array is, by construction, already a confirmed
+ * violation (decision-intelligence's own conflicts.ts/assumptions.ts/
+ * decision-drift.ts computed it deterministically) -- so membership is
+ * always "fail", never re-derived here. An empty (post-pattern-filter) list
+ * is a genuine "pass" (decision-intelligence scans every decision; nothing
+ * currently violates), not "not_applicable" -- mirroring
+ * `evaluateLimitUnresolvedRelationships`'s "0 unresolved = pass" reading.
+ */
+function evaluateDecisionIdListRule(args: {
+  rule: GovernanceRule;
+  policy: GovernancePolicy;
+  decisionChanges: DecisionGovernanceContext | undefined;
+  ids: (ctx: DecisionGovernanceContext) => string[];
+  idPattern: string | undefined;
+  statementFor: (id: string) => string;
+  aggregatePassStatement: (scope: string[]) => string;
+}): GovernanceFinding[] {
+  const { rule, policy, decisionChanges } = args;
+  if (!decisionChanges) {
+    return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `No decision context is available in this comparison; this rule cannot be verified.`, suffix: "unverifiable" })];
+  }
+  const scope = args.ids(decisionChanges).filter((id) => matchesPattern(id, args.idPattern));
+  if (scope.length === 0) {
+    return [decisionIdsAggregateFinding(rule, policy, [], "pass", args.aggregatePassStatement([]), "pass")];
+  }
+  return scope.map((id) => decisionIdFinding(rule, policy, id, "fail", args.statementFor(id)));
+}
+
+// ---------------------------------------------------------------------------
+// 16. forbid_contradicted_assumption
+// ---------------------------------------------------------------------------
+
+function evaluateForbidContradictedAssumption(rule: GovernanceRule, policy: GovernancePolicy, decisionChanges: DecisionGovernanceContext | undefined): GovernanceFinding[] {
+  const condition = rule.condition as ForbidContradictedAssumptionCondition;
+  return evaluateDecisionIdListRule({
+    rule,
+    policy,
+    decisionChanges,
+    ids: (ctx) => ctx.decisions_with_contradicted_assumptions,
+    idPattern: condition.decision_id_pattern,
+    statementFor: (id) => `Decision "${id}" has a contradicted assumption, violating rule "${rule.title}".`,
+    aggregatePassStatement: () => `No decision in scope has a contradicted assumption.`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 17. forbid_active_superseded_decision
+// ---------------------------------------------------------------------------
+
+function evaluateForbidActiveSupersededDecision(rule: GovernanceRule, policy: GovernancePolicy, decisionChanges: DecisionGovernanceContext | undefined): GovernanceFinding[] {
+  const condition = rule.condition as ForbidActiveSupersededDecisionCondition;
+  return evaluateDecisionIdListRule({
+    rule,
+    policy,
+    decisionChanges,
+    ids: (ctx) => ctx.decisions_active_and_superseded,
+    idPattern: condition.decision_id_pattern,
+    statementFor: (id) => `Decision "${id}" is simultaneously active and superseded, violating rule "${rule.title}".`,
+    aggregatePassStatement: () => `No decision in scope is simultaneously active and superseded.`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 18. require_decision_evidence -- placeholder removed; see kind 15 above.
+// 18. require_decision_for_policy_exception
+//
+// Judgment call: exceptions have no id field of their own (GovernanceException
+// carries policy_id/rule_id/scope, never a stable id), so a finding for this
+// rule is scoped by rule_id + scope rather than a change entry. This rule
+// reads `decision_ref` directly off each exception (added to
+// GovernanceException/PolicyFileExceptionSchema by this same milestone). An
+// exception missing `decision_ref` entirely is a violation on its own (the
+// rule REQUIRES one); a present `decision_ref` decision-intelligence's own
+// governance-links.ts has flagged as invalid/expired (surfaced via
+// `decisionChanges.exceptions_with_invalid_decision_ref`) is likewise a
+// violation. governance-intelligence itself never validates a decision_ref's
+// existence/expiry/scope match -- it only carries the field through and
+// trusts decision-intelligence's own validation, per spec §38.
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionForPolicyException(rule: GovernanceRule, policy: GovernancePolicy, decisionChanges: DecisionGovernanceContext | undefined): GovernanceFinding[] {
+  const condition = rule.condition as RequireDecisionForPolicyExceptionCondition;
+  const scope = policy.exceptions.filter((exception) => matchesPattern(exception.rule_id, condition.rule_id_pattern));
+  if (scope.length === 0) {
+    return [aggregateFinding({ rule, policy, result: "not_applicable", statement: `No policy exception matching this rule's scope is present in this policy.`, suffix: "not-applicable" })];
+  }
+  if (!decisionChanges) {
+    return [aggregateFinding({ rule, policy, result: "unverifiable", statement: `No decision context is available in this comparison; exception decision-backing cannot be verified.`, suffix: "unverifiable" })];
+  }
+  const invalid = new Set(decisionChanges.exceptions_with_invalid_decision_ref);
+  const findings: GovernanceFinding[] = [];
+  for (const exception of scope) {
+    const suffix = `exception:${exception.rule_id}:${exception.scope ?? "*"}`;
+    const affected = exception.scope ? [exception.scope] : [];
+    if (!exception.decision_ref) {
+      findings.push(decisionIdsAggregateFinding(rule, policy, affected, "fail", `Exception on rule "${exception.rule_id}" has no decision_ref, violating rule "${rule.title}".`, suffix));
+    } else if (invalid.has(exception.decision_ref)) {
+      findings.push(
+        decisionIdsAggregateFinding(
+          rule,
+          policy,
+          affected,
+          "fail",
+          `Exception on rule "${exception.rule_id}" references decision "${exception.decision_ref}", which decision-intelligence has flagged as invalid or expired, violating rule "${rule.title}".`,
+          suffix,
+        ),
+      );
+    }
+  }
+  if (findings.length === 0) {
+    return [decisionIdsAggregateFinding(rule, policy, [], "pass", `${scope.length} polic(y/ies) exception(s) in scope; all reference a valid decision.`, "pass")];
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// 19. require_decision_for_baseline_replacement
+//
+// Disclosed scope trim: a "baseline replacement" is a CLI-layer action
+// (promoting a new IntelligenceSnapshot to GovernanceBaseline status) that
+// this evaluator's inputs -- a fixed source/target change-set comparison --
+// cannot observe at all; nothing in DomainChangeSets or DecisionGovernanceContext
+// signals "a baseline was just replaced" or names the decision backing that
+// replacement. This rule therefore always returns a single unverifiable
+// finding rather than a guessed pass -- verifying it for real would require
+// the CLI layer itself to pass an explicit "was the baseline replaced, and by
+// which decision_ref" fact, which is out of scope for this policy-evaluator
+// extension.
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionForBaselineReplacement(rule: GovernanceRule, policy: GovernancePolicy): GovernanceFinding[] {
+  return [
+    aggregateFinding({
+      rule,
+      policy,
+      result: "unverifiable",
+      statement: `Baseline-replacement events are not observable from a change-set comparison; rule "${rule.title}" cannot be verified by this evaluator.`,
+      suffix: "unverifiable",
+    }),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// 20. limit_unresolved_decision_conflicts -- count-based whole-rule aggregate
+// (never per-entity), mirroring evaluateLimitUnresolvedRelationships's shape.
+// ---------------------------------------------------------------------------
+
+function evaluateLimitUnresolvedDecisionConflicts(rule: GovernanceRule, policy: GovernancePolicy, decisionChanges: DecisionGovernanceContext | undefined): GovernanceFinding[] {
+  const condition = rule.condition as LimitUnresolvedDecisionConflictsCondition;
+  if (!decisionChanges) {
+    return [aggregateFinding({ rule, policy, result: "not_applicable", statement: `No decision context is available in this comparison.`, suffix: "not-applicable" })];
+  }
+  const ids = decisionChanges.unresolved_conflict_decision_ids;
+  if (ids.length > condition.max_unresolved) {
+    return [decisionIdsAggregateFinding(rule, policy, ids, "fail", `${ids.length} unresolved decision conflict(s) present in the target snapshot, exceeding the configured maximum of ${condition.max_unresolved}.`, "fail")];
+  }
+  return [decisionIdsAggregateFinding(rule, policy, ids, "pass", `${ids.length} unresolved decision conflict(s) present, within the configured maximum of ${condition.max_unresolved}.`, "pass")];
+}
+
+// ---------------------------------------------------------------------------
+// 21. require_decision_review_for_drift
+// ---------------------------------------------------------------------------
+
+function evaluateRequireDecisionReviewForDrift(rule: GovernanceRule, policy: GovernancePolicy, decisionChanges: DecisionGovernanceContext | undefined): GovernanceFinding[] {
+  const condition = rule.condition as RequireDecisionReviewForDriftCondition;
+  return evaluateDecisionIdListRule({
+    rule,
+    policy,
+    decisionChanges,
+    ids: (ctx) => ctx.decisions_requiring_review_for_drift,
+    idPattern: condition.decision_id_pattern,
+    statementFor: (id) => `Decision "${id}" has drifted and requires human review, violating rule "${rule.title}".`,
+    aggregatePassStatement: () => `No decision in scope currently requires review for drift.`,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -685,6 +1099,7 @@ interface DomainChangeSets {
   capabilityChanges: CapabilityChangeSet;
   productChanges: ProductChangeSet;
   portfolioChanges?: PortfolioChangeSet;
+  decisionChanges?: DecisionGovernanceContext;
 }
 
 function evaluateRule(rule: GovernanceRule, policy: GovernancePolicy, ctx: DomainChangeSets, blastRadius: BlastRadiusAssessment, targetCompatibility: GovernanceCompatibilityStatus): GovernanceFinding[] {
@@ -711,6 +1126,26 @@ function evaluateRule(rule: GovernanceRule, policy: GovernancePolicy, ctx: Domai
       return evaluateLimitUnresolvedRelationships(rule, policy, ctx.portfolioChanges);
     case "require_compatible_snapshot":
       return evaluateRequireCompatibleSnapshot(rule, policy, targetCompatibility);
+    case "require_decision_for_change":
+      return evaluateRequireDecisionForChange(rule, policy, ctx, ctx.decisionChanges, blastRadius);
+    case "require_accepted_decision":
+      return evaluateRequireAcceptedDecision(rule, policy, ctx, ctx.decisionChanges, blastRadius);
+    case "require_decision_implementation":
+      return evaluateRequireDecisionImplementation(rule, policy, ctx, ctx.decisionChanges, blastRadius);
+    case "require_decision_evidence":
+      return evaluateRequireDecisionEvidence(rule, policy, ctx, ctx.decisionChanges, blastRadius);
+    case "forbid_contradicted_assumption":
+      return evaluateForbidContradictedAssumption(rule, policy, ctx.decisionChanges);
+    case "forbid_active_superseded_decision":
+      return evaluateForbidActiveSupersededDecision(rule, policy, ctx.decisionChanges);
+    case "require_decision_for_policy_exception":
+      return evaluateRequireDecisionForPolicyException(rule, policy, ctx.decisionChanges);
+    case "require_decision_for_baseline_replacement":
+      return evaluateRequireDecisionForBaselineReplacement(rule, policy);
+    case "limit_unresolved_decision_conflicts":
+      return evaluateLimitUnresolvedDecisionConflicts(rule, policy, ctx.decisionChanges);
+    case "require_decision_review_for_drift":
+      return evaluateRequireDecisionReviewForDrift(rule, policy, ctx.decisionChanges);
   }
 }
 
@@ -764,6 +1199,7 @@ export function evaluatePolicy(input: EvaluatePolicyInput): GovernanceEvaluation
     capabilityChanges: input.capabilityChanges,
     productChanges: input.productChanges,
     portfolioChanges: input.portfolioChanges,
+    decisionChanges: input.decisionChanges,
   };
 
   const rawFindings: GovernanceFinding[] = [];

@@ -298,4 +298,66 @@ describe("VisualDocSchema", () => {
     };
     expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
   });
+
+  it("accepts a valid decision-scene pointer scene (plan_id + scene_id only, mirroring the governance-scene pointer-scene contract)", () => {
+    const doc = baseDoc();
+    doc.scenes.push({
+      id: "s2",
+      type: "decision-scene",
+      headline: "Decision landscape: repo-a",
+      evidence: [],
+      plan_id: "decision:plan:repo-a",
+      scene_id: "decision:scene:repo-a:decision-hero",
+    });
+    const parsed = parseVisualDoc(doc);
+    const scene = parsed.scenes[1];
+    expect(scene?.type).toBe("decision-scene");
+    if (scene?.type === "decision-scene") {
+      expect(scene.plan_id).toBe("decision:plan:repo-a");
+      expect(scene.scene_id).toBe("decision:scene:repo-a:decision-hero");
+      expect(scene.evidence).toEqual([]);
+    }
+  });
+
+  it("rejects a decision-scene missing plan_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "decision-scene", headline: "Decision landscape", evidence: [], scene_id: "decision:scene:decision-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a decision-scene missing scene_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "decision-scene", headline: "Decision landscape", evidence: [], plan_id: "decision:plan:x" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a decision-scene with an empty-string plan_id or scene_id (min(1) is enforced, not just presence)", () => {
+    const doc = baseDoc();
+    const rawDocEmptyPlan: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "decision-scene", headline: "Decision landscape", evidence: [], plan_id: "", scene_id: "decision:scene:decision-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyPlan)).toThrow();
+
+    const rawDocEmptyScene: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "decision-scene", headline: "Decision landscape", evidence: [], plan_id: "decision:plan:x", scene_id: "" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyScene)).toThrow();
+  });
+
+  it("rejects a decision-scene missing a headline (inherited from BaseSceneSchema)", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "decision-scene", evidence: [], plan_id: "decision:plan:x", scene_id: "decision:scene:decision-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
 });

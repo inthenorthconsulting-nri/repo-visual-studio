@@ -120,6 +120,7 @@ actual ask).
 | 2.8 | Repository maintenance | "Remove dead code", "Review dependencies", "Clean stale artifacts", "Prepare a release" | Load `repository-maintenance` skill → relevant maintenance sub-workflow (§9) |
 | 2.9 | PR review / review feedback | "Review this PR", "Address review comments", "Is this safe to merge?" | Load `pr-governance` skill → read PR context/diff → inspect unresolved comments/checks → validate findings → apply only authorized fixes → re-run validation |
 | 2.10 | Governance / continuous intelligence | "What changed architecturally between the last release and now?", "Is this PR a CI-blocking regression?", "Explain this governance finding" | Validate/build `IntelligenceSnapshot`s → Governance Intelligence (`rvs governance compare`/`check`/`explain`) → findings/report — diagnosis only, never a code fix |
+| 2.11 | Architecture decision intelligence | "What decisions explain this architecture?", "Which accepted decisions are not implemented?", "Did this release violate an ADR?", "Explain this decision drift/debt finding" | `rvs decisions analyze` (reads decision documents directly; optionally links against cached Architecture/Capability/Product/Portfolio/Governance artifacts) → decision report/findings — diagnosis and explanation only, never a code fix and never automatic decision creation |
 
 Class-specific rules:
 
@@ -155,24 +156,37 @@ Class-specific rules:
   against the configured baseline only — it is not a deployment or
   merge-safety judgment, and does not substitute for the review §2.9/
   `pr-governance` already requires before a PR merges.
+- **2.11** — Architecture Decision Intelligence never re-scans a repository
+  outside the paths `.rvs/decisions.yml` names, never calls an external
+  model, and never writes, edits, approves, or rejects a decision document
+  — there is no `rvs decisions new` command. A request to *create* a
+  decision record (e.g. "write an ADR for this change") is always a
+  separate, ordinary file-authoring task, routed through `pr-governance`
+  like any other new content — never performed automatically as part of
+  answering a decision-intelligence question. The 10 decision-aware
+  governance rule kinds this layer adds to `@rvs/governance-intelligence`
+  are implemented at the package level but **not wired into `rvs
+  governance compare`/`check`** — do not report a decisions-related policy
+  rule as enforced by those commands (`docs/decision-governance.md`).
 
 ---
 
 ## 3. Intelligence routing matrix
 
-| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence | Governance Intelligence |
-|---|---|---|---|---|---|
-| Explain repository structure | Required | No | No | No | No |
-| Identify implemented capabilities | Required | Required | No | No | No |
-| Create a product showcase | Required | Required | Required | No | No |
-| Compare products | Artifact validation only | Artifact validation only | Required as input | Required | No |
-| Fix a code defect | Optional (only if orientation is needed) | No | No | No | No |
-| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No | No |
-| Update the README | Optional | Optional | No | No | No |
-| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required | No |
-| What changed architecturally between two states | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required |
-| Is this PR/change a CI-blocking regression | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required |
-| Explain a governance finding or report | No | No | No | No | Required |
+| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence | Governance Intelligence | Decision Intelligence |
+|---|---|---|---|---|---|---|
+| Explain repository structure | Required | No | No | No | No | No |
+| Identify implemented capabilities | Required | Required | No | No | No | No |
+| Create a product showcase | Required | Required | Required | No | No | No |
+| Compare products | Artifact validation only | Artifact validation only | Required as input | Required | No | No |
+| Fix a code defect | Optional (only if orientation is needed) | No | No | No | No | No |
+| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No | No | No |
+| Update the README | Optional | Optional | No | No | No | No |
+| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required | No | No |
+| What changed architecturally between two states | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No |
+| Is this PR/change a CI-blocking regression | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No |
+| Explain a governance finding or report | No | No | No | No | Required | No |
+| What decisions explain this architecture / which decisions aren't implemented / did this violate an ADR | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Required |
 
 "Artifact validation only" and "Inputs only" mean: read and structurally
 validate the already-generated artifact; do not re-synthesize it from
@@ -182,7 +196,13 @@ Governance Intelligence never re-derives architecture, capability, product,
 or portfolio state itself — it reads the `IntelligenceSnapshot` fingerprint
 those layers' already-cached artifacts were reduced to
 (`rvs snapshot create`) and never re-scans source or calls an external
-model (`docs/architecture-governance.md`).
+model (`docs/architecture-governance.md`). "Optional link-resolution
+input" means: Decision Intelligence's primary input is decision documents
+read directly from the repository (`rvs decisions analyze`, gated only by
+`.rvs/decisions.yml`) — the other five layers' cached artifacts are
+consulted only to resolve a decision's declared links, and an unresolved
+link is kept and reported, never dropped, when they aren't already cached
+(`docs/architecture-decision-intelligence.md`, `docs/decision-linking.md`).
 
 Full per-layer usage detail, prerequisites, and CLI commands are in
 `skills/repo-visual-studio/references/intelligence-routing.md` and the
@@ -231,6 +251,7 @@ Load the smallest applicable set of skills — never all three by default.
 | Repository cleanup, dependency review, doc/test maintenance, release prep | `repository-maintenance` → the matching reference, plus `pr-governance` once a branch/PR is needed for the resulting change |
 | Portfolio presentation / export | `repo-visual-studio` → `references/portfolio-intelligence.md` + `references/presentation-and-export.md` |
 | Governance / continuous-intelligence question (what changed, CI-blocking regression, explain a finding) | No dedicated skill yet — read `docs/architecture-governance.md` and `docs/continuous-intelligence.md` directly, then use the CLI surface they document (`rvs snapshot create`; `rvs governance baseline show\|set\|validate`; `rvs governance compare`/`check`/`explain`; `rvs export governance-report`/`governance-summary`) |
+| Architecture decision intelligence question (what decisions explain X, unimplemented accepted decisions, decision drift/debt, decision-aware policy) | `repo-visual-studio` → `references/architecture-decision-intelligence.md` + `references/decision-discovery.md` + `references/decision-linking.md` + `references/decision-drift.md` + `references/decision-governance.md` + `references/decision-showcase.md` as applicable |
 
 ---
 
@@ -324,6 +345,14 @@ This document routes; it does not restate. For the full procedure, read:
   two `IntelligenceSnapshot`s, policy findings, CI gating; no dedicated
   skill file yet, read these directly): `docs/architecture-governance.md`
   and `docs/continuous-intelligence.md`.
+- **Architecture decision intelligence** (decision-record discovery,
+  linking, drift, debt, decision-aware governance rule kinds, presentation):
+  `skills/repo-visual-studio/references/architecture-decision-intelligence.md`
+  and its 5 companion reference files; deep technical detail in
+  `docs/architecture-decision-intelligence.md`,
+  `docs/decision-record-format.md`, `docs/decision-linking.md`,
+  `docs/decision-drift.md`, `docs/decision-debt.md`,
+  `docs/decision-governance.md`, `docs/decision-showcase.md`.
 - **Why this operating model exists, and the reasoning behind §1-§8**:
   `docs/agent-operating-model.md`.
 
@@ -433,3 +462,49 @@ this turn's explicit instruction → report the prior baseline, the new
 baseline, and the compatibility outcome. Still no code change, no PR
 approval, and no merge — those remain separate actions under their own
 authorization boundaries (§1.3, §2.9).
+
+**J — What decisions explain this architecture.** *"What decisions explain
+this architecture?"* Classify as architecture decision intelligence
+(§2.11) → confirm `.rvs/decisions.yml` names at least one source (if not,
+report that no decision documents are configured rather than guessing at a
+conventional path) → run `rvs decisions analyze` → report the discovered
+decisions and their resolved links from the cached
+`decision-snapshot.json`/`decision-links.json`, with citations back to the
+originating decision documents, using `rvs decisions explain <id>` for any
+specific decision or link → no branch needed, this is read-only.
+
+**K — Which accepted decisions are not implemented.** *"Which accepted
+decisions are not implemented?"* Classify as architecture decision
+intelligence (§2.11) → run `rvs decisions analyze` (or reuse an already-
+fresh cache per §4's freshness rule) → filter the cached decision report
+for `decision_status: accepted` paired with `implementation_status:
+not_started`/`partially_implemented`/`regressed` (the same condition
+`decision-debt.ts`'s `accepted_without_implementation`/
+`implementation_regressed_from_decision` categories detect) → report the
+list with citations → no branch needed, this is read-only, and this is
+diagnosis only — a request to *implement* one of those decisions is a
+separate code implementation task (§2.5).
+
+**L — Did this release violate an ADR.** *"Did this release violate an
+ADR?"* Classify as architecture decision intelligence (§2.11) → run `rvs
+decisions analyze` against the release's state → check drift findings
+(`rvs decisions explain <drift-id>` for any `blocking`/`review_required`
+severity entry) and conflict findings for the decisions the release
+touched → report findings with evidence, explicitly noting that 4 of
+drift's 13 causes require a previous-snapshot comparison the current CLI
+path does not supply by default (`docs/decision-drift.md#known-limitations`)
+— never assert a violation the cached findings don't actually support.
+This is diagnosis only; a fix is a separate code implementation task
+(§2.5).
+
+**M — Create an ADR for this change.** *"Create an ADR for this change."*
+This is never performed as part of, or automatically following, a decision-
+intelligence question — there is no `rvs decisions new` command and no
+code path anywhere in `packages/decision-intelligence` or the `rvs
+decisions *` CLI surface that authors a decision document (§2.11). Route
+it as a new, separate task: write the Markdown file using the template in
+`docs/decision-record-format.md`, in a directory already named under
+`.rvs/decisions.yml`'s `sources[]` (ask the user which, if ambiguous) →
+treat authoring and committing that file like any other new-content change
+under `pr-governance`'s branch/commit boundary (§1.3, §6) → mention that
+the next `rvs decisions analyze` run will discover it once it exists.
