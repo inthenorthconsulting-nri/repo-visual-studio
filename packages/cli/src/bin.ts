@@ -6,8 +6,14 @@ import { runCapabilitiesExplain } from "./commands/capabilities-explain.js";
 import { runCreateSlides } from "./commands/create-slides.js";
 import { runCreateTopology } from "./commands/create-topology.js";
 import { runCreateWorkflow } from "./commands/create-workflow.js";
+import { runDecisionsAnalyze } from "./commands/decisions-analyze.js";
+import { runDecisionsCompare } from "./commands/decisions-compare.js";
+import { runDecisionsExplain } from "./commands/decisions-explain.js";
+import { runDecisionsValidate } from "./commands/decisions-validate.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runExportCapabilities } from "./commands/export-capabilities.js";
+import { runExportDecisionReport } from "./commands/export-decision-report.js";
+import { runExportDecisionSummary } from "./commands/export-decision-summary.js";
 import { runExportPdf } from "./commands/export-pdf.js";
 import { runExportPortfolioClaims } from "./commands/export-portfolio-claims.js";
 import { runExportPortfolioDecisions } from "./commands/export-portfolio-decisions.js";
@@ -70,7 +76,7 @@ create
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
   .option(
     "--profile <id>",
-    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio|governance); default: repository-inventory",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio|governance|decisions); default: repository-inventory",
   )
   .option(
     "--audience <id>",
@@ -238,6 +244,40 @@ governance
     await runGovernanceExplain(process.cwd(), id, logger);
   });
 
+const decisions = program.command("decisions").description("Analyze architecture decision records and evaluate their links, supersession, conflicts, drift, and debt");
+
+decisions
+  .command("analyze")
+  .description("Discover, classify, and link decision documents, then cache the full decision-intelligence artifact set")
+  .action(async () => {
+    await runDecisionsAnalyze(process.cwd(), {}, logger);
+  });
+
+decisions
+  .command("validate")
+  .description("Same analysis as `decisions analyze`, then run deterministic validation checks against the resulting artifacts")
+  .option("--ci", "exit non-zero when any validation finding's severity is \"error\"")
+  .action(async (opts: { ci?: boolean }) => {
+    await runDecisionsValidate(process.cwd(), opts, logger);
+  });
+
+decisions
+  .command("compare")
+  .description("Diff a prior decision snapshot against another snapshot (or a freshly analyzed one) and cache the change set")
+  .option("--from <path>", "path to a prior decision-snapshot.json (required)")
+  .option("--to <path>", "path to another decision-snapshot.json (default: a fresh `rvs decisions analyze` run)")
+  .action(async (opts: { from?: string; to?: string }) => {
+    await runDecisionsCompare(process.cwd(), opts, logger);
+  });
+
+decisions
+  .command("explain")
+  .description("Print a human-readable explanation for a decision/assumption/consequence/link/conflict/drift/debt/coverage/implementation-state/change/supersession-chain id")
+  .argument("<id>", "id to explain")
+  .action(async (id: string) => {
+    await runDecisionsExplain(process.cwd(), id, logger);
+  });
+
 const exportCmd = program.command("export").description("Export the deck to another format");
 exportCmd
   .command("pdf")
@@ -314,6 +354,22 @@ exportCmd
   .option("--output <path>", "output path (default: governance-summary.md)")
   .action(async (opts: { output?: string }) => {
     await runExportGovernanceSummary(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("decision-report")
+  .description("Write the cached decision intelligence report to decision-report.json")
+  .option("--output <path>", "output path (default: decision-report.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportDecisionReport(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("decision-summary")
+  .description("Write a PR-paste-ready Markdown decision summary to decision-summary.md")
+  .option("--output <path>", "output path (default: decision-summary.md)")
+  .action(async (opts: { output?: string }) => {
+    await runExportDecisionSummary(process.cwd(), opts, logger);
   });
 
 const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");

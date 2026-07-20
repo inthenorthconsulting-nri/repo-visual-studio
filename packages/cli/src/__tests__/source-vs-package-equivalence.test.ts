@@ -10,7 +10,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 // Confirms the packaged CLI (npm tarball) and the workspace source CLI (tsx)
 // produce structurally identical output for the same repo content — not
@@ -43,6 +43,7 @@ function buildFixture(): string {
   const dir = mkdtempSync(join(tmpdir(), "rvs-equiv-fixture-"));
   mkdirSync(join(dir, "src"), { recursive: true });
   mkdirSync(join(dir, "docs"), { recursive: true });
+  mkdirSync(join(dir, "docs/decisions"), { recursive: true });
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   mkdirSync(join(dir, "infra"), { recursive: true });
 
@@ -56,6 +57,39 @@ function buildFixture(): string {
   writeFileSync(join(dir, "README.md"), "# Equivalence Fixture\n\nA fixture repo for source-vs-package output comparison.\n");
   writeFileSync(join(dir, "src/index.ts"), "export function main(): void {}\n");
   writeFileSync(join(dir, "docs/architecture.md"), "# Architecture\n\nA single fixture service.\n");
+  // A real ADR-shaped decision document (Milestone 8) -- committed into the
+  // fixture like docs/architecture.md above, and later discovered by `rvs
+  // decisions analyze` once `.rvs/decisions.yml` (written per-run below,
+  // after `rvs init` has created `.rvs/`) points at this directory with
+  // `type: adr`. Frontmatter `id`/`status` plus a `## Alternatives` list
+  // exercise the same identity-resolution and alternatives-fold-in paths
+  // decisions-cli.test.ts's in-process fixture does, just through the real
+  // packaged/source CLI binaries this file compares.
+  writeFileSync(
+    join(dir, "docs/decisions/0001-use-example-database.md"),
+    [
+      "---",
+      "id: ADR-0001",
+      "status: accepted",
+      "---",
+      "",
+      "# Use PostgreSQL as the primary database",
+      "",
+      "## Context",
+      "",
+      "The fixture service needs a relational database for transactional data.",
+      "",
+      "## Decision",
+      "",
+      "We will use PostgreSQL as the primary datastore.",
+      "",
+      "## Alternatives",
+      "",
+      "- [rejected] Use MySQL: weaker JSON support and extension ecosystem for our needs.",
+      "- [considered] Use a managed NoSQL store: does not fit our relational data model.",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(
     join(dir, ".github/workflows/ci.yml"),
     readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8"),
@@ -573,12 +607,14 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     // CLI. Reuses the same sourceDir/packagedDir/runs from the pipeline above
     // -- including their already-cached architecture-intelligence.json/
     // capability-model.json/product-identity-model.json/portfolio-model.json
-    // -- rather than a second pack/install. Deliberately the last thing this
-    // test does: the final `create slides --profile governance` step below
-    // overwrites deck.html/visualdoc.json with the governance deck, which
-    // would invalidate the portfolio deck.html/git-commit/scene-id assertions
+    // -- rather than a second pack/install. Deliberately NOT the last thing
+    // this test does (Architecture Decision Intelligence, below, is): the
+    // final `create slides --profile governance` step below overwrites
+    // deck.html/visualdoc.json with the governance deck, which would
+    // invalidate the portfolio deck.html/git-commit/scene-id assertions
     // earlier in this test (see the note above the reordered-input proof) if
-    // it ran any sooner.
+    // it ran any sooner, and is itself overwritten again by the decisions
+    // deck further down.
     //
     // Every governance-intelligence contract carries the same uniform
     // `generation: { generated_at }` wall-clock field (see contracts.ts's
@@ -778,5 +814,342 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
       [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => stripGovernanceTimestamps(m[1]));
     expect(governanceSceneIds(sourceGovernanceHtml)).toEqual(governanceSceneIds(packagedGovernanceHtml));
     expect(governanceSceneIds(sourceGovernanceHtml).length).toBeGreaterThan(0);
+
+    // -----------------------------------------------------------------------
+    // Architecture Decision Intelligence (Milestone 8), through both source
+    // and packaged CLI. Reuses the same sourceDir/packagedDir/runs -- no
+    // second pack/install needed. Deliberately the LAST thing this test does:
+    // the final `create slides --profile decisions` step below overwrites
+    // deck.html/visualdoc.json with the decisions deck, which would
+    // invalidate the governance deck.html/git-commit/scene-id assertions
+    // just above if it ran any sooner.
+    //
+    // Unlike governance-intelligence, decision-intelligence's ids/digests
+    // (ids.ts's buildDecisionId/buildSnapshotId/buildChangeSetId/
+    // buildNarrativeId/buildPlanId/buildReportId, all confirmed pure content-
+    // hash/concatenation functions with no timestamp input) never fold the
+    // wall-clock `generated_at` into any id or digest, and per contracts.ts's
+    // own determinism note, `generated_at` is the ONLY wall-clock field this
+    // package's contracts define anywhere -- confirmed against narrative.ts
+    // and decision-plan.ts, which both thread `generatedAt` through to
+    // nothing but their own top-level `generated_at` field, never into scene/
+    // section prose. So stripping every key literally named `generated_at`
+    // covers every *wall-clock* source of divergence.
+    //
+    // A second, unrelated source of divergence remains, though: snapshot.ts's
+    // buildDecisionSnapshot builds `repository_id` from
+    // `basename(repoRoot)` (decisions-analyze.ts's own comment flags this as
+    // a deliberate judgment call -- "No repository-model artifact is read
+    // anywhere in this pipeline, so the repository root's own basename is
+    // the simplest stable, dependency-free repository id available"). Since
+    // sourceDir and packagedDir are two distinct mkdtempSync() directories
+    // (different basenames), `repository_id` -- and therefore
+    // buildSnapshotId's `id`, and every id/source_snapshot_id/
+    // target_snapshot_id built from it downstream (changeSet, narrative,
+    // plan, report; see ids.ts's buildChangeSetId/buildNarrativeId/
+    // buildPlanId/buildReportId) -- legitimately differs between the two
+    // runs even though the underlying decision content is byte-identical.
+    // This is the same *shape* of problem stripGovernanceTimestamps' sha256
+    // scrub solves for governance's digest-derived ids, just via a literal
+    // directory-basename substring instead of a hex digest, so it needs the
+    // analogous fix: scrub both runs' own basenames out of every string
+    // value before comparing.
+    const sourceRepoId = basename(sourceDir);
+    const packagedRepoId = basename(packagedDir);
+    const scrubRepoId = (text: string): string => text.split(sourceRepoId).join("<repo-id>").split(packagedRepoId).join("<repo-id>");
+    const stripDecisionTimestamps = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(stripDecisionTimestamps);
+      if (typeof value === "string") return scrubRepoId(value);
+      if (value === null || typeof value !== "object") return value;
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(obj)) {
+        if (key === "generated_at") continue;
+        out[key] = stripDecisionTimestamps(val);
+      }
+      return out;
+    };
+
+    for (const [run, dir] of runs) {
+      // `.rvs/decisions.yml` is written per-run (not baked into the
+      // git-committed fixture) because `.rvs/` itself is only created once
+      // `rvs init` has run -- exactly mirroring `.rvs/governance.yml`'s
+      // per-run write above. `type: adr` forces classifyDecisionSource's
+      // configured-path branch (classification_basis "configured_path"), so
+      // docs/decisions/0001-use-example-database.md is picked up
+      // deterministically.
+      writeFileSync(join(dir, ".rvs/decisions.yml"), ["schema_version: 1", "sources:", "  - path: docs/decisions", "    type: adr", ""].join("\n"));
+
+      run(["decisions", "analyze"]);
+      // Re-runs the same full analysis (decisions-validate.ts calls
+      // runDecisionAnalysis itself) plus validation -- no --ci here, this
+      // suite proves structural equivalence, not severity-gating behavior
+      // (already covered in-process by decisions-cli.test.ts), so a
+      // non-zero exit here would only ever indicate an unrelated regression.
+      run(["decisions", "validate"]);
+      // --from points at the decision-snapshot.json the `analyze` call above
+      // just cached; --to is omitted, so runDecisionsCompare runs a second,
+      // fresh `runDecisionAnalysis` internally as the target (decisions-
+      // compare.ts) -- against the same unchanged fixture content, so every
+      // decision-cache file this second internal analysis re-writes stays
+      // byte-for-byte content-equal to the first (only `generated_at`
+      // differs), and the diff itself reports full compatibility with the
+      // single fixture decision "unchanged".
+      run(["decisions", "compare", "--from", ".rvs/cache/decisions/decision-snapshot.json"]);
+      run(["export", "decision-report", "--output", "decision-report.json"]);
+      run(["export", "decision-summary", "--output", "decision-summary.md"]);
+      run(["create", "slides", "--profile", "decisions"]);
+    }
+
+    // Every DECISION_OUTPUT_FILES artifact `decisions analyze`/`validate`/
+    // `compare` cached to .rvs/cache/decisions/ (decision-changes.json is
+    // compare-only; every other file is (re)written by the second, internal
+    // analysis `compare` triggers). stripDecisionTimestamps is a safe no-op
+    // on the twelve of these seventeen files that carry no `generated_at`
+    // field at all (contracts.ts) -- applied uniformly rather than
+    // special-cased per file, for the same reason stripGovernanceTimestamps
+    // is applied uniformly to governance's own output set above.
+    for (const filename of [
+      "decision-snapshot.json",
+      "decisions.json",
+      "decision-links.json",
+      "assumptions.json",
+      "consequences.json",
+      "dependencies.json",
+      "supersession.json",
+      "conflicts.json",
+      "implementation-state.json",
+      "coverage.json",
+      "drift.json",
+      "decision-debt.json",
+      "decision-changes.json",
+      "decision-claims.json",
+      "decision-narrative.json",
+      "decision-plan.json",
+      "decision-report.json",
+    ]) {
+      expect(stripDecisionTimestamps(readJson(join(sourceDir, ".rvs/cache/decisions", filename)))).toEqual(
+        stripDecisionTimestamps(readJson(join(packagedDir, ".rvs/cache/decisions", filename))),
+      );
+    }
+
+    // rvs export decision-report's written copy of decision-report.json.
+    expect(stripDecisionTimestamps(readJson(join(sourceDir, "decision-report.json")))).toEqual(
+      stripDecisionTimestamps(readJson(join(packagedDir, "decision-report.json"))),
+    );
+    // decision-summary.md quotes narrative.source_snapshot_id and plan scene
+    // titles -- both repository_id-tainted per the note above -- so it needs
+    // the same scrubRepoId pass as the JSON artifacts (it also handles plain
+    // strings, not just JSON values), mirroring governance-summary.md's own
+    // stripGovernanceTimestamps reuse just above.
+    expect(scrubRepoId(readFileSync(join(sourceDir, "decision-summary.md"), "utf8"))).toEqual(
+      scrubRepoId(readFileSync(join(packagedDir, "decision-summary.md"), "utf8")),
+    );
+
+    // The final `create slides --profile decisions` step above overwrote
+    // deck.html/visualdoc.json with the decisions deck. decision-
+    // visualdoc-builder.ts's buildDecisionVisualDoc interpolates
+    // plan.source_snapshot_id into `document.title`, and buildSceneId
+    // (ids.ts) interpolates the same repository_id-tainted planId into every
+    // scene id -- so, exactly like the governance deck above, this needs
+    // stripDecisionTimestamps on visualdoc.json and content-spec-hash
+    // (a hash of that same repository_id-tainted document) is not
+    // meaningfully comparable and is deliberately not asserted here, mirroring
+    // the governance deck assertions' own precedent just above (git-commit
+    // and the stripped scene-id list only).
+    expect(stripDecisionTimestamps(readJson(join(sourceDir, ".rvs/cache/visualdoc.json")))).toEqual(
+      stripDecisionTimestamps(readJson(join(packagedDir, ".rvs/cache/visualdoc.json"))),
+    );
+    const sourceDecisionsHtml = readFileSync(join(sourceDir, "artifacts/visuals/deck.html"), "utf8");
+    const packagedDecisionsHtml = readFileSync(join(packagedDir, "artifacts/visuals/deck.html"), "utf8");
+    expect(extractAttr(sourceDecisionsHtml, "git-commit")).toEqual(extractAttr(packagedDecisionsHtml, "git-commit"));
+    const decisionSceneIds = (html: string) => [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => scrubRepoId(m[1]));
+    expect(decisionSceneIds(sourceDecisionsHtml)).toEqual(decisionSceneIds(packagedDecisionsHtml));
+    expect(decisionSceneIds(sourceDecisionsHtml).length).toBeGreaterThan(0);
   });
+
+  // -------------------------------------------------------------------------
+  // Milestone 8.1 item 8: source/package equivalence coverage for the two
+  // named governance-integration workflows (item 7's own end-to-end tests,
+  // decisions-governance-e2e.test.ts, prove the workflows' *behavior*
+  // in-process; this proves packaging introduces no divergence in that same
+  // behavior). Runs in two fresh, minimal, non-git temp dirs (reusing the
+  // already-built tarball from beforeAll rather than re-packing) rather than
+  // reusing sourceDir/packagedDir above, since those two workflows need their
+  // own purpose-built .rvs/decisions.yml + .rvs/governance.yml + injected
+  // architecture-intelligence.json content, and running after the giant test
+  // above would otherwise mix this fixture's content with that one's
+  // already-committed ADR-0001/docs/decisions fixture.
+  //
+  // Workflow A (architecture-change-missing-decision -> governance check
+  // exit code): a `missing_decision_rules` entry targets
+  // "component:api-gateway"; a "before" snapshot has no such component, an
+  // "after" snapshot adds it, and no decision links to it -- so
+  // `require_decision_for_change` must fail and --ci must exit 1.
+  //
+  // Workflow B (accepted-decision-with-contradicted-assumption -> drift ->
+  // governance finding -> CI result): an accepted decision declares a
+  // "[contradicted]" assumption -- so `forbid_contradicted_assumption` must
+  // fail and --ci must exit 1, independent of any architecture change.
+  //
+  // Both workflows run through one combined governance.yml/decisions.yml so
+  // a single `governance check --ci` call proves both at once, instead of
+  // paying for a second `npm install --no-save` per workflow.
+  it("produces equivalent missing-decision and contradicted-assumption governance results from source and from the tarball", () => {
+    const wfSourceDir = mkdtempSync(join(tmpdir(), "rvs-equiv-decgov-source-"));
+    const wfPackagedDir = mkdtempSync(join(tmpdir(), "rvs-equiv-decgov-packaged-"));
+    try {
+      writeFileSync(join(wfPackagedDir, "package.json"), JSON.stringify({ name: "rvs-decgov-equivalence-fixture", version: "1.0.0" }, null, 2));
+      execFileSync("npm", ["install", "--no-save", tarballPath], { cwd: wfPackagedDir, stdio: "inherit" });
+
+      function execCapture(bin: string, args: string[], cwd: string): { status: number; stdout: string; stderr: string } {
+        try {
+          const stdout = execFileSync(bin, args, { cwd, encoding: "utf8" });
+          return { status: 0, stdout, stderr: "" };
+        } catch (err) {
+          const e = err as { status: number | null; stdout?: string; stderr?: string };
+          return { status: e.status ?? 1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
+        }
+      }
+
+      const engines: Array<{ label: string; dir: string; run: (args: string[]) => string; capture: (args: string[]) => { status: number; stdout: string; stderr: string } }> = [
+        { label: "source", dir: wfSourceDir, run: (args) => execFileSync(tsxBin, [cliEntry, ...args], { cwd: wfSourceDir, encoding: "utf8" }), capture: (args) => execCapture(tsxBin, [cliEntry, ...args], wfSourceDir) },
+        { label: "packaged", dir: wfPackagedDir, run: (args) => execFileSync("npx", ["rvs", ...args], { cwd: wfPackagedDir, encoding: "utf8" }), capture: (args) => execCapture("npx", ["rvs", ...args], wfPackagedDir) },
+      ];
+
+      const decisionsYaml = [
+        "schema_version: 1",
+        "sources:",
+        "  - path: docs/decisions",
+        "    type: adr",
+        "missing_decision_rules:",
+        "  - rule_kind: runtime_entrypoint_change_without_decision",
+        "    affected_entity_ids:",
+        "      - component:api-gateway",
+        "",
+      ].join("\n");
+
+      const adrFixture = [
+        "---",
+        "id: ADR-0001",
+        "status: accepted",
+        "assumptions:",
+        '  - "[contradicted] The vendor API remains stable."',
+        "---",
+        "",
+        "# Depend on the vendor payments API",
+        "",
+        "## Decision",
+        "",
+        "We will depend on the vendor payments API for settlement.",
+        "",
+      ].join("\n");
+
+      const governanceYaml = ["schema_version: 1", "policies:", "  - .rvs/policies/decision-governance.yml", ""].join("\n");
+
+      const policyYaml = [
+        "schema_version: 1",
+        "name: Decision Governance Policy",
+        "rules:",
+        "  - id: require-decision-for-change",
+        "    title: Require decision for change",
+        "    description: Every changed component must be linked to a decision.",
+        "    kind: require_decision_for_change",
+        "    condition:",
+        "      kind: require_decision_for_change",
+        "    severity: blocking",
+        "    enabled: true",
+        "  - id: forbid-contradicted-assumption",
+        "    title: Forbid contradicted assumptions",
+        "    description: No accepted decision may carry a contradicted assumption.",
+        "    kind: forbid_contradicted_assumption",
+        "    condition:",
+        "      kind: forbid_contradicted_assumption",
+        "    severity: blocking",
+        "    enabled: true",
+        "",
+      ].join("\n");
+
+      for (const { dir, run } of engines) {
+        mkdirSync(join(dir, ".rvs/cache"), { recursive: true });
+        mkdirSync(join(dir, ".rvs/policies"), { recursive: true });
+        mkdirSync(join(dir, "docs/decisions"), { recursive: true });
+
+        writeFileSync(join(dir, ".rvs/decisions.yml"), decisionsYaml);
+        writeFileSync(join(dir, "docs/decisions/0001-vendor-api.md"), adrFixture);
+        writeFileSync(join(dir, ".rvs/governance.yml"), governanceYaml);
+        writeFileSync(join(dir, ".rvs/policies/decision-governance.yml"), policyYaml);
+
+        // `snapshot create` refuses a partial snapshot unless every domain
+        // (architecture/capability/product) is cached -- capability/product
+        // content is irrelevant to either workflow.
+        writeFileSync(join(dir, ".rvs/cache/capability-model.json"), JSON.stringify({}));
+        writeFileSync(join(dir, ".rvs/cache/product-identity-model.json"), JSON.stringify({}));
+
+        // "before": no component:api-gateway.
+        writeFileSync(join(dir, ".rvs/cache/architecture-intelligence.json"), JSON.stringify({ components: [] }));
+        run(["snapshot", "create", "--name", "before"]);
+
+        // "after": component:api-gateway added, with no decision linking to it.
+        writeFileSync(
+          join(dir, ".rvs/cache/architecture-intelligence.json"),
+          JSON.stringify({ components: [{ id: "component:api-gateway", kind: "service", label: "API Gateway" }] }),
+        );
+        run(["snapshot", "create", "--name", "after"]);
+
+        run(["decisions", "analyze"]);
+      }
+
+      // Both workflows funnel into one `governance check --ci` call per
+      // engine -- assert the --ci exit-code gate itself is equivalent first
+      // (the most direct proof of "workflow -> governance check exit code"
+      // surviving packaging unchanged).
+      const checks = engines.map(({ label, capture }) => ({ label, result: capture(["governance", "check", "--from", "before", "--to", "after", "--ci"]) }));
+      for (const { label, result } of checks) {
+        expect(result.status, `${label} engine's governance check --ci should exit 1`).toBe(1);
+      }
+
+      // decision-governance-context.json's arrays are built from plain,
+      // content-derived entity/decision ids (component:api-gateway from the
+      // architecture fixture; decision:ADR-0001 from frontmatter `id`, via
+      // ids.ts's buildDecisionId) -- neither is digest- or
+      // repository-basename-derived (unlike decision-snapshot.json's own
+      // `id`/`repository_id`, see the giant test above), so this file is
+      // expected to be genuinely byte-identical between engines with no
+      // scrubbing needed.
+      const sourceContext = JSON.parse(readFileSync(join(wfSourceDir, ".rvs/cache/decisions/decision-governance-context.json"), "utf8"));
+      const packagedContext = JSON.parse(readFileSync(join(wfPackagedDir, ".rvs/cache/decisions/decision-governance-context.json"), "utf8"));
+      expect(sourceContext).toEqual(packagedContext);
+      expect(sourceContext.changes_missing_decision).toEqual(["component:api-gateway"]);
+      expect(sourceContext.decisions_with_contradicted_assumptions).toEqual(["decision:ADR-0001"]);
+
+      // governance-findings.json findings carry a digest-derived `id` (see
+      // ids.ts's buildFindingId) plus `evidence_refs`/`blast_radius`, neither
+      // of which this equivalence check needs -- compare the fields that
+      // actually express each workflow's verdict (which rule, what result,
+      // at what severity, referencing which entity/decision, in what
+      // words), sorted by rule_id for a stable comparison order.
+      type FindingSlice = { rule_id: string; result: string; severity: string; statement: string; affected_entity_ids: string[]; human_review_required: boolean; excepted: boolean };
+      const findingSlice = (dir: string): FindingSlice[] => {
+        const raw = JSON.parse(readFileSync(join(dir, ".rvs/cache/governance/governance-findings.json"), "utf8")) as FindingSlice[];
+        return [...raw]
+          .map(({ rule_id, result, severity, statement, affected_entity_ids, human_review_required, excepted }) => ({ rule_id, result, severity, statement, affected_entity_ids, human_review_required, excepted }))
+          .sort((a, b) => (a.rule_id === b.rule_id ? a.statement.localeCompare(b.statement) : a.rule_id.localeCompare(b.rule_id)));
+      };
+      const sourceFindings = findingSlice(wfSourceDir);
+      const packagedFindings = findingSlice(wfPackagedDir);
+      expect(sourceFindings).toEqual(packagedFindings);
+
+      // rule_id is `governance:rule:<policyId>:<rule's own yaml "id">`
+      // (ids.ts's buildRuleId), never the bare yaml "id" by itself -- match
+      // on the suffix, which sanitize() leaves untouched since these rule
+      // ids only use already-safe characters.
+      const blockingFailures = sourceFindings.filter((f) => f.severity === "blocking" && f.result === "fail" && !f.excepted);
+      expect(blockingFailures.some((f) => f.rule_id.endsWith(":require-decision-for-change") && f.statement.includes("component:api-gateway"))).toBe(true);
+      expect(blockingFailures.some((f) => f.rule_id.endsWith(":forbid-contradicted-assumption") && f.statement.includes("decision:ADR-0001"))).toBe(true);
+    } finally {
+      rmSync(wfSourceDir, { recursive: true, force: true });
+      rmSync(wfPackagedDir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

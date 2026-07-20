@@ -3,10 +3,13 @@
 RVS has four intelligence layers, each built strictly on evidence from the
 layer(s) below it, plus a fifth layer — Governance Intelligence — built on
 top of cached snapshots of the other four rather than on repository
-evidence directly. Never skip a required layer, and never run a layer the
-task doesn't need — see `MASTER_AGENT.md` §2-§3 for the authoritative
-routing table and matrix; this file expands the reuse/regeneration rule
-those sections point to.
+evidence directly, plus a sixth layer — Architecture Decision Intelligence
+— built directly from decision documents already present in the
+repository (never from the other five layers' artifacts as its primary
+input, though it optionally links against them). Never skip a required
+layer, and never run a layer the task doesn't need — see `MASTER_AGENT.md`
+§2-§3 for the authoritative routing table and matrix; this file expands the
+reuse/regeneration rule those sections point to.
 
 ## The four layers, in dependency order
 
@@ -37,9 +40,29 @@ those sections point to.
    change sets, a conservative blast-radius assessment, policy findings,
    and a `ContinuousIntelligenceReport` (`rvs governance
    compare`/`check`/`explain`).
+6. **Architecture Decision Intelligence** (`docs/architecture-decision-intelligence.md`
+   and its 6 companion documents; skill references:
+   `references/architecture-decision-intelligence.md`,
+   `references/decision-discovery.md`, `references/decision-linking.md`,
+   `references/decision-governance.md`, `references/decision-drift.md`,
+   `references/decision-showcase.md`) — built from ADR/RFC/design-decision/
+   decision-log documents discovered under the paths named in
+   `.rvs/decisions.yml` (`rvs decisions analyze`), never from the other five
+   layers' cached artifacts as its primary input. Optionally *links* against
+   Architecture/Capability/Product/Portfolio/Governance artifacts when they
+   are already cached (an unresolved link is kept and reported, never
+   dropped, when they aren't). Produces a `DecisionSnapshot`, decision
+   links/dependencies/supersession, drift and debt findings, a
+   `DecisionIntelligenceReport`, and — additively, opt-in, **not yet wired
+   into `rvs governance compare`/`check`** — 10 decision-aware policy rule
+   kinds on top of Governance Intelligence's own engine.
 
 A layer's synthesis command refuses to run without its required upstream
 cache file present — this is enforced by the CLI, not just documented here.
+Architecture Decision Intelligence is the one exception: `rvs decisions
+analyze` only requires `.rvs/decisions.yml` to name at least one decision
+source — it does not require any of the other five layers' artifacts to
+exist, since decision documents are read directly from the repository.
 
 ## When each layer is needed
 
@@ -50,6 +73,7 @@ cache file present — this is enforced by the CLI, not just documented here.
 | "Product overview / executive deck / differentiation" | Architecture → Capability → Product |
 | "Compare products / portfolio overlaps / ecosystem deck" | Portfolio (consuming each product's already-generated Architecture/Capability/Product artifacts) |
 | "What changed architecturally / is this a CI-blocking regression / explain a finding" | Governance Intelligence, consuming cached snapshots of whichever of the four layers above are needed — never a fresh scan |
+| "What decisions explain this / which accepted decisions aren't implemented / did this violate a decision" | Architecture Decision Intelligence, optionally consuming whichever of the four layers above (plus Governance) are already cached for link resolution — never a fresh scan of those layers |
 | Ordinary code implementation, bug fix, CI failure | None, unless repository orientation is itself materially needed |
 
 ## Governance baseline changes are their own authorization boundary

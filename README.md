@@ -486,6 +486,48 @@ GitHub Actions run in this repository. See
 [`docs/architecture-governance.md#known-limitations`](docs/architecture-governance.md#known-limitations)
 for the complete list.
 
+### Architecture Decision Intelligence
+
+`rvs decisions analyze` discovers ADR/RFC/design-decision/decision-log
+documents under the paths named in `.rvs/decisions.yml`, parses each into a
+normalized `ArchitectureDecision` with a content-derived identity, links it
+to architecture/capability/product/portfolio/governance artifacts through
+structured `links:` frontmatter only (never inferred from prose mentions),
+and detects drift, debt, conflicts, supersession issues, and missing
+required decisions. See
+[`docs/architecture-decision-intelligence.md`](docs/architecture-decision-intelligence.md)
+and its 6 companion documents (linked from that page's own "See also"
+footer) for the full design. In short:
+
+**What it does**: parses decision documents into a 3-axis status model
+(`decision_status`/`implementation_status`/`governance_status`); resolves
+declared links against 5 upstream artifact types (a 6th, `decision`-domain
+target, is declared but has no resolver — see
+[`docs/decision-linking.md#known-limitations`](docs/decision-linking.md#known-limitations));
+tracks dependency cycles and supersession-chain consistency; detects 13
+drift causes and 14 debt categories; extends `@rvs/governance-intelligence`
+with 10 new decision-aware policy rule kinds (additive and opt-in — see
+below); and renders a 17-scene `"decisions"` presentation.
+
+**`rvs decisions analyze`** builds the full decision snapshot and every
+downstream artifact. **`rvs decisions validate [--ci]`** runs structural
+validation. **`rvs decisions compare [--from] [--to]`** diffs two decision
+snapshots. **`rvs create slides --profile decisions`** builds the decisions
+deck. **`rvs export decision-report`** / **`rvs export decision-summary`**
+dump the underlying JSON / a paste-ready Markdown summary. **`rvs decisions
+explain <id>`** prints one decision's, link's, or finding's full reasoning.
+
+**Explicit limitations**: no `rvs decisions new` command and no automatic
+decision creation, approval, rejection, or modification anywhere in the
+command surface — this is analysis and explanation only; no cost or effort
+estimation on debt findings; the 10 new governance rule kinds are
+implemented at the package level but **`rvs governance compare`/`check`
+were not modified to evaluate them** — see
+[`docs/decision-governance.md#wiring-status-implemented-but-not-connected-in-this-cli`](docs/decision-governance.md#wiring-status-implemented-but-not-connected-in-this-cli).
+See
+[`docs/architecture-decision-intelligence.md#known-limitations`](docs/architecture-decision-intelligence.md#known-limitations)
+for the complete list.
+
 ## Self-hosting
 
 This repository can visualize itself:

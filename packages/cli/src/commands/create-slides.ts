@@ -4,9 +4,20 @@ import type { ArchitectureIntelligence, NarrativeProfileId } from "@rvs/architec
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { EvidenceManifest, Logger, RvsConfig } from "@rvs/core";
 import { loadConfig } from "@rvs/core";
+import { DECISION_OUTPUT_FILES } from "@rvs/decision-intelligence";
+import type { DecisionPlan } from "@rvs/decision-intelligence";
 import { GOVERNANCE_OUTPUT_FILES } from "@rvs/governance-intelligence";
 import type { GovernancePlan } from "@rvs/governance-intelligence";
-import { buildArchitectureVisualDoc, buildCapabilityIntelligenceScenes, buildGovernanceVisualDoc, buildPortfolioVisualDoc, buildShowcaseVisualDoc, buildVisualDoc, parseBrief } from "@rvs/narrative-planner";
+import {
+  buildArchitectureVisualDoc,
+  buildCapabilityIntelligenceScenes,
+  buildDecisionVisualDoc,
+  buildGovernanceVisualDoc,
+  buildPortfolioVisualDoc,
+  buildShowcaseVisualDoc,
+  buildVisualDoc,
+  parseBrief,
+} from "@rvs/narrative-planner";
 import type {
   AudienceType,
   ProductIdentityModel,
@@ -22,6 +33,7 @@ import type { TerraformTopology } from "@rvs/terraform-graph";
 import { runArchitectureIntelligenceChecks } from "@rvs/validator";
 import type { WorkflowGraph } from "@rvs/workflow-graph";
 import { cacheDir, readCachedJson, readCachedJsonOptional } from "../cache.js";
+import { readDecisionCachedJsonOptional } from "../decision-cache.js";
 import { readGovernanceCachedJsonOptional } from "../governance-cache.js";
 import { DESIGN_SYSTEMS_ROOT } from "../paths.js";
 
@@ -53,6 +65,11 @@ const DEFAULT_PORTFOLIO_AUDIENCE: AudienceType = "portfolio";
 // `rvs governance compare`/`rvs governance check`, the only commands that
 // run the diff engines + policy evaluation) and renders it directly.
 const GOVERNANCE_PROFILE = "governance";
+// "decisions" (Milestone 8) mirrors "governance" exactly: a decision
+// snapshot is a single deterministic artifact of `rvs decisions analyze`
+// (never audience-scoped), so this profile just reads the already-cached
+// DecisionPlan and renders it directly, with no fresh synthesis step.
+const DECISIONS_PROFILE = "decisions";
 
 export interface CreateSlidesOptions {
   audience?: string;
@@ -87,6 +104,11 @@ export async function runCreateSlides(
 
   if (profileId === GOVERNANCE_PROFILE) {
     await runCreateGovernanceSlides(repoRoot, model, evidence, tokens, themeId, config, logger);
+    return;
+  }
+
+  if (profileId === DECISIONS_PROFILE) {
+    await runCreateDecisionsSlides(repoRoot, model, evidence, tokens, themeId, config, logger);
     return;
   }
 
@@ -322,4 +344,35 @@ async function runCreateGovernanceSlides(
   writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
 
   logger.info(`Rendered ${doc.scenes.length} governance scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}"`);
+}
+
+// The "decisions" profile (Milestone 8) mirrors "governance" exactly (see
+// runCreateGovernanceSlides above): it reads the already-computed
+// DecisionPlan cache directly rather than synthesizing anything fresh, and
+// intentionally skips --audience entirely (buildDecisionVisualDoc hardcodes
+// audience: "decisions", theme: "technical-grid").
+async function runCreateDecisionsSlides(
+  repoRoot: string,
+  model: RepositoryModel,
+  evidence: EvidenceManifest,
+  tokens: DesignTokens,
+  designSystemId: string,
+  config: RvsConfig,
+  logger: Logger,
+): Promise<void> {
+  const plan = readDecisionCachedJsonOptional<DecisionPlan>(repoRoot, DECISION_OUTPUT_FILES.decisionPlan);
+  if (!plan) {
+    throw new Error("No cached decision plan found. Run `rvs decisions analyze` first.");
+  }
+
+  const doc = buildDecisionVisualDoc(plan);
+
+  const html = renderVisualDocToHtml(doc, tokens, evidence, { gitCommit: model.git.commit }, [], [], [], [], [], [], [], [plan]);
+
+  const outputDir = resolve(repoRoot, config.defaults.output_dir);
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(resolve(outputDir, "deck.html"), html);
+  writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
+
+  logger.info(`Rendered ${doc.scenes.length} decision scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}"`);
 }

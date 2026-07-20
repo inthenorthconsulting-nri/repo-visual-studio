@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Logger } from "@rvs/core";
+import { DECISION_OUTPUT_FILES } from "@rvs/decision-intelligence";
 import {
   GOVERNANCE_INTELLIGENCE_SCHEMA_VERSION,
   GOVERNANCE_OUTPUT_FILES,
@@ -23,6 +24,7 @@ import {
 } from "@rvs/governance-intelligence";
 import type {
   ContinuousIntelligenceReport,
+  DecisionGovernanceContext,
   EvidenceRef,
   GovernanceConfig,
   GovernanceEvaluation,
@@ -32,6 +34,7 @@ import type {
   IntelligenceSnapshot,
   PortfolioChangeSet,
 } from "@rvs/governance-intelligence";
+import { readDecisionCachedJsonOptional } from "../decision-cache.js";
 import {
   type GovernanceBaselineFile,
   type RawArtifacts,
@@ -164,6 +167,13 @@ export async function runGovernanceComparison(repoRoot: string, opts: Governance
   const policyPaths = (config?.policies ?? []).map((p) => resolve(repoRoot, p));
   const policies = loadPolicyFiles(policyPaths, generatedAt);
 
+  // Opt-in: only present when `rvs decisions analyze` has cached a
+  // decision-governance-context.json for this repository. Absent, every
+  // evaluatePolicy() call below omits decisionChanges and decision-aware
+  // rule kinds resolve their pre-Milestone-8.1 "no decision context" path --
+  // governance evaluation stays byte-identical to before this milestone.
+  const decisionChanges = readDecisionCachedJsonOptional<DecisionGovernanceContext>(repoRoot, DECISION_OUTPUT_FILES.decisionGovernanceContext);
+
   const evaluations: GovernanceEvaluation[] = policies
     .map((policy) =>
       evaluatePolicy({
@@ -174,6 +184,7 @@ export async function runGovernanceComparison(repoRoot: string, opts: Governance
         capabilityChanges,
         productChanges,
         portfolioChanges,
+        decisionChanges,
         blastRadius,
         targetCompatibility: compatibility.status,
         generatedAt,
@@ -212,6 +223,7 @@ export async function runGovernanceComparison(repoRoot: string, opts: Governance
     capability_changes: capabilityChanges,
     product_changes: productChanges,
     portfolio_changes: portfolioChanges,
+    decision_changes: decisionChanges,
     evidence_changes: evidenceChanges,
     blast_radius: blastRadius,
     evaluations,

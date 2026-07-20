@@ -112,6 +112,46 @@ compare.
 | 10 | `limit_unresolved_relationships` | `max_unresolved` (required, nonnegative integer) | Count-based whole-rule aggregate (not per-entity): counts portfolio changes with `domain_path === "unresolvedRelationships"` and `type !== "removed"`; `fail` if the count exceeds `max_unresolved`. |
 | 11 | `require_compatible_snapshot` | `minimum_status` (required — one of `compatible`\|`compatible_with_warnings`\|`partial`\|`incompatible`) | Checks the top-level target-vs-source `compatibility` directly — never scans a change set at all. |
 
+## 10 decision-aware rule kinds (Milestone 8, additive — not wired into this CLI)
+
+Milestone 8's Architecture Decision Intelligence layer extends
+`GovernanceRuleKind` with 10 more literal values (kinds 12-21, continuing
+the switch in `evaluateRule()` above), evaluated against a new, optional
+5th domain: `EvaluatePolicyInput.decisionChanges?: DecisionGovernanceContext`
+— a flat, 6-field structural echo of decision-intelligence's own governance
+context (`changes_missing_decision`, `decisions_with_contradicted_assumptions`,
+`decisions_active_and_superseded`, `exceptions_with_invalid_decision_ref`,
+`unresolved_conflict_decision_ids`, `decisions_requiring_review_for_drift`
+— all sorted-unique string arrays, no per-decision detail). Absent, these
+10 rules never fire and every pre-existing rule's evaluation is
+byte-identical to before this extension existed.
+
+| # | Kind | Condition fields | One worked example |
+|---|---|---|---|
+| 12 | `require_decision_for_change` | `entity_id_pattern?` | The one rule that can reach a genuine `pass`: absence from `changes_missing_decision` confirms a decision link exists. |
+| 13 | `require_accepted_decision` | `entity_id_pattern?` | Conservative floor: no linked decision -> `fail`; some linked decision -> `unverifiable` (can't confirm "accepted" specifically from this flat context). |
+| 14 | `require_decision_implementation` | `entity_id_pattern?` | Same conservative-floor pattern as #13, for implementation status. |
+| 15 | `require_decision_evidence` | `entity_id_pattern?` | Same conservative-floor pattern as #13, for decision-sourced evidence. |
+| 16 | `forbid_contradicted_assumption` | `decision_id_pattern?` | `fail` for every decision id in `decisions_with_contradicted_assumptions` (post-pattern-filter); empty scope is a genuine `pass`. |
+| 17 | `forbid_active_superseded_decision` | `decision_id_pattern?` | Same pattern as #16, against `decisions_active_and_superseded`. |
+| 18 | `require_decision_for_policy_exception` | `rule_id_pattern?` | A missing `decision_ref` on a matching exception is itself a violation; a present `decision_ref` found in `exceptions_with_invalid_decision_ref` is also a violation. |
+| 19 | `require_decision_for_baseline_replacement` | (none beyond `kind`) | **Always returns a single `unverifiable` finding** — "baseline replacement" isn't observable from a fixed source/target change-set comparison. |
+| 20 | `limit_unresolved_decision_conflicts` | `max_unresolved` (required, nonnegative integer) | Count-based whole-rule aggregate over `unresolved_conflict_decision_ids` (post-pattern-filter), mirroring rule #10's own shape. |
+| 21 | `require_decision_review_for_drift` | `decision_id_pattern?` | Same pattern as #16, against `decisions_requiring_review_for_drift`. |
+
+**Not wired into `rvs governance compare`/`rvs governance check` on this
+branch.** Confirmed via `git diff --stat` against this branch's base commit:
+neither `packages/cli/src/commands/governance-compare.ts` nor
+`packages/cli/src/commands/governance-check.ts` was modified to read a
+cached decision snapshot or construct a `DecisionGovernanceContext`. The
+10 evaluators above are fully implemented and unit-tested at the
+`@rvs/governance-intelligence` package level, but no CLI command on this
+branch supplies `decisionChanges` to `evaluatePolicy()` — a policy file
+referencing one of these 10 kinds evaluates against an absent domain when
+run through this CLI today. Full detail, including the `decision_ref`
+exception field and a documentation-only CI example:
+[docs/decision-governance.md](decision-governance.md).
+
 ## Exceptions
 
 Exceptions are **never implicit**. A `GovernanceException`

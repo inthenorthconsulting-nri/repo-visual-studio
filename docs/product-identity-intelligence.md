@@ -355,6 +355,14 @@ claim-lineage policy checks. See
   [docs/executive-showcase-intelligence.md](./executive-showcase-intelligence.md))
   remain fully wired as before.
 
+`product-identity-model.json` is also consumed by Milestone 8's Architecture
+Decision Intelligence layer: `@rvs/decision-intelligence`'s
+`product-links.ts` resolves a decision's declared `domain: product` links
+against this artifact's own entity ids, using the same bounded
+structural-walk pattern the other upstream-artifact resolvers use — see
+[`docs/architecture-decision-intelligence.md`](architecture-decision-intelligence.md)
+and [`docs/decision-linking.md`](decision-linking.md).
+
 ## Package summary
 
 `packages/product-intelligence` — `@rvs/product-intelligence`. Depends on
