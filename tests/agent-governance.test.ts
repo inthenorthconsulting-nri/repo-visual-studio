@@ -232,6 +232,45 @@ describe("MASTER_AGENT.md routing table matches the intelligence layers actually
   });
 });
 
+describe("MASTER_AGENT.md routes Governance Intelligence as a fifth intelligence layer", () => {
+  const content = read("MASTER_AGENT.md");
+
+  it("names Governance Intelligence as a routable layer in the intelligence-routing matrix", () => {
+    expect(content).toMatch(/\|\s*Governance Intelligence\s*\|/);
+  });
+
+  it("adds a task-classification entry for governance / continuous intelligence", () => {
+    expect(content).toContain("2.10");
+    expect(content).toMatch(/Governance \/ continuous intelligence/);
+  });
+
+  it("states Governance Intelligence reads already-cached snapshots and never re-scans source or calls an external model", () => {
+    expect(content).toMatch(/never re-scans/);
+    expect(content).toMatch(/never\s+calls an external model/);
+  });
+
+  it("includes a worked example that traces a governance request through its real CLI commands", () => {
+    expect(content).toContain("rvs governance compare");
+    expect(content).toContain("rvs governance explain");
+    expect(content).toContain("rvs snapshot create");
+  });
+
+  it("routes a request to fix a governance-flagged regression to code implementation, not Governance Intelligence itself", () => {
+    const exampleStart = content.indexOf("CI-blocking regression, then fix it");
+    expect(exampleStart, "expected a worked example covering fixing a governance-flagged regression").toBeGreaterThanOrEqual(0);
+    const window = content.slice(exampleStart, exampleStart + 1200);
+    expect(window).toMatch(/code implementation/i);
+    expect(window).toMatch(/never edits code itself/);
+  });
+
+  it("references the real governance/continuous-intelligence design docs, which exist", () => {
+    for (const docPath of ["docs/architecture-governance.md", "docs/continuous-intelligence.md"]) {
+      expect(content).toContain(docPath);
+      expect(existsSync(resolve(ROOT, docPath)), `expected ${docPath} to exist`).toBe(true);
+    }
+  });
+});
+
 describe("no prohibited Milestone 6.2 scope creep in the routing/governance layer", () => {
   const files = ["MASTER_AGENT.md", ...readdirsRecursive("skills"), ...readdirsRecursive("docs").filter((f) => /agent-operating-model|pr-governance|repository-maintenance/.test(f))];
 
