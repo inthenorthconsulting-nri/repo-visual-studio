@@ -271,6 +271,55 @@ describe("MASTER_AGENT.md routes Governance Intelligence as a fifth intelligence
   });
 });
 
+describe("Milestone 7.1 — the governance/master-agent boundary is unambiguous", () => {
+  const content = read("MASTER_AGENT.md");
+
+  it("requires explicit authorization before replacing the configured governance baseline", () => {
+    expect(content).toContain("rvs governance baseline set");
+    const idx = content.indexOf("Replacing the configured governance baseline");
+    expect(idx, "expected baseline replacement listed among §1.3's explicit-authorization write actions").toBeGreaterThanOrEqual(0);
+    expect(content).toMatch(/diagnose.*governance finding.*does not authorize replacing the baseline/is);
+  });
+
+  it("states Governance Intelligence never approves or merges a PR and never replaces the baseline on its own", () => {
+    expect(content).toMatch(/never approves or merges a PR/);
+    expect(content).toMatch(/never replaces the configured baseline on its own/);
+  });
+
+  it("states a governance check is not a deployment or merge-safety judgment", () => {
+    expect(content).toMatch(/not a deployment or\s+merge-safety judgment/);
+  });
+
+  it("includes a dedicated worked example for explaining a governance finding", () => {
+    const idx = content.indexOf("H — Explain a governance finding");
+    expect(idx, "expected a dedicated worked example for explaining a governance finding").toBeGreaterThanOrEqual(0);
+    const window = content.slice(idx, idx + 600);
+    expect(window).toContain("rvs governance explain");
+    expect(window).toMatch(/read-only/);
+  });
+
+  it("includes a dedicated worked example for replacing the baseline that requires explicit authorization", () => {
+    const idx = content.indexOf("Replace the configured baseline");
+    expect(idx, "expected a dedicated worked example for replacing the governance baseline").toBeGreaterThanOrEqual(0);
+    const window = content.slice(idx, idx + 900);
+    expect(window).toMatch(/explicit-authorization write\s*\naction/);
+    expect(window).toContain("rvs governance baseline set");
+    expect(window).toMatch(/no PR\s*\napproval, and no merge/);
+  });
+
+  const routing = read("skills/repo-visual-studio/references/intelligence-routing.md");
+
+  it("documents Governance Intelligence as the fifth intelligence layer in intelligence-routing.md", () => {
+    expect(routing).toMatch(/fifth layer/);
+    expect(routing).toContain("Governance Intelligence");
+    expect(routing).toContain("rvs snapshot create");
+  });
+
+  it("intelligence-routing.md also states baseline replacement is its own authorization boundary", () => {
+    expect(routing).toMatch(/never authorizes replacing it/);
+  });
+});
+
 describe("no prohibited Milestone 6.2 scope creep in the routing/governance layer", () => {
   const files = ["MASTER_AGENT.md", ...readdirsRecursive("skills"), ...readdirsRecursive("docs").filter((f) => /agent-operating-model|pr-governance|repository-maintenance/.test(f))];
 

@@ -67,11 +67,15 @@ These actions always require **explicit, current-turn** user authorization
   its scope · Merging a PR
 - Deleting a branch · Creating a release · Publishing a package
 - Modifying CI secrets · Changing repository settings
+- Replacing the configured governance baseline (`rvs governance
+  baseline set`)
 
 Concretely: a request to *implement* code does not authorize committing it.
 A request to *commit* does not authorize pushing it. A request to *push*
 does not authorize opening a PR. A request to *open a PR* does not
-authorize merging it. Each boundary is crossed only on its own explicit
+authorize merging it. A request to *diagnose* a governance finding (compare/
+check/explain) does not authorize replacing the baseline those commands
+compared against. Each boundary is crossed only on its own explicit
 instruction.
 
 ### 1.4 Preserve unrelated work
@@ -143,7 +147,14 @@ Class-specific rules:
   produced (§3, §4). A request to *fix* what a governance finding surfaced
   is a separate Code implementation task (§2.5), routed through
   `pr-governance` and the relevant code-owning skill — Governance
-  Intelligence itself never modifies code.
+  Intelligence itself never modifies code, never approves or merges a PR,
+  and never replaces the configured baseline on its own; baseline
+  replacement is its own write action requiring separate, explicit
+  authorization (§1.3), never implied by a compare/check/explain request. A
+  passing or clean `rvs governance check` is a policy-conformance result
+  against the configured baseline only — it is not a deployment or
+  merge-safety judgment, and does not substitute for the review §2.9/
+  `pr-governance` already requires before a PR merges.
 
 ---
 
@@ -403,3 +414,22 @@ diagnoses the regression, it never edits code itself (per
 diffing, compatibility/blast-radius assessment, policy evaluation,
 narrative/plan synthesis — no code-modification capability anywhere in its
 command surface).
+
+**H — Explain a governance finding.** *"Explain this governance finding."*
+Classify as governance / continuous intelligence (§2.10) → identify the
+finding/change/claim ID from the most recent `rvs governance
+compare`/`check` output (ask which one if more than one is ambiguous, never
+guess) → run `rvs governance explain <id>` → present its reasoning,
+severity, and evidence citations directly from that output → no branch
+needed, this is read-only and mutates nothing, including the baseline.
+
+**I — Replace the configured baseline.** *"Update the governance baseline
+to the current snapshot."* This is its own explicit-authorization write
+action (§1.3) — never implied by a preceding compare, check, or explain
+request, no matter how clean the result. Confirm the candidate snapshot is
+schema-compatible and was itself already validated (`rvs governance
+baseline validate`) → run `rvs governance baseline set <snapshot>` only on
+this turn's explicit instruction → report the prior baseline, the new
+baseline, and the compatibility outcome. Still no code change, no PR
+approval, and no merge — those remain separate actions under their own
+authorization boundaries (§1.3, §2.9).
