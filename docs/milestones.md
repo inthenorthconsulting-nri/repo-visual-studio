@@ -2194,3 +2194,243 @@ templates in; plus this documentation pass
 and forward-reference notes in `docs/architecture-intelligence.md`,
 `docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
 and `README.md`). Nothing from this milestone has been committed.
+
+## Milestone 7 — Architecture Governance and Continuous Intelligence
+
+**Status: core engine, presentation integration, and CLI complete.**
+Objective: a read-only comparison and policy layer sitting above the entire
+Repository Evidence → Architecture Intelligence → Capability Intelligence →
+Product Identity Intelligence → Portfolio Intelligence stack Milestones 1-6
+built — Architecture Governance fingerprints the already-synthesized cached
+artifacts those five layers produce into an `IntelligenceSnapshot`, diffs two
+snapshots (a promoted baseline vs. the current repository state, or any two
+named snapshots) into per-domain change sets, assesses how far each change's
+effects reach (`BlastRadiusLevel`), evaluates a finite, typed policy engine
+against the changes, and composes the result into a
+`ContinuousIntelligenceReport`, a claim-controlled `GovernanceNarrative`, and
+a `"governance"` `VisualDoc` profile — feeding a new `rvs governance check
+--ci` gate a CI pipeline can block a merge on. It never re-scans a
+repository, never re-synthesizes an upstream artifact, and never calls an
+external model. See [`docs/architecture-governance.md`](architecture-governance.md),
+[`docs/continuous-intelligence.md`](continuous-intelligence.md),
+[`docs/governance-policies.md`](governance-policies.md),
+[`docs/governance-baselines.md`](governance-baselines.md), and
+[`docs/governance-showcase.md`](governance-showcase.md) for the complete
+design, contracts, policy-authoring reference, and presentation layer — this
+entry records summary/coverage facts and defers to those five documents for
+everything else, the same division of labor every milestone entry above uses
+with its own design documents.
+
+### 1. Package, contracts, and pipeline
+
+New package `packages/governance-intelligence` (`@rvs/governance-intelligence`),
+24 non-test source modules: `contracts.ts` (the full `IntelligenceSnapshot`/
+`GovernanceBaseline`/`*ChangeSet`/`GovernancePolicy`/`GovernanceFinding`/
+`BlastRadiusAssessment`/`ContinuousIntelligenceReport`/`GovernanceNarrative`/
+`GovernancePlan` shapes, an 11-value `GovernanceRuleKind`, a 13-value
+`GovernanceSceneKind`, a 10-value `GovernanceClaimRejectionReason`),
+`ids.ts`, `constants.ts`, `snapshot.ts`, `compatibility.ts`,
+`change-classification.ts`, `architecture-diff.ts`, `capability-diff.ts`,
+`product-diff.ts`, `portfolio-diff.ts`, `evidence-diff.ts`, `diff-utils.ts`,
+`blast-radius.ts`, `governance-config.ts`, `policy-loader.ts`,
+`policy-evaluator.ts`, `findings.ts`, `baseline.ts`, `claims.ts`,
+`narrative.ts`, `governance-plan.ts`, `validation.ts`, `explain.ts`,
+`index.ts` — the same small-pure-single-responsibility-module shape every
+upstream intelligence package already uses. `package.json` declares
+dependencies on only `yaml` and `zod` (config parsing) — no dependency on
+`@rvs/architecture-intelligence`, `@rvs/capability-intelligence`,
+`@rvs/product-intelligence`, or `@rvs/portfolio-intelligence`, at either the
+runtime or the type level (see the "Layering note" at the top of
+`contracts.ts`). Full contract and pipeline detail:
+[docs/architecture-governance.md](architecture-governance.md) and
+[docs/continuous-intelligence.md](continuous-intelligence.md).
+
+### 2. Presentation integration and CLI
+
+New `GovernanceSceneKind` values (13, canonical order declared in
+`contracts.ts`, not `@rvs/visualdoc-schema` — a `governance-scene` VisualDoc
+type points at its source `GovernancePlan` by `plan_id`/`scene_id` rather
+than embedding scene content inline, the same pointer-scene pattern
+`@rvs/portfolio-intelligence`'s `portfolio-plan.ts` established); a new
+`"governance"` `VisualDoc` profile in
+`packages/narrative-planner/src/governance-visualdoc-builder.ts`; new scene
+templates under `packages/renderer-html/src/scenes/governance/`. Nine new CLI
+surfaces wired into `packages/cli/src/bin.ts`: `rvs snapshot create [--name]
+[--output] [--include-portfolio] [--allow-partial]`, `rvs governance baseline
+show`, `rvs governance baseline set <snapshot> [--force]`, `rvs governance
+baseline validate`, `rvs governance compare [--from] [--to]`, `rvs governance
+check [--from] [--to] [--ci]`, `rvs governance explain <id>`, `rvs export
+governance-report [--output]`, `rvs export governance-summary [--output]`,
+plus `"governance"` added to `rvs create slides --profile <id>`'s accepted
+profile list. A new `packages/cli/src/governance-cache.ts` module defines and
+implements the CLI-layer "snapshot envelope" on-disk format
+(`{ snapshot: IntelligenceSnapshot, rawArtifacts: RawArtifacts }`) — an
+addition purely to this CLI's own cache layout, since
+`@rvs/governance-intelligence`'s own `IntelligenceSnapshot` type deliberately
+never embeds the raw architecture/capability/product/portfolio JSON it was
+fingerprinted from, only a per-domain digest. Full design:
+[docs/governance-showcase.md](governance-showcase.md) and
+[docs/governance-baselines.md](governance-baselines.md#the-snapshot-envelope-format).
+
+### 3. Key design decisions
+
+- **Content-derived ids everywhere.** `ids.ts` mirrors
+  `@rvs/portfolio-intelligence/src/ids.ts`'s pattern exactly: every snapshot/
+  change-set/change/finding/policy/rule/evaluation id is a pure function of
+  stable content already present in the artifacts being governed — never a
+  timestamp, wall-clock generation time, or array index — so two governance
+  runs over identical input state produce byte-identical ids (verified by
+  `determinism.test.ts` and `no-change-identity.test.ts`).
+- **Zero type coupling to upstream packages.** `contracts.ts`'s own
+  "Layering note" states it directly: nothing in `governance-intelligence`
+  imports from any of the four upstream intelligence packages. Where a shape
+  needs to echo an upstream concept (e.g. `EvidenceRef`), it defines its own
+  minimal structural echo rather than importing the real type.
+- **An 11-rule-kind finite policy engine, not an expression language.**
+  `GovernanceRuleKind` is a closed union of 11 named kinds
+  (`forbid_component_removal`, `require_runtime_entrypoint`,
+  `require_capability_status_at_least`,
+  `forbid_operational_to_planned_regression`, `require_evidence_type`,
+  `forbid_dependency_removal`, `require_shared_contract_for_dependency`,
+  `forbid_approved_claim_without_lineage`, `require_product_role`,
+  `limit_unresolved_relationships`, `require_compatible_snapshot`), each with
+  its own fully-typed condition payload; `policy-evaluator.ts` branches on
+  `kind` and reads only the fields the matching condition interface declares
+  — a `.rvs/governance.yml`/policy file can never express more than the
+  engine actually knows how to evaluate deterministically, and nothing is
+  ever `eval`'d or dynamically `require`'d (`governance-config.ts`'s own
+  header comment states this explicitly, since policy files are untrusted
+  input from the scanned repository). These 11 kinds implement roughly two
+  dozen worked policy examples through configuration (different scoping
+  patterns, severities, and thresholds over the same kind), not one bespoke
+  rule kind per example — the full kind-to-example mapping is in
+  [docs/governance-policies.md](governance-policies.md).
+- **Conservative blast-radius assessment: unresolved is never isolated.**
+  `blast-radius.ts`'s own header states the rule directly: "when the
+  artifact carries no linkage/consumer data for an entity, level MUST be
+  unresolved, NEVER isolated" — a confirmed absence of any linked
+  consumer/neighbor is `isolated`; a structural absence of any way to even
+  ask the question is `unresolved`. This package never treats "I don't know"
+  as "no impact," matching every upstream layer's own conservative-bias
+  requirement.
+- **A standalone CI gate, not an extension of `rvs validate --ci`.**
+  `rvs governance check --ci` fails the build itself
+  (`packages/cli/src/commands/governance-check.ts`) rather than folding into
+  `packages/cli/src/commands/validate.ts`, which carries zero governance
+  references on this branch — a repository that has never run `rvs
+  governance compare` sees no change to `rvs validate --ci`'s behavior.
+  `--ci` exits non-zero only when an un-excepted finding's severity is in
+  the configured `comparison.fail_on` list (default: `["blocking"]`, from
+  `governance-config.ts`'s `.rvs/governance.yml` schema).
+- **A snapshot envelope format enabling two-sided historical diffing.**
+  Rather than only ever diffing a baseline against "whatever `.rvs/cache/`
+  holds right now," `rvs snapshot create` writes every snapshot (and `rvs
+  governance baseline set` writes the promoted baseline) as a
+  `SnapshotEnvelope` carrying both the typed `IntelligenceSnapshot`
+  fingerprint and the raw artifact JSON it was computed from — so
+  `rvs governance compare --from <snapshot> --to <snapshot>` can diff any two
+  historical points, not only "then vs. now."
+- **The `governance` slide profile is never audience-scoped.**
+  `create-slides.ts`'s governance branch hardcodes `audience: "governance"`
+  and `theme: "technical-grid"` (unless `--theme` overrides it) and ignores
+  `--audience` entirely — a governance comparison reports what changed and
+  whether it violates policy, a single deterministic artifact of the two
+  snapshots compared, not a narrative that varies by who's reading it, per
+  `governance-visualdoc-builder.ts`'s own doc comment.
+
+### 4. Known, disclosed scope trims
+
+- **No git-worktree two-commit helper.** The milestone's originating spec
+  contemplated a convenience command that would check out two git commits
+  into worktrees and run the full artifact pipeline against each before
+  diffing. That helper was not built on this branch — `rvs snapshot create`
+  plus `rvs governance compare --from --to` already satisfy the milestone's
+  core requirement (comparing any two historical intelligence states) once
+  each state's artifacts have been independently produced by the existing
+  `synthesize`/`inspect` commands at each commit; scripting the two-checkout
+  convenience wrapper is left as a follow-up. Confirmed absent: no
+  `worktree`-referencing code exists anywhere under
+  `packages/governance-intelligence` or `packages/cli/src` on this branch.
+- **The GitHub Actions workflow is documented-only, not executed in CI
+  here.** `docs/governance-baselines.md`/`docs/continuous-intelligence.md`
+  document a sample `rvs governance check --ci` workflow step for a
+  consuming repository's own CI, but no `.github/workflows/*governance*`
+  file exists in this repository — nothing here has actually exercised the
+  gate inside a real GitHub Actions run.
+- **11 named rule kinds implement the spec's worked examples through
+  configuration, not one bespoke rule kind per example.** Documented under
+  "Key design decisions" above; full mapping in
+  [docs/governance-policies.md](governance-policies.md).
+- Full rationale for all three trims, plus every other declared-but-not-yet-
+  computed value: [docs/architecture-governance.md#known-limitations](architecture-governance.md#known-limitations).
+
+### 5. Test coverage and verification
+
+`packages/governance-intelligence/src/__tests__/`: 24 test files (one per
+source module, plus `governance-fixtures.ts` as a shared, non-test fixture
+helper) — `adversarial`, `architecture-diff`, `baseline`, `blast-radius`,
+`capability-diff`, `change-classification`, `claims`, `compatibility`,
+`determinism`, `evidence-diff`, `explain`, `findings`, `governance-config`,
+`governance-plan`, `narrative`, `no-change-identity`, `policy-evaluator`,
+`policy-loader`, `portfolio-diff`, `product-diff`, `regression`, `scale`,
+`snapshot`, `validation` — 238 test-case declarations across roughly 5,300
+lines of test source, including dedicated `determinism.test.ts` (byte-
+identical-output verification) and `no-change-identity.test.ts` (a snapshot
+diffed against itself must classify every entry `unchanged`) suites neither
+of which any upstream package needed in the same form. Plus new
+`packages/cli/src/__tests__/governance-cli.test.ts` (497 lines, in-process
+CLI command tests matching `portfolio-cli.test.ts`/`validate.test.ts`'s
+established no-subprocess convention),
+`packages/narrative-planner/src/__tests__/governance-visualdoc-builder.test.ts`,
+and `packages/renderer-html/src/__tests__/governance-scene.test.ts`; plus
+modifications to `packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`
+and `packages/visualdoc-schema/src/__tests__/schema.test.ts` for the new
+`governance-scene` VisualDoc type. Full workspace suite: `pnpm -r exec tsc
+--noEmit` clean, 0 errors; `pnpm test` **1599 passed, 9 skipped, 0 failed**
+across **125 passed + 2 skipped (127) test files** — both figures read
+directly from this pass's own `pnpm test` run, not carried over from
+Milestone 6's numbers.
+
+### 6. Current repository state
+
+Milestone 7's work sits, uncommitted, on `feature/architecture-governance`,
+branched from `origin/main` at `3873113` ("Merge pull request #4 from
+.../feature/portfolio-ecosystem-intelligence" — the same commit Milestone
+6's entry above records as its own closing state, confirming this branch
+adds no other repository state in between). `git status --short` shows: the
+new `packages/governance-intelligence/` package; new CLI command files
+(`governance-baseline.ts`, `governance-check.ts`, `governance-compare.ts`,
+`governance-explain.ts`, `snapshot-create.ts`, `export-governance-report.ts`,
+`export-governance-summary.ts`) and the new `governance-cache.ts` module;
+new `governance-visualdoc-builder.ts` and its test; new
+`scenes/governance/` renderer files and their test; modifications to
+`packages/cli/src/{bin.ts, commands/create-slides.ts,
+__tests__/source-vs-package-equivalence.test.ts}` and `package.json`;
+modifications to `packages/narrative-planner/src/index.ts` and
+`package.json`; modifications to
+`packages/renderer-html/src/{render.ts, scenes/index.ts, styles.ts}` and
+`package.json`; modifications to
+`packages/visualdoc-schema/src/{schema.ts, __tests__/schema.test.ts}` wiring
+the new `governance-scene` VisualDoc type in; a `pnpm-lock.yaml` update; plus
+this documentation pass (`docs/architecture-governance.md`,
+`docs/continuous-intelligence.md`, `docs/governance-policies.md`,
+`docs/governance-baselines.md`, `docs/governance-showcase.md`, this entry,
+forward-reference notes in `docs/architecture-intelligence.md`,
+`docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
+`docs/portfolio-intelligence.md`, and `README.md`, and a new governance
+workflow entry in `skills/repo-visual-studio/SKILL.md`).
+
+`MASTER_AGENT.md` does not exist on this branch and is out of scope for this
+milestone's documentation pass: it belongs to a separate, deliberately
+decoupled branch (`docs/agent-operating-model`, Milestone 6.2), itself
+uncommitted to `main`, that this milestone does not touch, reference, or
+depend on in any way — a decoupling decision the user explicitly confirmed
+before this pass began.
+
+Nothing from this milestone has been committed, pushed, merged, or opened as
+a pull request. `feature/architecture-governance` remains fully decoupled
+from Milestone 6.2's separate `docs/agent-operating-model` branch, by the
+same deliberate, user-confirmed decision recorded immediately above — the
+two branches share no commits beyond their common ancestor at `main`/
+`origin/main`'s `3873113`, and neither this pass nor any prior one has
+merged, rebased, or cherry-picked work between them.

@@ -305,6 +305,14 @@ duplicate-looking label caused by weak domain diversity in a small
 self-hosting scan). Tracked here for whoever next touches
 `capability-intelligence/src/grouping.ts`.
 
+`product-identity-model.json` is also consumed by Milestone 7's Architecture
+Governance and Continuous Intelligence layer: `@rvs/governance-intelligence`'s
+`product-diff.ts` diffs two snapshots' copies of this artifact to detect
+archetype, value-pillar, and claim-lineage changes between a baseline and the
+current state, feeding governance's blast-radius assessment and its
+claim-lineage policy checks. See
+[`docs/architecture-governance.md`](architecture-governance.md).
+
 ## Known limitations
 
 - Archetype classification's text-signal sets are necessarily generic; a

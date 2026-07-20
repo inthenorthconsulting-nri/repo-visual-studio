@@ -567,5 +567,216 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     expect(stripPortfolioModel(readJson(join(sourceDir, "portfolio-model-small.json")) as Record<string, unknown>)).toEqual(
       stripPortfolioModel(readJson(join(packagedDir, "portfolio-model-small.json")) as Record<string, unknown>),
     );
+
+    // -----------------------------------------------------------------------
+    // Architecture Governance (Milestone 7), through both source and packaged
+    // CLI. Reuses the same sourceDir/packagedDir/runs from the pipeline above
+    // -- including their already-cached architecture-intelligence.json/
+    // capability-model.json/product-identity-model.json/portfolio-model.json
+    // -- rather than a second pack/install. Deliberately the last thing this
+    // test does: the final `create slides --profile governance` step below
+    // overwrites deck.html/visualdoc.json with the governance deck, which
+    // would invalidate the portfolio deck.html/git-commit/scene-id assertions
+    // earlier in this test (see the note above the reordered-input proof) if
+    // it ran any sooner.
+    //
+    // Every governance-intelligence contract carries the same uniform
+    // `generation: { generated_at }` wall-clock field (see contracts.ts's
+    // determinism note at the top of that file), and the *only* other
+    // timestamp field names that package's contracts define anywhere are
+    // IntelligenceSnapshot artifact digests' `source_generated_at` and
+    // GovernanceBaseline's own `established_at` -- a small, closed set. The
+    // snapshot/baseline files below additionally embed the *raw* upstream
+    // architecture/capability/product/portfolio JSON as `rawArtifacts` (see
+    // governance-cache.ts's top-of-file comment on the { snapshot,
+    // rawArtifacts } envelope), each carrying its own already-established
+    // run-specific field names from elsewhere in this file (generated_at,
+    // generationMetadata.generated_at/source_*_generated_at,
+    // source*GeneratedAt), arbitrarily deep (portfolio-model.json's
+    // excludedProducts chain in particular). Strip every field ending in
+    // "generated_at"/"GeneratedAt" (case as each family already spells it)
+    // or named exactly "established_at", recursively, wherever it appears --
+    // the exact same field names this file already treats as legitimately
+    // run-specific everywhere else, just applied generically instead of
+    // per-artifact-type.
+    //
+    // That alone is NOT sufficient here, unlike every non-governance artifact
+    // above: snapshot.ts's digestOf() hashes each upstream artifact's raw,
+    // *unstripped* JSON (see snapshot.ts's digestOf/canonicalize), so a
+    // GovernanceArtifactDigest's own `digest` -- and therefore the
+    // snapshot's `id` (a pure function of its four artifact digests, see
+    // ids.ts's buildSnapshotId), and in turn every `id`/`source_snapshot_id`/
+    // `target_snapshot_id` on every change-set/evaluation/report/narrative/
+    // plan/baseline built FROM that snapshot id (ids.ts's buildChangeSetId/
+    // buildEvaluationId/buildReportId/buildNarrativeId/buildPlanId/
+    // buildBaselineId) -- are themselves wall-clock-contaminated, one level
+    // removed.
+    //
+    // Worse, this cascades past structured id fields into human-readable
+    // prose: GovernanceNarrative's claims embed the *concatenation* of both
+    // report ids inside `claims[].id` (e.g.
+    // "governance:claim:policy_compliance:governance-report-<snapshot-id>-
+    // <snapshot-id>"), and free-text fields like `claims[].text` and the
+    // top-level `summary` interpolate the same snapshot id verbatim inside a
+    // sentence ("Comparing snapshot \"<snapshot-id>\" to \"<snapshot-id>\"
+    // ..."). No fixed set of field names can catch every place a
+    // digest-derived id can surface once it flows into narrative prose. This
+    // was confirmed empirically in three stages: (1) a version stripping
+    // only known timestamp field names still failed on
+    // snapshot.artifacts[].digest and snapshot.id; (2) a version additionally
+    // stripping `digest` and `id`/`source_snapshot_id`/`target_snapshot_id`
+    // on objects with a `generation` sibling still failed on
+    // GovernanceBaseline's own `id` (it has no `generation` wrapper, only
+    // `established_at`); (3) even after covering both `generation`- and
+    // `established_at`-marked objects, it still failed on
+    // governance-narrative.json's `claims[].id`/`claims[].text` and
+    // governance-report.json's `summary`, none of which are bare id fields.
+    //
+    // Rather than keep chasing individual field names/shapes, scrub every
+    // sha256 hex digest substring (digestOf() always produces exactly 64
+    // lowercase hex characters, see snapshot.ts) out of every string value,
+    // recursively, regardless of field name or nesting depth. This
+    // canonicalizes any digest-derived id or any id embedded in prose to the
+    // same placeholder on both sides, while a raw `digest` field (itself
+    // just one such 64-hex-char string) is caught by the same substitution.
+    // This deliberately does NOT touch entity-level ids that live inside a
+    // `changes`/`entries` array (GovernanceChangeEntry.id, BlastRadiusEntry.
+    // id, GovernanceFinding.id, etc.) -- those are pure functions of stable
+    // entity ids, not snapshot digests (ids.ts's buildChangeId/
+    // buildBlastRadiusEntryId/buildFindingId), contain no digest substring,
+    // and are exactly the kind of determinism this test exists to prove.
+    const isGovernanceTimestampKey = (key: string) => key === "established_at" || key.endsWith("generated_at") || key.endsWith("GeneratedAt");
+    const SHA256_HEX_PATTERN = /[0-9a-f]{64}/g;
+    const stripGovernanceTimestamps = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(stripGovernanceTimestamps);
+      if (typeof value === "string") return value.replace(SHA256_HEX_PATTERN, "<digest>");
+      if (value === null || typeof value !== "object") return value;
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(obj)) {
+        if (isGovernanceTimestampKey(key)) continue;
+        out[key] = stripGovernanceTimestamps(val);
+      }
+      return out;
+    };
+
+    for (const [run, dir] of runs) {
+      // architecture-intelligence.json/capability-model.json/
+      // product-identity-model.json/portfolio-model.json are all still
+      // cached in .rvs/cache/ from the pipeline above (portfolio-model.json
+      // reflects the small, single-product synthesis re-run immediately
+      // above -- still a valid, complete portfolio artifact) -- `snapshot
+      // create --include-portfolio` fingerprints all four.
+      run(["snapshot", "create", "--name", "baseline-snapshot", "--include-portfolio"]);
+
+      // Minimal valid .rvs/governance.yml: schema_version 1 plus a baseline
+      // pointing at the file `governance baseline set` below writes (per
+      // governance-baseline.ts's own hint log: baseline.snapshot
+      // ".rvs/cache/governance/baseline-snapshot.json") -- byte-identical
+      // between the two dirs, no run-specific content.
+      writeFileSync(
+        join(dir, ".rvs/governance.yml"),
+        ["schema_version: 1", "baseline:", "  snapshot: .rvs/cache/governance/baseline-snapshot.json", ""].join("\n"),
+      );
+
+      run(["governance", "baseline", "set", "baseline-snapshot"]);
+
+      // Second snapshot off the *same*, unchanged cache -- the minimum-bar
+      // zero-change case: baseline-snapshot and current-snapshot fingerprint
+      // identical artifact bytes, so the compare below reports full
+      // compatibility with zero changes/findings for both runs alike.
+      run(["snapshot", "create", "--name", "current-snapshot", "--include-portfolio"]);
+
+      run(["governance", "compare", "--from", "baseline-snapshot", "--to", "current-snapshot"]);
+      // No `policies:` key is configured above, so there is nothing for
+      // --ci to fail on -- safe to pass --ci here and still expect a zero
+      // exit code for both runs (execFileSync throws on a non-zero exit,
+      // which would fail this test outright if that assumption were wrong).
+      run(["governance", "check", "--from", "baseline-snapshot", "--to", "current-snapshot", "--ci"]);
+
+      run(["export", "governance-report", "--output", "governance-report.json"]);
+      run(["export", "governance-summary", "--output", "governance-summary.md"]);
+
+      run(["create", "slides", "--profile", "governance"]);
+    }
+
+    // baseline-snapshot.json / current-snapshot.json under .rvs/cache/
+    // governance/snapshots/: both saved as this CLI's own { snapshot,
+    // rawArtifacts } envelope -- strip the timestamp fields and deep-compare
+    // everything else, including every embedded raw artifact.
+    for (const filename of ["baseline-snapshot.json", "current-snapshot.json"]) {
+      expect(stripGovernanceTimestamps(readJson(join(sourceDir, ".rvs/cache/governance/snapshots", filename)))).toEqual(
+        stripGovernanceTimestamps(readJson(join(packagedDir, ".rvs/cache/governance/snapshots", filename))),
+      );
+    }
+
+    // .rvs/cache/governance/baseline-snapshot.json: the promoted
+    // GovernanceBaselineFile (GovernanceBaseline + embedded rawArtifacts) --
+    // distinct from the same-named file under snapshots/ above.
+    expect(stripGovernanceTimestamps(readJson(join(sourceDir, ".rvs/cache/governance/baseline-snapshot.json")))).toEqual(
+      stripGovernanceTimestamps(readJson(join(packagedDir, ".rvs/cache/governance/baseline-snapshot.json"))),
+    );
+
+    // Every GOVERNANCE_OUTPUT_FILES artifact `governance compare` cached to
+    // .rvs/cache/governance/ (see writeGovernanceOutputs's call site in
+    // governance-compare.ts): current-snapshot's own re-saved fingerprint,
+    // each of the four domain change sets, the evidence diff, the blast
+    // radius assessment, the merged findings list, and the assembled report,
+    // narrative, and plan.
+    for (const filename of [
+      "current-snapshot.json",
+      "architecture-changes.json",
+      "capability-changes.json",
+      "product-changes.json",
+      "portfolio-changes.json",
+      "evidence-changes.json",
+      "blast-radius.json",
+      "governance-findings.json",
+      "governance-report.json",
+      "governance-narrative.json",
+      "governance-plan.json",
+    ]) {
+      expect(stripGovernanceTimestamps(readJson(join(sourceDir, ".rvs/cache/governance", filename)))).toEqual(
+        stripGovernanceTimestamps(readJson(join(packagedDir, ".rvs/cache/governance", filename))),
+      );
+    }
+
+    // rvs export governance-report's written copy of governance-report.json.
+    expect(stripGovernanceTimestamps(readJson(join(sourceDir, "governance-report.json")))).toEqual(
+      stripGovernanceTimestamps(readJson(join(packagedDir, "governance-report.json"))),
+    );
+    // governance-summary.md embeds no timestamp of its own, but it does
+    // quote the same digest-derived snapshot id (and the narrative prose
+    // built from it) that governance-report.json/governance-narrative.json
+    // above needed stripGovernanceTimestamps for -- reuse the same digest
+    // scrub (it also handles plain strings, not just JSON values) rather
+    // than compare byte-identical.
+    expect(stripGovernanceTimestamps(readFileSync(join(sourceDir, "governance-summary.md"), "utf8"))).toEqual(
+      stripGovernanceTimestamps(readFileSync(join(packagedDir, "governance-summary.md"), "utf8")),
+    );
+
+    // The final `create slides --profile governance` step above overwrote
+    // deck.html/visualdoc.json with the governance deck -- re-verify the
+    // same run-content-derived properties the portfolio deck's assertions
+    // above already established a pattern for (the cached VisualDoc itself,
+    // content-spec-hash, git-commit, and the full ordered scene-id list), now
+    // for the governance deck. Unlike the portfolio deck, the governance
+    // deck's `governance create-slides` profile interpolates the same
+    // digest-derived snapshot id into the document title, scene headlines,
+    // and every scene/plan id (see governance-compare.ts's narrative/plan
+    // assembly) -- so visualdoc.json and the scene ids extracted from
+    // deck.html need the same stripGovernanceTimestamps digest scrub as the
+    // governance-report.json/governance-summary.md assertions above, not a
+    // raw toEqual.
+    expect(stripGovernanceTimestamps(readJson(join(sourceDir, ".rvs/cache/visualdoc.json")))).toEqual(
+      stripGovernanceTimestamps(readJson(join(packagedDir, ".rvs/cache/visualdoc.json"))),
+    );
+    const sourceGovernanceHtml = readFileSync(join(sourceDir, "artifacts/visuals/deck.html"), "utf8");
+    const packagedGovernanceHtml = readFileSync(join(packagedDir, "artifacts/visuals/deck.html"), "utf8");
+    expect(extractAttr(sourceGovernanceHtml, "git-commit")).toEqual(extractAttr(packagedGovernanceHtml, "git-commit"));
+    const governanceSceneIds = (html: string) =>
+      [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => stripGovernanceTimestamps(m[1]));
+    expect(governanceSceneIds(sourceGovernanceHtml)).toEqual(governanceSceneIds(packagedGovernanceHtml));
+    expect(governanceSceneIds(sourceGovernanceHtml).length).toBeGreaterThan(0);
   });
 });

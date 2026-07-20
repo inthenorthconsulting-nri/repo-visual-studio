@@ -105,6 +105,27 @@ hard-coded product list, relationship, or capability name. See
 design and both self-hosting proofs (a 3-fixture portfolio, and this
 repository's own artifacts added as a 4th product).
 
+**Milestone 7** adds Architecture Governance and Continuous Intelligence: a
+read-only comparison and policy layer above the entire stack, from
+Repository Evidence through Portfolio Intelligence. It fingerprints the
+already-synthesized architecture/capability/product/portfolio artifacts into
+an `IntelligenceSnapshot`, diffs any two snapshots — typically a promoted
+baseline against the current repository state — into per-domain change
+sets, assesses how far each change's effects reach, evaluates a finite,
+typed policy engine (11 rule kinds, never a general-purpose expression
+language) against the changes, and composes the result into a
+`ContinuousIntelligenceReport`, a claim-controlled narrative, and a
+`"governance"` slide profile — feeding a new `rvs governance check --ci`
+gate a CI pipeline can block a merge on. It never re-scans a repository,
+never re-synthesizes an upstream artifact, and never calls an external
+model. See [`docs/architecture-governance.md`](docs/architecture-governance.md)
+and [`docs/continuous-intelligence.md`](docs/continuous-intelligence.md) for
+the full design, [`docs/governance-policies.md`](docs/governance-policies.md)
+for the policy-authoring reference, and
+[`docs/governance-baselines.md`](docs/governance-baselines.md) and
+[`docs/governance-showcase.md`](docs/governance-showcase.md) for baseline
+management and the presentation layer.
+
 ## Supported Node version
 
 Node **20 or later** (`engines.node: ">=20"` on the published `@rvs/cli`
@@ -139,6 +160,10 @@ pnpm rvs export showcase-plan --output showcase-plan.json  # optional
 pnpm rvs synthesize portfolio                            # optional: requires .rvs/portfolio.yml naming each product's artifact_root
 pnpm rvs export portfolio-model --output portfolio-model.json  # optional
 pnpm rvs create slides --profile portfolio --audience portfolio  # requires `synthesize portfolio` first; see below
+pnpm rvs snapshot create                              # optional: fingerprint cached architecture/capability/product(/portfolio) artifacts
+pnpm rvs governance baseline set <snapshot-id>        # optional: promote a snapshot to the governance baseline
+pnpm rvs governance check --ci                        # optional: diff baseline vs. current state, evaluate policy; --ci fails the build on blocking findings
+pnpm rvs create slides --profile governance           # requires `governance compare`/`check` first; see below
 pnpm rvs validate --ci                                # overflow/contrast/evidence checks
 pnpm rvs export pdf
 ```
@@ -390,6 +415,60 @@ and
 for the complete list, including both self-hosting proofs (a 3-fixture
 portfolio, and this repository's own artifacts added as a 4th product).
 
+### Architecture Governance and Continuous Intelligence
+
+`rvs snapshot create` reads the cached `architecture-intelligence.json`/
+`capability-model.json`/`product-identity-model.json` (plus, optionally,
+`portfolio-model.json`) and fingerprints them into an `IntelligenceSnapshot`,
+written under `.rvs/cache/governance/snapshots/`. `rvs governance compare`
+(or `rvs governance check`, its CI-oriented sibling) then diffs two
+snapshots — by default the configured baseline against a freshly built
+snapshot of the current cached artifacts — into per-domain change sets,
+assesses blast radius, evaluates every enabled policy rule, and caches a
+`ContinuousIntelligenceReport`, a `GovernanceNarrative`, and a
+`GovernancePlan`. See
+[`docs/architecture-governance.md`](docs/architecture-governance.md) and
+[`docs/continuous-intelligence.md`](docs/continuous-intelligence.md) for the
+full design. In short:
+
+**What it does**: fingerprints the four upstream intelligence artifacts
+without re-scanning or re-synthesizing any of them; diffs two snapshots into
+architecture/capability/product/portfolio/evidence change sets, each entry
+carrying an explicit change type (`added`/`removed`/`modified`/`renamed`/
+`reclassified`/`unchanged`/`unresolved`); assesses how far each change's
+effects reach (`isolated` through `portfolio_wide`, or `unresolved` when the
+upstream artifacts don't carry enough linkage data to say — never guessed as
+`isolated`); evaluates a finite, 11-rule-kind policy engine defined in
+`.rvs/governance.yml`-referenced policy files; and runs every candidate
+governance claim through its own claim-control engine (`approved` /
+`qualified` / `rejected`, with a governance-specific 10-code rejection
+vocabulary) before composing a narrative and a 6-13 scene `"governance"`
+presentation.
+
+**`rvs snapshot create [--include-portfolio] [--allow-partial]`** builds a
+snapshot. **`rvs governance baseline show|set <snapshot>|validate`** manages
+which snapshot later comparisons diff against. **`rvs governance compare
+[--from] [--to]`** / **`rvs governance check [--from] [--to] [--ci]`** run
+the comparison — `--ci` exits non-zero when an un-excepted finding's
+severity is in the configured `fail_on` list (default: `blocking`), as a
+standalone gate that never changes `rvs validate --ci`'s own behavior.
+**`rvs create slides --profile governance`** builds the governance deck
+(never audience-scoped — a governance comparison reports one deterministic
+comparison result, not a narrative that varies by audience). **`rvs export
+governance-report`** / **`rvs export governance-summary`** dump the
+underlying JSON / a PR-paste-ready Markdown summary. **`rvs governance
+explain <id>`** prints one change's, finding's, or claim's full reasoning and
+evidence.
+
+**Explicit limitations**: no external model, no re-scanning of any
+repository, no git-worktree two-commit convenience helper (comparing two
+historical states requires each state's artifacts to already have been
+produced independently, e.g. via `rvs snapshot create` run at each commit);
+the sample CI workflow is documented only, not exercised by an actual
+GitHub Actions run in this repository. See
+[`docs/architecture-governance.md#known-limitations`](docs/architecture-governance.md#known-limitations)
+for the complete list.
+
 ## Self-hosting
 
 This repository can visualize itself:
@@ -428,8 +507,9 @@ packages/
   capability-intelligence/  ArchitectureIntelligence -> evidence-gated CapabilityModel, CAPABILITIES.md/JSON exporters
   product-intelligence/  CapabilityModel -> ProductIdentityModel, claim-controlled ExecutiveNarrative, ShowcasePlan
   portfolio-intelligence/  multiple products' ProductIdentityModel/CapabilityModel artifacts -> claim-controlled PortfolioModel, PortfolioPlan
-  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase + portfolio scenes)
-  renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase/portfolio scene templates + premium theme layer)
+  governance-intelligence/  architecture/capability/product(/portfolio) artifacts -> IntelligenceSnapshot diffing, policy evaluation, blast-radius assessment, claim-controlled ContinuousIntelligenceReport/GovernancePlan
+  narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase + portfolio + governance scenes)
+  renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase/portfolio/governance scene templates + premium theme layer)
   validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks + product-identity/showcase/portfolio checks
   exporter/            Playwright-based PDF export
   cli/                the `rvs` command (Commander)
@@ -529,6 +609,19 @@ network-touching step in the whole system is the one-time, user-initiated
   [`docs/portfolio-intelligence.md#known-limitations`](docs/portfolio-intelligence.md#known-limitations)
   and
   [`docs/portfolio-showcase.md#known-limitations`](docs/portfolio-showcase.md#known-limitations)
+  for the complete list.
+- Architecture Governance and Continuous Intelligence (Milestone 7) is a
+  read-only comparison/policy layer over already-synthesized artifacts —
+  it never re-scans a repository and never re-synthesizes an upstream
+  artifact. No git-worktree two-commit convenience helper is built (each
+  historical state's artifacts must already exist, e.g. via `rvs snapshot
+  create` run at each commit); the documented sample GitHub Actions
+  workflow step is not itself exercised by a CI run in this repository. The
+  11 `GovernanceRuleKind` values are a finite, typed set — never a
+  general-purpose expression language — so a `.rvs/governance.yml` policy
+  can only express what the evaluator already knows how to check
+  deterministically. No external model. See
+  [`docs/architecture-governance.md#known-limitations`](docs/architecture-governance.md#known-limitations)
   for the complete list.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see

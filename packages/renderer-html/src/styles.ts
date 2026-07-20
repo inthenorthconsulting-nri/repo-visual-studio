@@ -228,6 +228,35 @@ export const BASE_CSS = `
   .portfolio-decision-urgency { text-transform: uppercase; letter-spacing: 0.04em; }
   .portfolio-decision-urgency-high { color: var(--rvs-color-warning, #d9a441); }
 
+  /* Architecture Governance and Continuous Intelligence (Milestone 7) —
+     reuses .arch-empty/.arch-statement-list/.arch-severity directly, rather
+     than duplicating list/badge infrastructure a second time, mirroring the
+     Portfolio profile's own reuse discipline above. */
+  .scene-governance { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+  .governance-hero-summary { font-size: 22px; margin: 0 0 16px; }
+  .governance-hero-meta { display: flex; align-items: center; gap: 16px; }
+
+  .governance-compat { display: inline-block; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 999px; }
+  .governance-compat-compatible { background: rgba(80, 200, 120, 0.2); color: #7fe0a0; }
+  .governance-compat-compatible_with_warnings { background: rgba(220, 170, 60, 0.2); color: #ffcf70; }
+  .governance-compat-partial { background: rgba(220, 170, 60, 0.2); color: #ffcf70; }
+  .governance-compat-incompatible { background: rgba(220, 60, 60, 0.2); color: #ff8080; }
+
+  .arch-severity-blocking { background: rgba(220, 60, 60, 0.2); color: #ff8080; }
+  .arch-severity-review_required { background: rgba(220, 170, 60, 0.2); color: #ffcf70; }
+  .arch-severity-advisory { background: rgba(120, 160, 220, 0.2); color: #9dc0ff; }
+  .arch-severity-informational { background: var(--rvs-color-border); color: var(--rvs-color-text-secondary); }
+
+  .governance-count-list { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .governance-count-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 16px; border-left: 3px solid var(--rvs-color-accent); padding-left: 14px; }
+  .governance-count-label { text-transform: capitalize; color: var(--rvs-color-text-primary); }
+  .governance-count-value { font-variant-numeric: tabular-nums; color: var(--rvs-color-text-secondary); }
+
+  .governance-id { font-family: var(--rvs-font-code); font-size: 16px; }
+
+  .governance-severity-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
   .citations {
     position: absolute;
     left: 96px;

@@ -236,4 +236,66 @@ describe("VisualDocSchema", () => {
     };
     expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
   });
+
+  it("accepts a valid governance-scene pointer scene (plan_id + scene_id only, mirroring the portfolio-scene pointer-scene contract)", () => {
+    const doc = baseDoc();
+    doc.scenes.push({
+      id: "s2",
+      type: "governance-scene",
+      headline: "Governance comparison: snapshot-a -> snapshot-b",
+      evidence: [],
+      plan_id: "governance:plan:governance:report:snapshot-a:snapshot-b",
+      scene_id: "governance:scene:governance:report:snapshot-a:snapshot-b:governance-hero",
+    });
+    const parsed = parseVisualDoc(doc);
+    const scene = parsed.scenes[1];
+    expect(scene?.type).toBe("governance-scene");
+    if (scene?.type === "governance-scene") {
+      expect(scene.plan_id).toBe("governance:plan:governance:report:snapshot-a:snapshot-b");
+      expect(scene.scene_id).toBe("governance:scene:governance:report:snapshot-a:snapshot-b:governance-hero");
+      expect(scene.evidence).toEqual([]);
+    }
+  });
+
+  it("rejects a governance-scene missing plan_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "governance-scene", headline: "Governance comparison", evidence: [], scene_id: "governance:scene:governance-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a governance-scene missing scene_id", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "governance-scene", headline: "Governance comparison", evidence: [], plan_id: "governance:plan:x" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
+
+  it("rejects a governance-scene with an empty-string plan_id or scene_id (min(1) is enforced, not just presence)", () => {
+    const doc = baseDoc();
+    const rawDocEmptyPlan: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "governance-scene", headline: "Governance comparison", evidence: [], plan_id: "", scene_id: "governance:scene:governance-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyPlan)).toThrow();
+
+    const rawDocEmptyScene: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "governance-scene", headline: "Governance comparison", evidence: [], plan_id: "governance:plan:x", scene_id: "" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDocEmptyScene)).toThrow();
+  });
+
+  it("rejects a governance-scene missing a headline (inherited from BaseSceneSchema)", () => {
+    const doc = baseDoc();
+    const rawDoc: Record<string, unknown> = {
+      ...doc,
+      scenes: [...doc.scenes, { id: "s2", type: "governance-scene", evidence: [], plan_id: "governance:plan:x", scene_id: "governance:scene:governance-hero" }],
+    };
+    expect(() => VisualDocSchema.parse(rawDoc)).toThrow();
+  });
 });

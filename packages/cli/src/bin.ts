@@ -13,12 +13,19 @@ import { runExportPortfolioClaims } from "./commands/export-portfolio-claims.js"
 import { runExportPortfolioDecisions } from "./commands/export-portfolio-decisions.js";
 import { runExportPortfolioModel } from "./commands/export-portfolio-model.js";
 import { runExportProductIdentity } from "./commands/export-product-identity.js";
+import { runExportGovernanceReport } from "./commands/export-governance-report.js";
+import { runExportGovernanceSummary } from "./commands/export-governance-summary.js";
 import { runExportShowcasePlan } from "./commands/export-showcase-plan.js";
+import { runGovernanceBaselineSet, runGovernanceBaselineShow, runGovernanceBaselineValidate } from "./commands/governance-baseline.js";
+import { runGovernanceCheck } from "./commands/governance-check.js";
+import { runGovernanceCompare } from "./commands/governance-compare.js";
+import { runGovernanceExplain } from "./commands/governance-explain.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
 import { runPortfolioExplain } from "./commands/portfolio-explain.js";
 import { runShowcaseExplain } from "./commands/showcase-explain.js";
 import { runSkillPath } from "./commands/skill.js";
+import { runSnapshotCreate } from "./commands/snapshot-create.js";
 import { runSynthesizeArchitecture } from "./commands/synthesize-architecture.js";
 import { runSynthesizeCapabilities } from "./commands/synthesize-capabilities.js";
 import { runSynthesizePortfolio } from "./commands/synthesize-portfolio.js";
@@ -63,7 +70,7 @@ create
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
   .option(
     "--profile <id>",
-    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio); default: repository-inventory",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio|governance); default: repository-inventory",
   )
   .option(
     "--audience <id>",
@@ -168,6 +175,69 @@ program
     await runValidate(process.cwd(), Boolean(opts.ci), logger);
   });
 
+const snapshot = program.command("snapshot").description("Capture governance intelligence snapshots");
+snapshot
+  .command("create")
+  .description("Build an IntelligenceSnapshot fingerprint from cached architecture/capability/product(/portfolio) artifacts")
+  .option("--name <id>", "snapshot filename/id to write under .rvs/cache/governance/snapshots/ (default: the snapshot's own derived id)")
+  .option("--output <path>", "additionally write a copy of the snapshot to this path")
+  .option("--include-portfolio", "also fingerprint the cached portfolio-model.json")
+  .option("--allow-partial", "proceed even when architecture/capability/product artifacts are missing")
+  .action(async (opts: { name?: string; output?: string; includePortfolio?: boolean; allowPartial?: boolean }) => {
+    await runSnapshotCreate(process.cwd(), opts, logger);
+  });
+
+const governance = program.command("governance").description("Compare governance intelligence snapshots and evaluate policy");
+
+const governanceBaseline = governance.command("baseline").description("Manage the governance baseline snapshot");
+governanceBaseline
+  .command("show")
+  .description("Print the currently configured governance baseline")
+  .action(async () => {
+    await runGovernanceBaselineShow(process.cwd(), logger);
+  });
+governanceBaseline
+  .command("set")
+  .description("Promote a snapshot to the new governance baseline")
+  .argument("<snapshot>", "snapshot id/filename under .rvs/cache/governance/snapshots/, or a path")
+  .option("--force", "proceed even when the new baseline is incompatible with the prior one")
+  .action(async (snapshotRef: string, opts: { force?: boolean }) => {
+    await runGovernanceBaselineSet(process.cwd(), snapshotRef, opts, logger);
+  });
+governanceBaseline
+  .command("validate")
+  .description("Validate the currently configured governance baseline's schema compatibility")
+  .action(async () => {
+    await runGovernanceBaselineValidate(process.cwd(), logger);
+  });
+
+governance
+  .command("compare")
+  .description("Diff the configured baseline (or --from) against the current repository state (or --to), evaluate policy, and cache a governance report")
+  .option("--from <snapshot>", "source snapshot id/filename/path (default: the configured baseline)")
+  .option("--to <snapshot>", "target snapshot id/filename/path (default: a freshly built snapshot of the current cached artifacts)")
+  .action(async (opts: { from?: string; to?: string }) => {
+    await runGovernanceCompare(process.cwd(), opts, logger);
+  });
+
+governance
+  .command("check")
+  .description("Same comparison as `governance compare`, with concise output; --ci fails the build on un-excepted findings at or above the configured fail_on severity")
+  .option("--from <snapshot>", "source snapshot id/filename/path (default: the configured baseline)")
+  .option("--to <snapshot>", "target snapshot id/filename/path (default: a freshly built snapshot of the current cached artifacts)")
+  .option("--ci", "exit non-zero when an un-excepted finding's severity is in the configured fail_on list")
+  .action(async (opts: { from?: string; to?: string; ci?: boolean }) => {
+    await runGovernanceCheck(process.cwd(), opts, logger);
+  });
+
+governance
+  .command("explain")
+  .description("Print a human-readable explanation for a governance change/finding/evaluation/blast-radius/snapshot/baseline/narrative/plan/scene id")
+  .argument("<id>", "id to explain")
+  .action(async (id: string) => {
+    await runGovernanceExplain(process.cwd(), id, logger);
+  });
+
 const exportCmd = program.command("export").description("Export the deck to another format");
 exportCmd
   .command("pdf")
@@ -228,6 +298,22 @@ exportCmd
   .option("--output <path>", "output path (default: portfolio-decisions.json)")
   .action(async (opts: { output?: string }) => {
     await runExportPortfolioDecisions(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("governance-report")
+  .description("Write the cached continuous intelligence report to governance-report.json")
+  .option("--output <path>", "output path (default: governance-report.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportGovernanceReport(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("governance-summary")
+  .description("Write a PR-paste-ready Markdown governance summary to governance-summary.md")
+  .option("--output <path>", "output path (default: governance-summary.md)")
+  .action(async (opts: { output?: string }) => {
+    await runExportGovernanceSummary(process.cwd(), opts, logger);
   });
 
 const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");
