@@ -725,3 +725,6 @@ and [`docs/decision-linking.md`](decision-linking.md).
 only on `@rvs/capability-intelligence` and `@rvs/product-intelligence` for
 input types, plus `yaml`/`zod` for config parsing — no dependency in the
 other direction, and no external model call anywhere in the package.
+
+`portfolio-model.json` is also consumed by the Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

@@ -29,6 +29,7 @@
     "@rvs/decision-intelligence": "workspace:*",
     "@rvs/exporter": "workspace:*",
     "@rvs/governance-intelligence": "workspace:*",
+    "@rvs/knowledge-graph": "workspace:*",
     "@rvs/narrative-planner": "workspace:*",
     "@rvs/portfolio-intelligence": "workspace:*",
     "@rvs/product-intelligence": "workspace:*",

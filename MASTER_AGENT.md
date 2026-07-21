@@ -121,6 +121,7 @@ actual ask).
 | 2.9 | PR review / review feedback | "Review this PR", "Address review comments", "Is this safe to merge?" | Load `pr-governance` skill → read PR context/diff → inspect unresolved comments/checks → validate findings → apply only authorized fixes → re-run validation |
 | 2.10 | Governance / continuous intelligence | "What changed architecturally between the last release and now?", "Is this PR a CI-blocking regression?", "Explain this governance finding" | Validate/build `IntelligenceSnapshot`s → Governance Intelligence (`rvs governance compare`/`check`/`explain`) → findings/report — diagnosis only, never a code fix |
 | 2.11 | Architecture decision intelligence | "What decisions explain this architecture?", "Which accepted decisions are not implemented?", "Did this release violate an ADR?", "Explain this decision drift/debt finding" | `rvs decisions analyze` (reads decision documents directly; optionally links against cached Architecture/Capability/Product/Portfolio/Governance artifacts) → decision report/findings — diagnosis and explanation only, never a code fix and never automatic decision creation |
+| 2.12 | Knowledge graph / impact analysis | "What is affected if this component changes?", "What's the blast radius of removing this?", "Why did these governance findings appear together?", "What decisions depend on this capability?", "What needs review if I remove this?" | `rvs graph build` (unifies whichever of the six upstream artifacts are already cached; all six are optional reads) → `rvs graph impact`/`path`/`roots`/`compare`/`plan-change`/`explain` → impact/root-cause/decision-impact/change-plan report — diagnosis and evidence-gathering only, never an automatic removal, edit, or refactor |
 
 Class-specific rules:
 
@@ -173,20 +174,21 @@ Class-specific rules:
 
 ## 3. Intelligence routing matrix
 
-| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence | Governance Intelligence | Decision Intelligence |
-|---|---|---|---|---|---|---|
-| Explain repository structure | Required | No | No | No | No | No |
-| Identify implemented capabilities | Required | Required | No | No | No | No |
-| Create a product showcase | Required | Required | Required | No | No | No |
-| Compare products | Artifact validation only | Artifact validation only | Required as input | Required | No | No |
-| Fix a code defect | Optional (only if orientation is needed) | No | No | No | No | No |
-| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No | No | No |
-| Update the README | Optional | Optional | No | No | No | No |
-| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required | No | No |
-| What changed architecturally between two states | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No |
-| Is this PR/change a CI-blocking regression | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No |
-| Explain a governance finding or report | No | No | No | No | Required | No |
-| What decisions explain this architecture / which decisions aren't implemented / did this violate an ADR | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Required |
+| User intent | Architecture Intelligence | Capability Intelligence | Product Intelligence | Portfolio Intelligence | Governance Intelligence | Decision Intelligence | Knowledge Graph |
+|---|---|---|---|---|---|---|---|
+| Explain repository structure | Required | No | No | No | No | No | No |
+| Identify implemented capabilities | Required | Required | No | No | No | No | No |
+| Create a product showcase | Required | Required | Required | No | No | No | No |
+| Compare products | Artifact validation only | Artifact validation only | Required as input | Required | No | No | No |
+| Fix a code defect | Optional (only if orientation is needed) | No | No | No | No | No | No |
+| Review a CI failure | No, unless the failure touches a generated artifact | No | No | No | No | No | No |
+| Update the README | Optional | Optional | No | No | No | No | No |
+| Build a portfolio executive deck | Inputs only | Inputs only | Required as input | Required | No | No | No |
+| What changed architecturally between two states | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No | No |
+| Is this PR/change a CI-blocking regression | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only | Cached snapshot input only, opt-in | Required | No | No |
+| Explain a governance finding or report | No | No | No | No | Required | No | No |
+| What decisions explain this architecture / which decisions aren't implemented / did this violate an ADR | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Required | No |
+| What is affected if this component changes / what's the blast radius / why did these governance findings appear together / what decisions depend on this capability | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Required |
 
 "Artifact validation only" and "Inputs only" mean: read and structurally
 validate the already-generated artifact; do not re-synthesize it from
@@ -203,6 +205,13 @@ read directly from the repository (`rvs decisions analyze`, gated only by
 consulted only to resolve a decision's declared links, and an unresolved
 link is kept and reported, never dropped, when they aren't already cached
 (`docs/architecture-decision-intelligence.md`, `docs/decision-linking.md`).
+"Optional graph input, already-cached" means: Knowledge Graph unifies
+whichever of the other six layers' artifacts are already cached
+(`rvs graph build` treats all six as optional reads, same as Decision
+Intelligence treats the other five) — it never triggers one of those six
+layers to run just to fill a gap; a node the graph can't resolve stays
+`unresolved` rather than being backfilled by a fresh scan
+(`docs/architecture-knowledge-graph.md`).
 
 Full per-layer usage detail, prerequisites, and CLI commands are in
 `skills/repo-visual-studio/references/intelligence-routing.md` and the
@@ -252,6 +261,7 @@ Load the smallest applicable set of skills — never all three by default.
 | Portfolio presentation / export | `repo-visual-studio` → `references/portfolio-intelligence.md` + `references/presentation-and-export.md` |
 | Governance / continuous-intelligence question (what changed, CI-blocking regression, explain a finding) | No dedicated skill yet — read `docs/architecture-governance.md` and `docs/continuous-intelligence.md` directly, then use the CLI surface they document (`rvs snapshot create`; `rvs governance baseline show\|set\|validate`; `rvs governance compare`/`check`/`explain`; `rvs export governance-report`/`governance-summary`) |
 | Architecture decision intelligence question (what decisions explain X, unimplemented accepted decisions, decision drift/debt, decision-aware policy) | `repo-visual-studio` → `references/architecture-decision-intelligence.md` + `references/decision-discovery.md` + `references/decision-linking.md` + `references/decision-drift.md` + `references/decision-governance.md` + `references/decision-showcase.md` as applicable |
+| Knowledge graph / impact analysis question (what's affected by a change, blast radius, shared root cause, decision invalidation, change planning, graph presentation) | `repo-visual-studio` → `references/architecture-knowledge-graph.md` + `references/graph-construction.md` + `references/graph-impact-analysis.md` + `references/graph-root-cause.md` + `references/graph-decision-impact.md` + `references/graph-change-planning.md` + `references/graph-showcase.md` as applicable |
 
 ---
 
@@ -508,3 +518,53 @@ it as a new, separate task: write the Markdown file using the template in
 treat authoring and committing that file like any other new-content change
 under `pr-governance`'s branch/commit boundary (§1.3, §6) → mention that
 the next `rvs decisions analyze` run will discover it once it exists.
+
+**N — What is affected if this component changes.** *"What is affected if
+this component changes?"* Classify as knowledge graph / impact analysis
+(§2.12) → confirm `.rvs/cache/knowledge-graph/` is populated or run `rvs
+graph build` (all six upstream artifacts are optional reads — build
+proceeds with whichever are already cached) → resolve the entity ID (`rvs
+graph inspect` if the caller only gave a name) → run `rvs graph impact
+<entity-id>` → report the reached nodes, their blast-radius level (one of
+the 6 fixed levels — never a numeric score), and `evidence_refs` with
+citations back to the traversed edges → no branch needed, this is
+read-only, and it is evidence-gathering only — a request to *make* the
+change is a separate code implementation task (§2.5).
+
+**O — Why did these governance findings appear together.** *"Why did these
+governance findings appear together?"* Classify as knowledge graph /
+impact analysis (§2.12) → confirm the graph is built (`rvs graph build`)
+and the governance findings in question are already in a cached
+`governance-report.json` (§2.10 covers producing that report itself) → run
+`rvs graph roots` → report the root-cause classification (`confirmed`/
+`probable`/`shared_dependency_only`/`unresolved`) and the shared ancestor
+each finding traces to, explicitly stating when a grouping is
+`shared_dependency_only` that connectivity does not establish causality →
+no branch needed, this is read-only.
+
+**P — What decisions depend on this capability.** *"What decisions depend
+on this capability?"* Classify as knowledge graph / impact analysis
+(§2.12) → confirm both `rvs graph build` and `rvs decisions analyze` have
+run (a decision reachable in the graph with no cached decision state
+reports as `unverifiable` rather than failing) → run `rvs graph impact
+<capability-id>` (decision-impact is composed into it automatically) →
+report each reached decision's classification from the fixed 7-step
+decision table, attributing the state to Architecture Decision
+Intelligence's own already-recorded facts, never as this layer's verdict →
+no branch needed, this is read-only.
+
+**Q — Make a change, informed by its graph impact.** *"Remove this
+component and update anything that depends on it."* Multiple classes in
+one request, handled in order and never collapsed into one authorization.
+First, knowledge graph / impact analysis (§2.12): run `rvs graph
+plan-change --remove <entity-id>` and report the affected nodes, decision
+impact, likely-affected tests/docs/presentation, and suggested (never
+auto-run) validation commands — this step never removes, edits, or
+refactors anything itself. Second, only once the plan has been reviewed
+and the caller confirms they still want to proceed: reclassify as code
+implementation (§2.5), load `pr-governance` plus whatever skill owns the
+affected code, and treat it as a new, separately authorized task branch —
+implement the removal and the plan's affected follow-ups, then validate.
+Third, commit/push/PR remain their own explicit-authorization actions
+(§1.3) under `pr-governance`, never implied by having reviewed the plan or
+having implemented the change.

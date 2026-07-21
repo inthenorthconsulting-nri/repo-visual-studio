@@ -818,11 +818,14 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     // -----------------------------------------------------------------------
     // Architecture Decision Intelligence (Milestone 8), through both source
     // and packaged CLI. Reuses the same sourceDir/packagedDir/runs -- no
-    // second pack/install needed. Deliberately the LAST thing this test does:
+    // second pack/install needed. Ordered right after the governance block:
     // the final `create slides --profile decisions` step below overwrites
     // deck.html/visualdoc.json with the decisions deck, which would
     // invalidate the governance deck.html/git-commit/scene-id assertions
-    // just above if it ran any sooner.
+    // just above if it ran any sooner. (The knowledge-graph block further
+    // below now runs after this one and overwrites deck.html/visualdoc.json
+    // once more with the knowledge-graph deck -- see its own comment for why
+    // that ordering is safe for these decisions-deck assertions too.)
     //
     // Unlike governance-intelligence, decision-intelligence's ids/digests
     // (ids.ts's buildDecisionId/buildSnapshotId/buildChangeSetId/
@@ -966,6 +969,161 @@ maybeDescribe("source vs packaged CLI structural equivalence", () => {
     const decisionSceneIds = (html: string) => [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => scrubRepoId(m[1]));
     expect(decisionSceneIds(sourceDecisionsHtml)).toEqual(decisionSceneIds(packagedDecisionsHtml));
     expect(decisionSceneIds(sourceDecisionsHtml).length).toBeGreaterThan(0);
+
+    // -----------------------------------------------------------------------
+    // Architecture Knowledge Graph & Impact Analysis (Milestone 9), through
+    // both source and packaged CLI. Reuses the same sourceDir/packagedDir/
+    // runs -- no second pack/install needed, and no additional fixture
+    // writing either: `rvs graph build` reads the six upstream intelligence
+    // caches this test has already populated above (architecture/
+    // capability/product/portfolio from the synthesize pipeline near the
+    // top of this test, governance from the governance block, decision from
+    // the decisions block immediately above). Deliberately the LAST thing
+    // this test does: the final `create slides --profile knowledge-graph`
+    // step below overwrites deck.html/visualdoc.json with the knowledge
+    // graph deck, which would invalidate the decisions deck.html/git-commit/
+    // scene-id assertions just above if it ran any sooner.
+    //
+    // Unlike decision-intelligence's repository_id (basename(repoRoot)
+    // -derived -- see stripDecisionTimestamps/scrubRepoId above) and
+    // governance-intelligence's sha256-digest-derived ids (see
+    // stripGovernanceTimestamps above), every knowledge-graph id is a pure
+    // function of (a) the *resolved* repository_id -- graph-builder.ts's
+    // resolveRepositoryId prefers architecture.identity.id first, which is
+    // itself deterministic from the fixed package.json project name (see
+    // buildFixture's own comment), never decision's basename-tainted one --
+    // and (b) which of the six upstream domains are present. graph-build.ts
+    // never populates KnowledgeGraphBuildInput's optional `artifactMeta`, so
+    // buildUpstreamArtifactDigest's `snapshotId` is always undefined and
+    // every upstream-artifact digest token collapses to a plain
+    // "<domain>:<provenance>" string (snapshot.ts) -- never a wall-clock or
+    // content-hash value. And although this fixture's architecture-based
+    // repository_id genuinely disagrees with decision's basename-tainted
+    // one (tripping compatibility.ts's stage-2 "repository identity
+    // mismatch" check -- confirmed by reading compatibility.ts directly),
+    // the resulting reason text (which does embed the raw, basename-tainted
+    // decision repository_id) is never persisted into any
+    // KNOWLEDGE_GRAPH_OUTPUT_FILES cache: narrative.ts/graph-plan.ts's
+    // scene builders only ever consume `validationFindings`/
+    // `snapshot.upstream_artifacts` (counts and a `provenance` enum, not
+    // the reasons array), and `compatibility.reasons` itself is neither
+    // cached nor logged anywhere but `rvs graph validate`'s own stdout,
+    // which -- like every other command in this test -- is never asserted
+    // on here. So every knowledge-graph id/artifact below is directly
+    // source-vs-packaged comparable with nothing but a literal
+    // `generated_at` key strip (confirmed against contracts.ts, which
+    // defines `generated_at` only on GraphReport/KnowledgeGraphNarrative/
+    // KnowledgeGraphPlan, never folded into any id or embedded in prose).
+    const stripGraphTimestamps = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(stripGraphTimestamps);
+      if (value === null || typeof value !== "object") return value;
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(obj)) {
+        if (key === "generated_at") continue;
+        out[key] = stripGraphTimestamps(val);
+      }
+      return out;
+    };
+
+    for (const [run, dir] of runs) {
+      run(["graph", "build"]);
+      // No `--ci` here, mirroring `decisions validate`'s own precedent just
+      // above: this fixture's real architecture-vs-decision repository_id
+      // mismatch (see the comment above) legitimately produces a blocking
+      // GRAPH_COMPATIBILITY_INCOMPATIBLE_SET finding, and `--ci` would turn
+      // that into a non-zero exit code that execFileSync would throw on --
+      // an unrelated regression here would surface as a build-output diff
+      // below regardless, and the CI-gating behavior itself is already
+      // covered in-process by graph-cli.test.ts's `graph validate --ci`
+      // tests.
+      run(["graph", "validate"]);
+    }
+
+    // nodes.json is fully deterministic given identical upstream artifact
+    // content (see above), so a real node id read back from the source
+    // run's own cache is valid against the packaged run too -- mirroring
+    // graph-cli.test.ts's `graph explain`/`graph inspect` happy-path
+    // precedent of resolving a real id rather than guessing buildNodeId's
+    // sanitize() output. The repository node (present whenever
+    // architecture.identity is, which it is here) `contains` every
+    // component node (edge-builder.ts's buildArchitectureContainmentEdges),
+    // giving a guaranteed length-1 path between the two for `graph path`.
+    const sourceGraphNodes = JSON.parse(readFileSync(join(sourceDir, ".rvs/cache/knowledge-graph/nodes.json"), "utf8")) as Array<{
+      id: string;
+      node_type: string;
+    }>;
+    const repositoryNode = sourceGraphNodes.find((n) => n.node_type === "repository");
+    const componentNode = sourceGraphNodes.find((n) => n.node_type === "component");
+    expect(repositoryNode).toBeDefined();
+    expect(componentNode).toBeDefined();
+    const graphEntityId = componentNode!.id;
+
+    for (const [run, dir] of runs) {
+      run(["graph", "inspect", graphEntityId]);
+      run(["graph", "impact", graphEntityId]);
+      run(["graph", "path", repositoryNode!.id, graphEntityId]);
+      run(["graph", "roots"]);
+      run(["graph", "plan-change", "--remove", graphEntityId]);
+      run(["graph", "explain", graphEntityId]);
+      run(["export", "graph-report", "--output", "graph-report.json"]);
+      run(["export", "impact-summary", "--output", "impact-summary.md"]);
+      run(["create", "slides", "--profile", "knowledge-graph"]);
+    }
+
+    // Every KNOWLEDGE_GRAPH_OUTPUT_FILES artifact `graph build`/`graph
+    // impact`/`graph roots`/`graph plan-change` cached to
+    // .rvs/cache/knowledge-graph/ (graph-changes.json is compare-only and
+    // this block never runs `graph compare`, so it is deliberately excluded
+    // from this list).
+    for (const filename of [
+      "graph-snapshot.json",
+      "nodes.json",
+      "edges.json",
+      "unresolved-links.json",
+      "impact-results.json",
+      "root-cause-groups.json",
+      "decision-impact.json",
+      "change-plan.json",
+      "graph-narrative.json",
+      "graph-plan.json",
+      "graph-report.json",
+    ]) {
+      expect(stripGraphTimestamps(readJson(join(sourceDir, ".rvs/cache/knowledge-graph", filename)))).toEqual(
+        stripGraphTimestamps(readJson(join(packagedDir, ".rvs/cache/knowledge-graph", filename))),
+      );
+    }
+
+    // rvs export graph-report's written copy of graph-report.json.
+    expect(stripGraphTimestamps(readJson(join(sourceDir, "graph-report.json")))).toEqual(
+      stripGraphTimestamps(readJson(join(packagedDir, "graph-report.json"))),
+    );
+    // impact-summary.md (export-impact-summary.ts's buildImpactSummaryMarkdown)
+    // quotes only the impact query's entity node id, direction, and various
+    // counts -- all content-derived, none repository_id- or timestamp-tainted
+    // (unlike governance-summary.md/decision-summary.md above) -- so a plain
+    // byte-for-byte comparison is valid here with no stripping needed.
+    expect(readFileSync(join(sourceDir, "impact-summary.md"), "utf8")).toEqual(
+      readFileSync(join(packagedDir, "impact-summary.md"), "utf8"),
+    );
+
+    // The final `create slides --profile knowledge-graph` step above
+    // overwrote deck.html/visualdoc.json with the knowledge graph deck.
+    // graph-plan.ts's buildSceneId interpolates planId (itself derived from
+    // snapshot.id, which -- per the comment above -- is not repository_id-
+    // or digest-tainted here) into every scene id, so stripGraphTimestamps
+    // alone (rather than a scrubRepoId-style substring scrub) is enough for
+    // visualdoc.json and the scene ids extracted from deck.html, mirroring
+    // the governance/decisions deck assertions' own precedent just above.
+    expect(stripGraphTimestamps(readJson(join(sourceDir, ".rvs/cache/visualdoc.json")))).toEqual(
+      stripGraphTimestamps(readJson(join(packagedDir, ".rvs/cache/visualdoc.json"))),
+    );
+    const sourceGraphHtml = readFileSync(join(sourceDir, "artifacts/visuals/deck.html"), "utf8");
+    const packagedGraphHtml = readFileSync(join(packagedDir, "artifacts/visuals/deck.html"), "utf8");
+    expect(extractAttr(sourceGraphHtml, "git-commit")).toEqual(extractAttr(packagedGraphHtml, "git-commit"));
+    const graphSceneIds = (html: string) => [...html.matchAll(/data-scene-id="([^"]*)"/g)].map((m) => m[1]);
+    expect(graphSceneIds(sourceGraphHtml)).toEqual(graphSceneIds(packagedGraphHtml));
+    expect(graphSceneIds(sourceGraphHtml).length).toBeGreaterThan(0);
   });
 
   // -------------------------------------------------------------------------

@@ -14,6 +14,8 @@ import { runDoctor } from "./commands/doctor.js";
 import { runExportCapabilities } from "./commands/export-capabilities.js";
 import { runExportDecisionReport } from "./commands/export-decision-report.js";
 import { runExportDecisionSummary } from "./commands/export-decision-summary.js";
+import { runExportGraphReport } from "./commands/export-graph-report.js";
+import { runExportImpactSummary } from "./commands/export-impact-summary.js";
 import { runExportPdf } from "./commands/export-pdf.js";
 import { runExportPortfolioClaims } from "./commands/export-portfolio-claims.js";
 import { runExportPortfolioDecisions } from "./commands/export-portfolio-decisions.js";
@@ -26,6 +28,15 @@ import { runGovernanceBaselineSet, runGovernanceBaselineShow, runGovernanceBasel
 import { runGovernanceCheck } from "./commands/governance-check.js";
 import { runGovernanceCompare } from "./commands/governance-compare.js";
 import { runGovernanceExplain } from "./commands/governance-explain.js";
+import { runGraphBuildCommand } from "./commands/graph-build.js";
+import { runGraphCompareCommand } from "./commands/graph-compare.js";
+import { runGraphExplainCommand } from "./commands/graph-explain.js";
+import { runGraphImpactCommand } from "./commands/graph-impact.js";
+import { runGraphInspectCommand } from "./commands/graph-inspect.js";
+import { runGraphPathCommand } from "./commands/graph-path.js";
+import { runGraphPlanChangeCommand } from "./commands/graph-plan-change.js";
+import { runGraphRootsCommand } from "./commands/graph-roots.js";
+import { runGraphValidateCommand } from "./commands/graph-validate.js";
 import { runInit } from "./commands/init.js";
 import { runInspect } from "./commands/inspect.js";
 import { runPortfolioExplain } from "./commands/portfolio-explain.js";
@@ -76,7 +87,7 @@ create
   .option("--design-system <id>", "design system id (executive-dark|editorial-light|technical-grid)")
   .option(
     "--profile <id>",
-    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio|governance|decisions); default: repository-inventory",
+    "narrative profile (repository-inventory|executive-overview|architecture-review|engineering-onboarding|operating-review|repository-audit|showcase|portfolio|governance|decisions|knowledge-graph); default: repository-inventory",
   )
   .option(
     "--audience <id>",
@@ -278,6 +289,87 @@ decisions
     await runDecisionsExplain(process.cwd(), id, logger);
   });
 
+const graph = program.command("graph").description("Build and query the architecture knowledge graph unifying all upstream intelligence artifacts");
+
+graph
+  .command("build")
+  .description("Build the knowledge graph from cached architecture/capability/product/portfolio/governance/decision artifacts")
+  .action(async () => {
+    await runGraphBuildCommand(process.cwd(), {}, logger);
+  });
+
+graph
+  .command("validate")
+  .description("Build the knowledge graph, then run deterministic validation checks against the result")
+  .option("--ci", "exit non-zero when any validation finding is blocking")
+  .action(async (opts: { ci?: boolean }) => {
+    await runGraphValidateCommand(process.cwd(), opts, logger);
+  });
+
+graph
+  .command("inspect")
+  .description("Print a node's neighborhood: its adjacent edges and their endpoints")
+  .argument("<entity-id>", "node id, or an upstream artifact's own entity id")
+  .action(async (entityId: string) => {
+    await runGraphInspectCommand(process.cwd(), entityId, {}, logger);
+  });
+
+graph
+  .command("impact")
+  .description("Analyze the downstream (or upstream/both) impact of an entity: affected products, capabilities, decisions, and governance findings")
+  .argument("<entity-id>", "node id, or an upstream artifact's own entity id")
+  .option("--max-depth <n>", "maximum traversal depth (default: the graph's default max traversal depth)")
+  .option("--edge-type <type>", "restrict traversal to this edge type (repeatable)", (value: string, previous: string[]) => [...previous, value], [] as string[])
+  .option("--direction <direction>", "upstream|downstream|both (default: downstream)")
+  .action(async (entityId: string, opts: { maxDepth?: string; edgeType?: string[]; direction?: string }) => {
+    await runGraphImpactCommand(process.cwd(), entityId, opts, logger);
+  });
+
+graph
+  .command("path")
+  .description("Find the shortest path (default) or enumerate bounded simple paths (--all) between two entities")
+  .argument("<from-id>", "source node id, or an upstream artifact's own entity id")
+  .argument("<to-id>", "target node id, or an upstream artifact's own entity id")
+  .option("--all", "enumerate bounded simple paths instead of the single shortest path")
+  .option("--max-depth <n>", "maximum path depth (default: the graph's default max traversal/all-paths depth)")
+  .option("--edge-type <type>", "restrict traversal to this edge type (repeatable)", (value: string, previous: string[]) => [...previous, value], [] as string[])
+  .option("--direction <direction>", "upstream|downstream|both (default: downstream)")
+  .action(async (fromId: string, toId: string, opts: { all?: boolean; maxDepth?: string; edgeType?: string[]; direction?: string }) => {
+    await runGraphPathCommand(process.cwd(), fromId, toId, opts, logger);
+  });
+
+graph
+  .command("roots")
+  .description("Group currently cached governance findings by shared upstream root cause")
+  .action(async () => {
+    await runGraphRootsCommand(process.cwd(), {}, logger);
+  });
+
+graph
+  .command("compare")
+  .description("Diff a prior graph snapshot directory (--from) against another (--to), or the current cached graph")
+  .option("--from <snapshot-dir>", "directory containing a prior graph-snapshot.json/nodes.json/edges.json (required)")
+  .option("--to <snapshot-dir>", "directory containing another graph-snapshot.json/nodes.json/edges.json (default: a freshly built graph)")
+  .action(async (opts: { from?: string; to?: string }) => {
+    await runGraphCompareCommand(process.cwd(), opts, logger);
+  });
+
+graph
+  .command("plan-change")
+  .description("Plan the impact of removing an entity: affected decisions, governance, tests/docs/presentation, baselines, and unknown consumers")
+  .option("--remove <entity-id>", "node id, or an upstream artifact's own entity id, of the entity to plan removal for (required)")
+  .action(async (opts: { remove?: string }) => {
+    await runGraphPlanChangeCommand(process.cwd(), opts, logger);
+  });
+
+graph
+  .command("explain")
+  .description("Print a human-readable explanation for a node/edge/impact-result/root-cause-group/decision-impact/change-plan id")
+  .argument("<id>", "id to explain")
+  .action(async (id: string) => {
+    await runGraphExplainCommand(process.cwd(), id, {}, logger);
+  });
+
 const exportCmd = program.command("export").description("Export the deck to another format");
 exportCmd
   .command("pdf")
@@ -370,6 +462,22 @@ exportCmd
   .option("--output <path>", "output path (default: decision-summary.md)")
   .action(async (opts: { output?: string }) => {
     await runExportDecisionSummary(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("graph-report")
+  .description("Write the cached knowledge graph report to graph-report.json")
+  .option("--output <path>", "output path (default: graph-report.json)")
+  .action(async (opts: { output?: string }) => {
+    await runExportGraphReport(process.cwd(), opts, logger);
+  });
+
+exportCmd
+  .command("impact-summary")
+  .description("Write a PR-paste-ready Markdown summary of the last-run `rvs graph impact` result to impact-summary.md")
+  .option("--output <path>", "output path (default: impact-summary.md)")
+  .action(async (opts: { output?: string }) => {
+    await runExportImpactSummary(process.cwd(), opts, logger);
   });
 
 const capabilities = program.command("capabilities").description("Inspect the synthesized capability model");
