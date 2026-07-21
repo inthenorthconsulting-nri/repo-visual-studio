@@ -436,7 +436,12 @@ type-level decoupling: governance's own contract surface never needs to
 change when an upstream package's internal types change shape, only when
 the upstream package's *JSON output* shape changes.
 
+`governance-report.json` and the configured policy files are also consumed
+by the Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
 See also: [docs/continuous-intelligence.md](continuous-intelligence.md),
 [docs/governance-policies.md](governance-policies.md),
 [docs/governance-baselines.md](governance-baselines.md),
-[docs/governance-showcase.md](governance-showcase.md).
+[docs/governance-showcase.md](governance-showcase.md),
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

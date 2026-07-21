@@ -14,6 +14,7 @@
     "@rvs/core": "workspace:*",
     "@rvs/decision-intelligence": "workspace:*",
     "@rvs/governance-intelligence": "workspace:*",
+    "@rvs/knowledge-graph": "workspace:*",
     "@rvs/portfolio-intelligence": "workspace:*",
     "@rvs/product-intelligence": "workspace:*",
     "@rvs/repository-model": "workspace:*",

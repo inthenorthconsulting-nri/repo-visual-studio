@@ -528,6 +528,13 @@ See
 [`docs/architecture-decision-intelligence.md#known-limitations`](docs/architecture-decision-intelligence.md#known-limitations)
 for the complete list.
 
+Architecture, Capability, Product, Portfolio, Governance, and Decision
+Intelligence's cached output is also consumed by the Knowledge Graph
+layer, which unifies all six into one queryable graph with impact
+analysis, root-cause grouping, decision-invalidation analysis, and change
+planning — see
+[`docs/architecture-knowledge-graph.md`](docs/architecture-knowledge-graph.md).
+
 ## Self-hosting
 
 This repository can visualize itself:

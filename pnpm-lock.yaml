@@ -116,6 +116,9 @@ importers:
       '@rvs/governance-intelligence':
         specifier: workspace:*
         version: link:../governance-intelligence
+      '@rvs/knowledge-graph':
+        specifier: workspace:*
+        version: link:../knowledge-graph
       '@rvs/narrative-planner':
         specifier: workspace:*
         version: link:../narrative-planner
@@ -256,6 +259,22 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@24.13.3)
 
+  packages/knowledge-graph:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@24.13.3)
+
   packages/narrative-planner:
     dependencies:
       '@rvs/architecture-intelligence':
@@ -273,6 +292,9 @@ importers:
       '@rvs/governance-intelligence':
         specifier: workspace:*
         version: link:../governance-intelligence
+      '@rvs/knowledge-graph':
+        specifier: workspace:*
+        version: link:../knowledge-graph
       '@rvs/portfolio-intelligence':
         specifier: workspace:*
         version: link:../portfolio-intelligence
@@ -372,6 +394,9 @@ importers:
       '@rvs/governance-intelligence':
         specifier: workspace:*
         version: link:../governance-intelligence
+      '@rvs/knowledge-graph':
+        specifier: workspace:*
+        version: link:../knowledge-graph
       '@rvs/portfolio-intelligence':
         specifier: workspace:*
         version: link:../portfolio-intelligence

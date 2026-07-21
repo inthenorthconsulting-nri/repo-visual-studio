@@ -453,3 +453,6 @@ and [`docs/decision-linking.md`](decision-linking.md).
 | `@rvs/renderer-html` | `scenes/architecture-intelligence/` — per-kind field mapping, statement/qualifier/evidence rendering, shared box-diagram SVG |
 | `@rvs/validator` | `architecture-intelligence-checks.ts` — label-integrity, word-budget, implementation-detail-leak, staleness checks |
 | `@rvs/cli` | `rvs synthesize architecture`; `rvs create slides --profile <id>` |
+
+`architecture-intelligence.json` is also consumed by the Knowledge Graph
+layer, see [docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

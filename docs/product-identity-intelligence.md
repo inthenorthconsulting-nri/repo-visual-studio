@@ -369,3 +369,6 @@ and [`docs/decision-linking.md`](decision-linking.md).
 `@rvs/architecture-intelligence` and `@rvs/capability-intelligence` for
 input types only; no dependency in the other direction. No external model
 call anywhere in the package.
+
+`product-identity-model.json` is also consumed by the Knowledge Graph
+layer, see [docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

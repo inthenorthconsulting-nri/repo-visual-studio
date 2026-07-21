@@ -4,6 +4,7 @@ import type { CapabilityModel } from "@rvs/capability-intelligence";
 import { GENERATOR_VERSION, type EvidenceManifest, type GeneratorStamp } from "@rvs/core";
 import type { DecisionPlan } from "@rvs/decision-intelligence";
 import type { GovernancePlan } from "@rvs/governance-intelligence";
+import type { KnowledgeGraphPlan } from "@rvs/knowledge-graph";
 import type { PortfolioPlan } from "@rvs/portfolio-intelligence";
 import type { ShowcasePlan } from "@rvs/product-intelligence";
 import type { TerraformTopology } from "@rvs/terraform-graph";
@@ -55,6 +56,11 @@ export function renderVisualDocToHtml(
   // a dedicated whole-artifact id, since a decision snapshot is never scoped
   // to one product either.
   decisionPlans: DecisionPlan[] = [],
+  // A KnowledgeGraphPlan carries its stable key on its own top-level `id`
+  // (graph:plan:<snapshot-id>) — mirroring DecisionPlan's precedent of a
+  // dedicated whole-artifact id, since a graph snapshot is never scoped to
+  // one product either.
+  knowledgeGraphPlans: KnowledgeGraphPlan[] = [],
 ): string {
   const workflowGraphsById = new Map(workflowGraphs.map((g) => [g.id, g]));
   const terraformTopologiesById = new Map(terraformTopologies.map((t) => [t.id, t]));
@@ -64,6 +70,7 @@ export function renderVisualDocToHtml(
   const portfolioPlansById = new Map(portfolioPlans.map((p) => [p.model.portfolioId, p]));
   const governancePlansById = new Map(governancePlans.map((p) => [p.id, p]));
   const decisionPlansById = new Map(decisionPlans.map((p) => [p.id, p]));
+  const knowledgeGraphPlansById = new Map(knowledgeGraphPlans.map((p) => [p.id, p]));
   const contentHash = createHash("sha256").update(JSON.stringify(doc)).digest("hex");
   const stamp: GeneratorStamp = {
     generator_version: GENERATOR_VERSION,
@@ -75,7 +82,7 @@ export function renderVisualDocToHtml(
 
   const scenesHtml = doc.scenes
     .map((scene, index) => {
-      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById, architectureArtifactsById, capabilityModelsById, showcasePlansById, portfolioPlansById, governancePlansById, decisionPlansById);
+      const inner = renderSceneInner(scene, index, workflowGraphsById, terraformTopologiesById, architectureArtifactsById, capabilityModelsById, showcasePlansById, portfolioPlansById, governancePlansById, decisionPlansById, knowledgeGraphPlansById);
       const citations = renderCitations(scene.evidence, evidence);
       return `
       <section class="scene" id="scene-${index}" data-scene-index="${index}" data-scene-id="${escapeHtml(scene.id)}" data-scene-type="${scene.type}" role="group" aria-roledescription="slide" aria-label="${escapeHtml(scene.headline)}">

@@ -279,7 +279,12 @@ package declares its own independent structural echo. See
 and [docs/architecture-governance.md](architecture-governance.md) for each
 package's own full type-decoupling statement.
 
+This module's own governance-report output is also consumed by the
+Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
 See also: [docs/architecture-governance.md](architecture-governance.md),
 [docs/continuous-intelligence.md](continuous-intelligence.md),
 [docs/governance-policies.md](governance-policies.md),
-[docs/decision-linking.md](decision-linking.md).
+[docs/decision-linking.md](decision-linking.md),
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

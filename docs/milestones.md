@@ -2928,3 +2928,247 @@ and this documentation pass (`docs/architecture-decision-intelligence.md`,
 
 Nothing from this milestone has been committed, pushed, merged, or opened
 as a pull request.
+
+## Milestone 9 — Architecture Knowledge Graph & Impact Analysis
+
+**Status: implementation complete, documentation pass in progress (this
+entry).** Objective: a deterministic, offline knowledge-graph layer sitting
+atop (not beside) the Repository Evidence → Architecture Intelligence →
+Capability Intelligence → Product Identity Intelligence → Portfolio
+Intelligence → Architecture Governance → Architecture Decision Intelligence
+stack Milestones 1-8 built — `@rvs/knowledge-graph` unifies all six upstream
+intelligence artifacts (architecture, capability, product, portfolio,
+governance, decision) into a single queryable graph of nodes and edges, and
+adds four query capabilities on top of it: bounded-BFS impact analysis and
+blast-radius classification, shared-ancestor root-cause grouping, decision-
+invalidation analysis, and removal-only change planning. It never re-scans a
+repository, never re-synthesizes an upstream artifact, never re-derives or
+overrides a decision's own governance/compatibility verdict, and never calls
+an external model. See
+[`docs/architecture-knowledge-graph.md`](architecture-knowledge-graph.md),
+[`docs/graph-impact-analysis.md`](graph-impact-analysis.md),
+[`docs/graph-root-cause.md`](graph-root-cause.md),
+[`docs/graph-decision-impact.md`](graph-decision-impact.md),
+[`docs/graph-change-planning.md`](graph-change-planning.md), and
+[`docs/graph-showcase.md`](graph-showcase.md) for the complete design,
+contracts, and presentation layer — this entry records summary/coverage
+facts and defers to those six documents for everything else, the same
+division of labor every milestone entry above uses with its own design
+documents.
+
+### 1. Package, contracts, and pipeline
+
+New package `packages/knowledge-graph` (`@rvs/knowledge-graph`), 22 non-test
+source modules per its own barrel (`index.ts`): `contracts.ts` (a 19-value
+`KnowledgeNodeType`, a 21-value `KnowledgeEdgeType`, the full
+`KnowledgeNode`/`KnowledgeEdge`/`KnowledgeGraphSnapshot`/
+`ImpactAnalysisResult`/`RootCauseGroup`/`DecisionImpactResult`/
+`ChangePlan`/`ValidationIssue` shapes), `constants.ts` (cache directory,
+the 12-entry `KNOWLEDGE_GRAPH_OUTPUT_FILES` list, the 6-value
+`CAUSAL_EDGE_TYPES` set, default traversal bounds), `ids.ts` (pure,
+content-derived id builders plus `canonicalize()`/`digestOf()`),
+`identity.ts`, `node-builder.ts`, `edge-builder.ts`, `graph-core.ts`
+(locally reimplemented `GenericGraph`/`buildGenericGraph`/`findCycles`/
+`findOrphanNodes`, per the package's zero-cross-import convention),
+`graph-builder.ts` (the 8-step construction pipeline: resolve repository
+identity → build nodes → dedupe nodes → build edges → dedupe edges → assess
+compatibility → resolve unresolved references → deterministic ordering →
+snapshot), `compatibility.ts` (the 6-stage staged short-circuit
+compatibility assessment), `traversal.ts` (the shared bounded-BFS engine),
+`path-finding.ts`, `impact-analysis.ts`, `blast-radius.ts`, `root-cause.ts`,
+`decision-impact.ts`, `change-planning.ts`, `diff.ts`, `explain.ts`,
+`snapshot.ts`, `validation.ts` (18 validation codes), `narrative.ts` (the
+13-section narrative and its 6 `FORBIDDEN_PHRASES`), `graph-plan.ts` (the
+15 `KnowledgeGraphSceneKind` scene builders), `index.ts`. `package.json`
+declares no runtime dependency on
+`@rvs/architecture-intelligence`/`@rvs/capability-intelligence`/
+`@rvs/product-intelligence`/`@rvs/portfolio-intelligence`/
+`@rvs/governance-intelligence`/`@rvs/decision-intelligence` — every one of
+the six upstream artifacts is read as untyped/unknown JSON via a "local
+structural echo" interface declared inside `node-builder.ts`/
+`edge-builder.ts`, never an imported type, the same zero-cross-package-type
+convention every intelligence package since Milestone 7 has followed. Full
+contract and pipeline detail:
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
+### 2. Presentation integration and CLI
+
+New `KnowledgeGraphSceneKind` (15 values, fixed order via
+`SCENE_KIND_ORDER` in `graph-plan.ts`), all mapping to a **single** generic
+`KnowledgeGraphSceneSchema` pointer schema (`plan_id` + `scene_id` only,
+never the per-kind body shape) added as the 14th and last member of
+`SceneSchema`'s discriminated union in
+`packages/visualdoc-schema/src/schema.ts`; a new `"knowledge-graph"`
+`VisualDoc` profile in
+`packages/narrative-planner/src/graph-visualdoc-builder.ts`; new scene
+render logic in `packages/renderer-html/src/scenes/knowledge-graph/`
+(`index.ts`, `render.ts`). New CLI surfaces wired into
+`packages/cli/src/bin.ts` under an `rvs graph` command group: `rvs graph
+build`, `rvs graph validate [--ci]`, `rvs graph inspect`, `rvs graph impact`,
+`rvs graph path`, `rvs graph roots`, `rvs graph compare`, `rvs graph
+plan-change` (`--remove` only — no `--add`/`--modify`/`--rename`), `rvs
+graph explain`; plus `rvs export graph-report`, `rvs export
+impact-summary`, and `"knowledge-graph"` added to `rvs create slides
+--profile <id>`'s accepted profile list. A new `packages/cli/src/graph-cache.ts`
+module defines the CLI-layer cache layout under
+`.rvs/cache/knowledge-graph/` (`graphCacheDir()`, `graphOutputPath()`,
+`readGraphCachedJson()`, `readGraphCachedJsonOptional()`,
+`writeGraphOutputs()`), backing 12 new CLI command files:
+`graph-build.ts`, `graph-validate.ts`, `graph-inspect.ts`, `graph-impact.ts`,
+`graph-path.ts`, `graph-roots.ts`, `graph-compare.ts`,
+`graph-plan-change.ts`, `graph-explain.ts`, `export-graph-report.ts`,
+`export-impact-summary.ts`. `rvs create slides --profile knowledge-graph`
+is cache-read-only: it throws `"No cached knowledge graph plan found. Run
+`rvs graph build` first."` when no cached plan exists rather than
+triggering a build itself. Full design:
+[docs/graph-showcase.md](graph-showcase.md) and
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
+### 3. Key design decisions
+
+- **Conservative bias is never collapsed, even under a new axis.**
+  `blast-radius.ts`'s `deriveBlastRadiusLevel()` keeps `unresolved` ("no way
+  to even ask" — an upstream reference never resolved) strictly distinct
+  from `isolated` ("asked, zero neighbors" — resolved but the traversal
+  found nothing) through its full gate order; the two are never merged into
+  a single "unknown" bucket, extending the conservative-bias convention
+  every layer below Governance already follows into the graph's own
+  traversal semantics.
+- **Zero type coupling to any of the six upstream packages.** Confirmed at
+  both the runtime dependency level (`package.json`) and the type level
+  (`node-builder.ts`/`edge-builder.ts` declare independent structural-echo
+  interfaces rather than importing upstream types) — the same pattern
+  `@rvs/decision-intelligence` established bidirectionally with
+  `@rvs/governance-intelligence` in Milestone 8, now applied across six
+  packages at once from a single consuming package.
+- **One shared traversal engine, four consuming modules.** `traversal.ts`'s
+  bounded-BFS `traverse()` is the single implementation behind
+  `path-finding.ts`, `impact-analysis.ts`, `root-cause.ts`, and
+  `decision-impact.ts`/`change-planning.ts` — no module reimplements graph
+  walking independently.
+- **Root-cause grouping is two-pass, causal edges first.** `root-cause.ts`'s
+  `groupRootCauses()` first attempts shared-ancestor union-find using only
+  the 6 `CAUSAL_EDGE_TYPES`, and only falls back to considering all edge
+  types when no causal-only common ancestor exists — never the reverse
+  order — so a grouping's classification `detail` string can always state
+  precisely which pass produced it.
+- **Decision invalidation reads, never re-derives, upstream decision
+  state.** `decision-impact.ts`'s `computeDecisionImpact()` evaluates a
+  fixed, numbered decision table against `DecisionStateLookup` (data already
+  computed by `@rvs/decision-intelligence`) — it does not reverse, approve,
+  or reject a decision, and does not recompute compatibility or governance
+  verdicts itself.
+- **Change planning composes existing analyses rather than duplicating
+  them.** `change-planning.ts`'s `planChange()` calls the impact-analysis
+  and decision-impact modules directly and layers evidence-path
+  classification (tests/docs/presentation, via regex pattern matching, not
+  semantic analysis) on top — it contains no independent graph-walking
+  logic of its own.
+- **Presentation ownership stays inside the producing packages.** The
+  `VisualDoc` schema layer carries only a generic pointer
+  (`KnowledgeGraphSceneSchema`); all 15 scene kinds' actual content and
+  evidence-gating logic live entirely in `@rvs/knowledge-graph`'s
+  `graph-plan.ts` and `@rvs/renderer-html`'s
+  `scenes/knowledge-graph/render.ts` — the schema package itself has no
+  knowledge of what any individual scene kind contains.
+
+### 4. Known, disclosed scope trims
+
+- **Three `KnowledgeNodeType` values are declared but not yet populated by
+  the construction pipeline** (`package`, `command`, `presentation`) —
+  disclosed directly in
+  [docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md#construction-pipeline).
+- **Some upstream enum values are conservatively mapped, not exhaustively
+  distinguished**, where a single upstream state maps to one of a smaller
+  set of knowledge-graph-level states rather than preserving every upstream
+  distinction — also disclosed in the same "Known, disclosed scope trims"
+  subsection of the umbrella doc.
+- **`plan-change` supports `--remove` only.** No `--add`/`--modify`/
+  `--rename` change-planning verb exists on this branch — stated directly in
+  [docs/graph-change-planning.md](graph-change-planning.md).
+- **`diff.ts`'s comparison is caller-scoped**, not a general-purpose graph
+  diff service — see its own "Known limitations" section, indexed from
+  [docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+- **No dedicated test file was added in `@rvs/visualdoc-schema`,
+  `@rvs/narrative-planner`, or `@rvs/renderer-html` for the new
+  knowledge-graph presentation surfaces on this branch** —
+  `packages/visualdoc-schema/src/__tests__/schema.test.ts` was not modified
+  alongside `schema.ts`'s new `KnowledgeGraphSceneSchema` member, and
+  neither `graph-visualdoc-builder.ts` nor
+  `scenes/knowledge-graph/render.ts` has a dedicated unit test file of its
+  own as of this documentation pass; both are exercised indirectly via
+  `packages/cli/src/__tests__/graph-cli.test.ts`'s `runCreateSlides
+  --profile knowledge-graph` coverage, not by a package-local unit test.
+- Full rationale for all trims above, plus every other declared-but-not-
+  yet-fully-wired value: each new document's own "Known limitations"
+  section, indexed from
+  [docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
+### 5. Test coverage and verification
+
+`packages/knowledge-graph/src/__tests__/`: 25 test files (one per source
+module's testable surface, plus `graph-fixtures.ts` as a shared, non-test
+fixture helper) — including dedicated `determinism.test.ts` and
+`no-change-identity.test.ts` suites mirroring
+`@rvs/decision-intelligence`'s own Milestone 8 convention, plus
+`adversarial.test.ts`, `regression.test.ts`, and `scale.test.ts`. Plus new
+`packages/cli/src/__tests__/graph-cli.test.ts` (in-process CLI command
+tests matching `decisions-cli.test.ts`/`governance-cli.test.ts`'s
+established no-subprocess convention; its `describe` blocks cover
+`runGraphBuild`/`runGraphBuildCommand`, `runGraphValidateCommand --ci`,
+`resolveNode`/`runGraphInspectCommand`, `runGraphImpactCommand`,
+`runGraphPathCommand`, `runGraphRootsCommand`, `runGraphCompareCommand`,
+`runGraphPlanChangeCommand`, `runGraphExplainCommand`,
+`runExportGraphReport`/`runExportImpactSummary`, and `runCreateSlides
+--profile knowledge-graph`). Unlike Milestone 8's equivalent pass,
+`packages/cli/src/__tests__/source-vs-package-equivalence.test.ts` was
+**not** modified on this branch — the knowledge-graph CLI surface is not
+yet represented in that equivalence suite as of this documentation pass.
+
+This documentation pass did not itself run the workspace test suite,
+`tsc --noEmit`, or any other verification command, and makes no claim about
+pass/fail counts, coverage percentages, or performance numbers for any of
+the test files named above — the file-level counts and `describe`-block
+names described in this section were confirmed by direct inspection of
+`packages/knowledge-graph/src/__tests__/` and
+`packages/cli/src/__tests__/graph-cli.test.ts`, not by a fresh `pnpm test`
+run captured at documentation time. A milestone-closing pass should replace
+this section with concrete pass/fail/skip counts, the same way Milestone
+7's and Milestone 8's own entries do, once that separate verification step
+is actually run.
+
+### 6. Current repository state
+
+Milestone 9's work sits, uncommitted, on
+`feature/architecture-knowledge-graph`, branched from `origin/main` at
+`e84b5dd` ("Merge pull request #7 from
+.../feature/governance-agent-integration"). `git status --short` shows: the
+new `packages/knowledge-graph/` package (source modules, `package.json`,
+`tsconfig.json`, and its 25-file `__tests__/` directory); new CLI command
+files (`graph-build.ts`, `graph-validate.ts`, `graph-inspect.ts`,
+`graph-impact.ts`, `graph-path.ts`, `graph-roots.ts`, `graph-compare.ts`,
+`graph-plan-change.ts`, `graph-explain.ts`, `export-graph-report.ts`,
+`export-impact-summary.ts`) and the new `graph-cache.ts` module, plus the
+new `graph-cli.test.ts`; new `graph-visualdoc-builder.ts` in
+`@rvs/narrative-planner` (no dedicated test file — see "Known, disclosed
+scope trims" above); new `scenes/knowledge-graph/{index.ts, render.ts}` in
+`@rvs/renderer-html` (no dedicated test file); modifications to
+`packages/cli/src/{bin.ts, commands/create-slides.ts}` and `package.json`;
+modifications to `packages/narrative-planner/src/index.ts` and
+`package.json`; modifications to `packages/renderer-html/src/{render.ts,
+scenes/index.ts, styles.ts}` and `package.json`; a modification to
+`packages/visualdoc-schema/src/schema.ts` wiring the new
+`KnowledgeGraphSceneSchema` member in (its sibling `__tests__/schema.test.ts`
+left unmodified — also noted above); a `pnpm-lock.yaml` update; plus this
+documentation pass (`docs/architecture-knowledge-graph.md`,
+`docs/graph-impact-analysis.md`, `docs/graph-root-cause.md`,
+`docs/graph-decision-impact.md`, `docs/graph-change-planning.md`,
+`docs/graph-showcase.md`, this entry, and one cross-link line each in
+`README.md`, `docs/architecture-intelligence.md`,
+`docs/capability-intelligence.md`, `docs/product-identity-intelligence.md`,
+`docs/portfolio-intelligence.md`, `docs/architecture-governance.md`,
+`docs/architecture-decision-intelligence.md`, `docs/decision-linking.md`,
+and `docs/decision-governance.md`).
+
+Nothing from this milestone has been committed, pushed, merged, or opened
+as a pull request.

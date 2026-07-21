@@ -2,6 +2,7 @@ import type { ArchitectureIntelligence } from "@rvs/architecture-intelligence";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import type { DecisionPlan } from "@rvs/decision-intelligence";
 import type { GovernancePlan } from "@rvs/governance-intelligence";
+import type { KnowledgeGraphPlan } from "@rvs/knowledge-graph";
 import type { PortfolioPlan } from "@rvs/portfolio-intelligence";
 import type { ShowcasePlan } from "@rvs/product-intelligence";
 import type { TerraformTopology } from "@rvs/terraform-graph";
@@ -13,6 +14,7 @@ import { renderCapabilityIntelligenceOverviewScene } from "./capability-intellig
 import { renderDecisionScene } from "./decision/index.js";
 import { renderGovernanceScene } from "./governance/index.js";
 import { renderHeadlineScene } from "./headline.js";
+import { renderKnowledgeGraphScene } from "./knowledge-graph/index.js";
 import { renderMetricScene } from "./metric.js";
 import { renderPortfolioScene } from "./portfolio/index.js";
 import { renderSectionDividerScene } from "./section-divider.js";
@@ -32,6 +34,7 @@ export function renderSceneInner(
   portfolioPlans: Map<string, PortfolioPlan>,
   governancePlans: Map<string, GovernancePlan>,
   decisionPlans: Map<string, DecisionPlan>,
+  knowledgeGraphPlans: Map<string, KnowledgeGraphPlan>,
 ): string {
   switch (scene.type) {
     case "title":
@@ -60,6 +63,8 @@ export function renderSceneInner(
       return renderGovernanceScene(scene, governancePlans.get(scene.plan_id));
     case "decision-scene":
       return renderDecisionScene(scene, decisionPlans.get(scene.plan_id));
+    case "knowledge-graph-scene":
+      return renderKnowledgeGraphScene(scene, knowledgeGraphPlans.get(scene.plan_id));
     default: {
       const exhaustive: never = scene;
       throw new Error(`Unhandled scene type: ${JSON.stringify(exhaustive)}`);

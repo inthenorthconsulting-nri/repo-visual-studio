@@ -6,10 +6,14 @@ top of cached snapshots of the other four rather than on repository
 evidence directly, plus a sixth layer — Architecture Decision Intelligence
 — built directly from decision documents already present in the
 repository (never from the other five layers' artifacts as its primary
-input, though it optionally links against them). Never skip a required
-layer, and never run a layer the task doesn't need — see `MASTER_AGENT.md`
-§2-§3 for the authoritative routing table and matrix; this file expands the
-reuse/regeneration rule those sections point to.
+input, though it optionally links against them), plus a seventh layer —
+Knowledge Graph — built by unifying whichever of the six layers above are
+already cached into one queryable graph, and layering impact analysis,
+root-cause grouping, decision-invalidation analysis, and change planning on
+top of it. Never skip a required layer, and never run a layer the task
+doesn't need — see `MASTER_AGENT.md` §2-§3 for the authoritative routing
+table and matrix; this file expands the reuse/regeneration rule those
+sections point to.
 
 ## The four layers, in dependency order
 
@@ -56,13 +60,30 @@ reuse/regeneration rule those sections point to.
    `DecisionIntelligenceReport`, and — additively, opt-in, **not yet wired
    into `rvs governance compare`/`check`** — 10 decision-aware policy rule
    kinds on top of Governance Intelligence's own engine.
+7. **Knowledge Graph** (`docs/architecture-knowledge-graph.md` and its 5
+   companion documents; skill references:
+   `references/architecture-knowledge-graph.md`,
+   `references/graph-construction.md`,
+   `references/graph-impact-analysis.md`, `references/graph-root-cause.md`,
+   `references/graph-decision-impact.md`,
+   `references/graph-change-planning.md`, `references/graph-showcase.md`) —
+   built from whichever of the six layers above are already cached
+   (`rvs graph build`), never from repository source directly and never
+   from an external model; a missing upstream artifact is treated as
+   `unresolved`, kept and reported, never dropped or assumed. Produces a
+   `KnowledgeGraphSnapshot` of nodes and edges, impact-analysis and
+   blast-radius results, root-cause groups, decision-invalidation results,
+   and removal-only change plans (`rvs graph impact/path/roots/compare/
+   plan-change/explain`).
 
 A layer's synthesis command refuses to run without its required upstream
 cache file present — this is enforced by the CLI, not just documented here.
-Architecture Decision Intelligence is the one exception: `rvs decisions
-analyze` only requires `.rvs/decisions.yml` to name at least one decision
-source — it does not require any of the other five layers' artifacts to
-exist, since decision documents are read directly from the repository.
+Architecture Decision Intelligence and Knowledge Graph are the two
+exceptions: `rvs decisions analyze` only requires `.rvs/decisions.yml` to
+name at least one decision source, and `rvs graph build` reads all six
+upstream artifacts as optional — neither requires any of the other layers'
+artifacts to exist to run, though both produce a more complete result when
+more of them are already cached.
 
 ## When each layer is needed
 
@@ -74,6 +95,7 @@ exist, since decision documents are read directly from the repository.
 | "Compare products / portfolio overlaps / ecosystem deck" | Portfolio (consuming each product's already-generated Architecture/Capability/Product artifacts) |
 | "What changed architecturally / is this a CI-blocking regression / explain a finding" | Governance Intelligence, consuming cached snapshots of whichever of the four layers above are needed — never a fresh scan |
 | "What decisions explain this / which accepted decisions aren't implemented / did this violate a decision" | Architecture Decision Intelligence, optionally consuming whichever of the four layers above (plus Governance) are already cached for link resolution — never a fresh scan of those layers |
+| "What is affected if this component changes / gets removed" / "what's the blast radius" / "why did these governance findings appear together" / "what decisions depend on this capability" | Knowledge Graph, consuming whichever of the six layers above are already cached (`rvs graph build`, then `impact`/`roots`/`path`/`plan-change`/`explain`) — never a fresh scan or re-synthesis of those layers |
 | Ordinary code implementation, bug fix, CI failure | None, unless repository orientation is itself materially needed |
 
 ## Governance baseline changes are their own authorization boundary

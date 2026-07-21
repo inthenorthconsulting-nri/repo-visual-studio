@@ -270,6 +270,16 @@ export const BASE_CSS = `
   .decision-status-field, .decision-coverage-value { color: var(--rvs-color-text-secondary); font-variant-numeric: tabular-nums; }
   .decision-governance-impact-heading { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rvs-color-text-secondary); margin: 20px 0 8px; }
 
+  /* Architecture Knowledge Graph (Milestone 9) — reuses
+     .arch-empty/.arch-statement-list/.governance-count-list/
+     .governance-hero-meta/.governance-id/.decision-status-row/
+     .decision-governance-impact-heading directly (the graph's count/id-list/
+     row shapes are structurally identical to governance's and decision's),
+     mirroring the Decision profile's own reuse discipline above. */
+  .scene-knowledge-graph { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+  .graph-hero .governance-hero-summary { margin-top: 12px; }
+
   .citations {
     position: absolute;
     left: 96px;

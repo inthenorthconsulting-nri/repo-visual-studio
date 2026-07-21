@@ -594,3 +594,6 @@ and [`docs/decision-linking.md`](decision-linking.md).
 |---|---|
 | `@rvs/capability-intelligence` | `CapabilityModel` types, the full candidate → evidence → maturity → readiness → inclusion pipeline, structural validation, Markdown/JSON exporters |
 | `@rvs/cli` | `rvs synthesize capabilities`; `rvs export capabilities`; `rvs capabilities explain <id>` |
+
+`capability-model.json` is also consumed by the Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
