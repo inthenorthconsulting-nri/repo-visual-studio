@@ -8,11 +8,14 @@ import { DECISION_OUTPUT_FILES } from "@rvs/decision-intelligence";
 import type { DecisionPlan } from "@rvs/decision-intelligence";
 import { GOVERNANCE_OUTPUT_FILES } from "@rvs/governance-intelligence";
 import type { GovernancePlan } from "@rvs/governance-intelligence";
+import { KNOWLEDGE_GRAPH_OUTPUT_FILES } from "@rvs/knowledge-graph";
+import type { KnowledgeGraphPlan } from "@rvs/knowledge-graph";
 import {
   buildArchitectureVisualDoc,
   buildCapabilityIntelligenceScenes,
   buildDecisionVisualDoc,
   buildGovernanceVisualDoc,
+  buildKnowledgeGraphVisualDoc,
   buildPortfolioVisualDoc,
   buildShowcaseVisualDoc,
   buildVisualDoc,
@@ -35,6 +38,7 @@ import type { WorkflowGraph } from "@rvs/workflow-graph";
 import { cacheDir, readCachedJson, readCachedJsonOptional } from "../cache.js";
 import { readDecisionCachedJsonOptional } from "../decision-cache.js";
 import { readGovernanceCachedJsonOptional } from "../governance-cache.js";
+import { readGraphCachedJsonOptional } from "../graph-cache.js";
 import { DESIGN_SYSTEMS_ROOT } from "../paths.js";
 
 // "repository-inventory" is the default and preserves `rvs create slides`'s
@@ -70,6 +74,11 @@ const GOVERNANCE_PROFILE = "governance";
 // (never audience-scoped), so this profile just reads the already-cached
 // DecisionPlan and renders it directly, with no fresh synthesis step.
 const DECISIONS_PROFILE = "decisions";
+// "knowledge-graph" (Milestone 9) mirrors "decisions"/"governance" exactly: a
+// graph snapshot is a single deterministic artifact of `rvs graph build`
+// (never audience-scoped), so this profile just reads the already-cached
+// KnowledgeGraphPlan and renders it directly, with no fresh synthesis step.
+const KNOWLEDGE_GRAPH_PROFILE = "knowledge-graph";
 
 export interface CreateSlidesOptions {
   audience?: string;
@@ -109,6 +118,11 @@ export async function runCreateSlides(
 
   if (profileId === DECISIONS_PROFILE) {
     await runCreateDecisionsSlides(repoRoot, model, evidence, tokens, themeId, config, logger);
+    return;
+  }
+
+  if (profileId === KNOWLEDGE_GRAPH_PROFILE) {
+    await runCreateGraphSlides(repoRoot, model, evidence, tokens, themeId, config, logger);
     return;
   }
 
@@ -375,4 +389,35 @@ async function runCreateDecisionsSlides(
   writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
 
   logger.info(`Rendered ${doc.scenes.length} decision scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}"`);
+}
+
+// The "knowledge-graph" profile (Milestone 9) mirrors "decisions" (see
+// runCreateDecisionsSlides above): it reads the already-computed
+// KnowledgeGraphPlan cache directly rather than synthesizing anything fresh,
+// and intentionally skips --audience entirely (buildKnowledgeGraphVisualDoc
+// hardcodes audience: "knowledge-graph", theme: "technical-grid").
+async function runCreateGraphSlides(
+  repoRoot: string,
+  model: RepositoryModel,
+  evidence: EvidenceManifest,
+  tokens: DesignTokens,
+  designSystemId: string,
+  config: RvsConfig,
+  logger: Logger,
+): Promise<void> {
+  const plan = readGraphCachedJsonOptional<KnowledgeGraphPlan>(repoRoot, KNOWLEDGE_GRAPH_OUTPUT_FILES.graphPlan);
+  if (!plan) {
+    throw new Error("No cached knowledge graph plan found. Run `rvs graph build` first.");
+  }
+
+  const doc = buildKnowledgeGraphVisualDoc(plan);
+
+  const html = renderVisualDocToHtml(doc, tokens, evidence, { gitCommit: model.git.commit }, [], [], [], [], [], [], [], [], [plan]);
+
+  const outputDir = resolve(repoRoot, config.defaults.output_dir);
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(resolve(outputDir, "deck.html"), html);
+  writeFileSync(resolve(cacheDir(repoRoot), "visualdoc.json"), JSON.stringify(doc, null, 2));
+
+  logger.info(`Rendered ${doc.scenes.length} knowledge graph scenes to ${config.defaults.output_dir}/deck.html using "${designSystemId}"`);
 }

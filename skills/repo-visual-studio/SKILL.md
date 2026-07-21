@@ -198,6 +198,63 @@ tell a user that a decisions-related policy rule is enforced by those
 commands today; it is evaluated only by `@rvs/governance-intelligence`'s
 own package-level test suite until that CLI wiring is added.
 
+## Architecture Knowledge Graph (impact analysis, root-cause grouping, decision invalidation, change planning)
+
+Use this when the user wants to know "what breaks if I change/remove this
+component," "why did these governance findings show up together," "what
+decisions depend on this capability," or "what's the blast radius of
+removing this." It never re-scans a repository and never re-synthesizes any
+upstream artifact — it only reads whichever of the six upstream artifacts
+(architecture, capability, product, portfolio, governance, decision) are
+already cached, unifies them into one graph, and answers traversal/impact/
+root-cause/decision-invalidation/change-planning queries against it. It
+never re-derives, reverses, approves, or rejects a decision's own
+governance or compatibility verdict — those stay owned by Architecture
+Governance and Architecture Decision Intelligence; this layer only reads
+them.
+
+Prerequisite: run `rvs graph build` before any other `rvs graph *` command
+— it reads whichever of `synthesize architecture`/`capabilities`/
+`product-identity`/`portfolio`, `rvs snapshot create`/`governance compare`,
+and `rvs decisions analyze` have already been run, and treats any missing
+upstream artifact as `unresolved` (kept and reported, never dropped or
+assumed) rather than failing outright. More upstream artifacts present
+means a more complete graph, but none is strictly required for `graph
+build` to succeed.
+
+```bash
+rvs graph build                              # -> .rvs/cache/knowledge-graph/*.json
+rvs graph validate [--ci]                    # 18 fixed validation codes
+rvs graph inspect <node-or-edge-id>
+rvs graph impact <node-id>                   # bounded-BFS impact + blast radius
+rvs graph path <from-id> <to-id>              # shortest/all paths
+rvs graph roots <finding-id...>              # shared-ancestor root-cause grouping
+rvs graph compare [--from] [--to]             # diff two graph snapshots
+rvs graph plan-change --remove <node-id>      # removal-only change planning
+rvs graph explain <id>                        # prints one node/edge/result's full reasoning
+rvs export graph-report --output graph-report.json
+rvs export impact-summary --output impact-summary.json
+rvs create slides --profile knowledge-graph
+```
+
+**Do not offer to auto-apply a change plan or auto-remove the node it was
+run against** — `rvs graph plan-change` only analyzes and reports; it never
+edits, deletes, or refactors any file, and there is no `--add`/`--modify`/
+`--rename` verb on this branch, only `--remove`. If the user wants to
+actually make the change, that is a separate, ordinary implementation task
+that comes after reading the plan's output, not something this command does
+for them.
+
+`rvs create slides --profile knowledge-graph` is cache-read-only: it fails
+with an explicit error if `rvs graph build` hasn't been run yet rather than
+triggering a build itself. And as of this branch, the knowledge-graph CLI
+surface is not yet represented in `packages/cli/src/__tests__/
+source-vs-package-equivalence.test.ts`, and none of `@rvs/visualdoc-schema`,
+`@rvs/narrative-planner`, or `@rvs/renderer-html` has a dedicated unit test
+for the new knowledge-graph presentation surfaces — don't tell a user that
+coverage is equivalent to the other five intelligence layers' presentation
+paths until that gap is closed.
+
 ## Quality gate
 
 Always run `rvs validate --ci` before treating a deck as done, and read
@@ -245,6 +302,13 @@ re-deriving the routing decision:
   `references/decision-governance.md`, `references/decision-drift.md`,
   `references/decision-showcase.md` — one reference per decision-intelligence
   concern, same shape as the layer references above.
+- `references/architecture-knowledge-graph.md`,
+  `references/graph-construction.md`, `references/graph-impact-analysis.md`,
+  `references/graph-root-cause.md`, `references/graph-decision-impact.md`,
+  `references/graph-change-planning.md`, `references/graph-showcase.md` —
+  one reference per knowledge-graph concern, same shape as the layer
+  references above; this is the seventh and outermost layer, reading all six
+  of the others rather than optionally linking against them.
 - `references/presentation-and-export.md` — turning a synthesized model
   into a deck (`create slides`), validating it, and exporting it.
 - `references/audience-profiles.md`, `references/quality-policy.md` — the

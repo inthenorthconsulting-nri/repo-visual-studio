@@ -204,6 +204,19 @@ export const DecisionSceneSchema = BaseSceneSchema.extend({
   scene_id: z.string().min(1),
 });
 
+// A knowledge-graph scene never embeds a KnowledgeGraphPlan -- it points at
+// one (built by @rvs/knowledge-graph and cached separately) by plan_id, plus
+// scene_id to select which single graph scene within that plan's own
+// `scenes` array this VisualDoc scene renders -- mirroring
+// DecisionSceneSchema's plan_id/scene_id contract exactly. The renderer
+// switches on KnowledgeGraphPlan.scenes[].kind; the narrative-significant
+// ordering and per-scene content stay entirely owned by @rvs/knowledge-graph.
+export const KnowledgeGraphSceneSchema = BaseSceneSchema.extend({
+  type: z.literal("knowledge-graph-scene"),
+  plan_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+
 export const SceneSchema = z.discriminatedUnion("type", [
   TitleSceneSchema,
   SectionDividerSceneSchema,
@@ -218,6 +231,7 @@ export const SceneSchema = z.discriminatedUnion("type", [
   PortfolioSceneSchema,
   GovernanceSceneSchema,
   DecisionSceneSchema,
+  KnowledgeGraphSceneSchema,
 ]);
 
 export type Scene = z.infer<typeof SceneSchema>;
@@ -238,6 +252,7 @@ export type ShowcaseScene = z.infer<typeof ShowcaseSceneSchema>;
 export type PortfolioScene = z.infer<typeof PortfolioSceneSchema>;
 export type GovernanceScene = z.infer<typeof GovernanceSceneSchema>;
 export type DecisionScene = z.infer<typeof DecisionSceneSchema>;
+export type KnowledgeGraphScene = z.infer<typeof KnowledgeGraphSceneSchema>;
 
 export const GeneratorStampSchema = z.object({
   generator_version: z.string(),

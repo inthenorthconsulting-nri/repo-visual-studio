@@ -210,6 +210,11 @@ See [docs/architecture-decision-intelligence.md](architecture-decision-intellige
 for the package-level type-decoupling statement (unchanged here — this
 document covers three source modules of that same package).
 
+`decision-links.json` and `dependencies.json` are also consumed by the
+Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
 See also: [docs/decision-record-format.md](decision-record-format.md),
 [docs/decision-drift.md](decision-drift.md),
-[docs/decision-governance.md](decision-governance.md).
+[docs/decision-governance.md](decision-governance.md),
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).

@@ -4,6 +4,7 @@ export * from "./brief.js";
 export * from "./capability-intelligence-visualdoc-builder.js";
 export * from "./decision-visualdoc-builder.js";
 export * from "./governance-visualdoc-builder.js";
+export * from "./graph-visualdoc-builder.js";
 export * from "./portfolio-visualdoc-builder.js";
 export * from "./serialize.js";
 export * from "./showcase-visualdoc-builder.js";

@@ -408,9 +408,14 @@ carries decision-intelligence's own facts through the same way, via its own
 independently-declared `DecisionGovernanceContext` echo (see
 `docs/decision-governance.md`), never by importing this package's types.
 
+All 6 decision-intelligence output artifacts are also consumed by the
+Knowledge Graph layer, see
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
+
 See also: [docs/decision-record-format.md](decision-record-format.md),
 [docs/decision-linking.md](decision-linking.md),
 [docs/decision-drift.md](decision-drift.md),
 [docs/decision-debt.md](decision-debt.md),
 [docs/decision-governance.md](decision-governance.md),
-[docs/decision-showcase.md](decision-showcase.md).
+[docs/decision-showcase.md](decision-showcase.md),
+[docs/architecture-knowledge-graph.md](architecture-knowledge-graph.md).
