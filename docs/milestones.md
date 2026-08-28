@@ -3502,3 +3502,226 @@ delivery layer writes lands under the git-ignored `.rvs/cache/`, and the
 one file a verified run replaces is the `--output` path the user named.
 Nothing from this milestone has been committed, pushed, merged, or opened as a
 pull request.
+
+## Milestone 11.1 — Proposed Change Model & Deterministic Overlay Core
+
+**Status: implemented, uncommitted on `feature/architecture-change-workbench`.**
+Objective: a foundation for reasoning about a *proposed* change to the
+architecture knowledge graph — before it exists — without re-implementing
+any of the read-only analysis Milestones 7–9 already own. The new
+`@rvs/change-workbench` package sits above `@rvs/knowledge-graph`,
+`@rvs/governance-intelligence` and `@rvs/decision-intelligence` and
+introduces nothing they did not: it composes their existing traversal,
+impact and decision-capability functions against an ephemeral,
+in-memory overlay of the current graph plus a proposed set of changes, and
+returns advisory results, never canonical ones.
+
+This entry is deliberately the only documentation this slice adds. Per
+its own scope boundary (below), 11.1 has no rendering surface, no CLI
+command, and no design document of its own yet — the seven-document
+pattern Milestone 10 established belongs to a later slice, once there is
+a surface for a person to actually drive.
+
+### 1. Scope boundary
+
+11.1 is a pure computation library. It explicitly does **not** include,
+and none of the following exists anywhere in this slice: CLI wiring, any
+form of visualization, MCP exposure, agent automation, TruthDisclosure
+rendering, or verified-delivery integration. Those are later 11.x slices,
+not oversights here.
+
+### 2. What the package owns
+
+- **Six frozen proposal operations, no rename primitive.** `add_entity`,
+  `remove_entity`, `modify_attributes`, `add_relation`, `remove_relation`,
+  and `modify_relation` — a rename is expressible only as a
+  `remove_entity` plus an `add_entity`, so identity change is never
+  silently implicit in an attribute edit.
+- **Branded, runtime-checked entity references.** `ConfirmedEntityRef`,
+  `ProposedEntityRef` and `ExistingEntityMutationRef` are distinct types
+  at the type-checker level, but the real trust boundary is at runtime:
+  `tryConfirmEntityRef()` only mints a confirmed ref when the candidate
+  is actually present in the caller-supplied node set,
+  `mutateExistingEntityRef()` and `proposeEntityRef()` construct the
+  other two kinds explicitly, and `isWellFormedRefString()` gates
+  malformed input before any of them run.
+- **`ProposedChangeSet` with content-derived, deterministic identity.**
+  `buildProposedChangeSetId()` canonicalizes each operation, sorts the
+  resulting list, then digests it — so identical operations in a
+  different array order produce the identical set id, and no timestamp
+  ever enters identity. Proven directly in
+  [`determinism.test.ts`](../packages/change-workbench/src/__tests__/determinism.test.ts).
+- **Proposal completeness validation**
+  (`validateProposedChangeSet()`) that classifies a proposal into one of
+  four statuses — `valid_sufficient`, `valid_partial`, `unresolved`, or
+  `invalid` — never conflating "not enough information to tell" with
+  either "fine" or "wrong." Attribute-level support is classified
+  separately (`classifyNodeAttributes()` / `classifyEdgeAttributes()`)
+  into supported / unsupported / unresolved, so an attribute nobody
+  recognizes downgrades a proposal to `valid_partial` rather than being
+  silently dropped or silently accepted.
+- **Topology disclosure that never implies zero impact from missing
+  data.** `buildTopologyDisclosure()` labels every entity touched by a
+  proposal `explicit` (topology stated or unambiguously inherited),
+  `partial` (a new entity with at least one declared relation), or
+  `not_supplied` (a new entity with none) — `not_supplied` is read as
+  "the proposal didn't say," never as "has no relations."
+- **An ephemeral, in-memory graph overlay** (`buildChangeOverlay()`)
+  applying a validated proposal against a caller-supplied confirmed
+  node/edge set. Every node in the resulting overlay is stamped with the
+  proposal's own `repository_id` as a mandatory invariant — no
+  foreign-repository node can enter an overlay, and an operation whose
+  endpoint only resolves in a different repository degrades the build to
+  an explicit `unresolved` result rather than silently dropping the
+  edge. Proven in
+  [`overlay-repository-boundary.test.ts`](../packages/change-workbench/src/__tests__/overlay-repository-boundary.test.ts).
+- **Advisory wrappers, not new analysis.** `buildImpactAdvisory()` and
+  `buildDecisionAdvisory()` call the existing Milestone 9 traversal /
+  impact functions and Milestone 8 decision-capability functions against
+  the overlay; `buildGovernanceAdvisory()` reuses Milestone 7's rule
+  evaluation and rewrites only the resulting statement text to
+  proposed-basis phrasing (`toProposedBasisStatement()`) — regression-
+  tested in
+  [`governance-wording.test.ts`](../packages/change-workbench/src/__tests__/governance-wording.test.ts)
+  so no canonical M7 wording pattern (`", violating rule"`, "exceeding
+  the configured maximum") ever survives into an advisory unchanged. None
+  of the three wrappers modifies the canonical M7/M8 contracts they call.
+- **`ChangeAdvisory`**, the top-level contract (`buildChangeAdvisory()`):
+  runs validation and the governance wrapper first (governance is
+  independent of overlay-build success), short-circuits to a
+  `not_evaluated` / `not_applicable` advisory for an `invalid` proposal
+  without ever building an overlay, and otherwise assembles impact,
+  decisions, topology, deduplicated evidence references, and a
+  per-domain `domain_coverage` summary that reflects each sub-result's
+  own status rather than a single blended one.
+- **Non-default persistence with staleness semantics, no fs I/O.**
+  `persistence.ts` is pure path computation
+  (`buildChangeAdvisoryCachePath()`) and digest comparison
+  (`assessChangeAdvisoryFreshness()`); it never reads or writes a file.
+  This mirrors every other domain package in the repository — the actual
+  `readFileSync` / `writeFileSync` logic lives exclusively at the CLI
+  layer (`packages/cli/src/*-cache.ts`), one file per domain, and 11.1
+  has no CLI layer yet. A stored advisory's digest is recorded once, at
+  store time, and never recomputed; any mismatch against a freshly
+  observed baseline reports `stale_equivalent`, never silently
+  `current`.
+
+### 3. Package-DAG and determinism proofs
+
+Two proof obligations named by the slice had no existing prior-art
+pattern in the repository and needed a real test written for them rather
+than an assumed one:
+
+- **Package DAG.** No package-dependency-cycle test existed anywhere in
+  the repository (only intra-graph cycle detection does, e.g.
+  `knowledge-graph`'s own `graph-core.test.ts`).
+  [`package-dag.test.ts`](../packages/change-workbench/src/__tests__/package-dag.test.ts)
+  reads every workspace package's real `package.json`, builds the actual
+  `workspace:*` dependency graph, and asserts by DFS cycle detection that
+  (1) the whole workspace graph is acyclic and (2) none of
+  `@rvs/change-workbench`'s own dependencies depend back on it, directly
+  or transitively.
+- **Package/source equivalence.** The one existing test of this name
+  (`packages/cli/src/__tests__/source-vs-package-equivalence.test.ts`)
+  builds and compares an installed tarball — a proof that is specific to
+  the CLI's packaging surface. `@rvs/change-workbench` is a pure
+  computation library with no CLI or tarball surface of its own; the
+  equivalent proof obligation for a package of this shape is that its
+  computation is order- and repetition-invariant, which is exactly what
+  [`determinism.test.ts`](../packages/change-workbench/src/__tests__/determinism.test.ts)
+  establishes — shuffle-invariance for `buildProposedChangeSetId`,
+  `validateProposedChangeSet`, and end-to-end `buildChangeAdvisory`, plus
+  byte-identical output across repeated runs of an unshuffled proposal.
+  No packaging-specific test was invented in its place.
+
+One deliberate, reasoned scope decision: the governance wrapper's
+regression tests exercise `toProposedBasisStatement()` and the
+`not_evaluated` default path directly, rather than constructing full
+`ArchitectureChangeSet` / `CapabilityChangeSet` / `ProductChangeSet` /
+`BlastRadiusAssessment` fixtures to drive `evaluatePolicy()` end to end —
+the slice asks for governance *wording* regression coverage, which the
+direct unit tests fully satisfy; a full policy-evaluation fixture would
+exercise Milestone 7 itself, not the wrapper 11.1 owns.
+
+### 4. Coverage
+
+`@rvs/change-workbench`: 11 test files, 92 tests, all passing — the
+mandated 14-scenario golden corpus for `validateProposedChangeSet`
+(every `ProposalValidationStatus` and issue code), the repository-
+boundary regression suite, the determinism/shuffle-invariance proofs,
+the governance-wording regression suite, the package-DAG proof, an
+end-to-end `ChangeAdvisory` composition suite, a persistence suite, the
+conflict-validation order-independence suite (including the
+`relation_from_removed_entity` contradiction proofs), the attribute-
+support classifier/overlay-fabrication suite, the decision-capability-
+gating suite (structural non-invocation plus the genuine-evaluation
+proofs), and the public-entry-point barrel-equivalence suite.
+
+Verification: `pnpm -r exec tsc --noEmit` clean across all 30 workspace
+packages; `pnpm test` (repository-wide) 261 test files passed (2 skipped,
+pre-existing and unrelated), 4208 tests passed (26 skipped, pre-existing
+and unrelated); `RVS_TEST_PACKAGE=1 pnpm test` 263 test files passed (all),
+4234 tests passed (all) — confirming this slice caused no regression or
+weakening of any existing test anywhere in the repository.
+
+### 5. Current repository state
+
+11.1's work sits uncommitted on `feature/architecture-change-workbench`,
+branched from `main` at `38dbd71` (the merged Milestone 10 tip). No
+other file in the repository was modified. Nothing from this milestone
+has been committed, pushed, merged, or opened as a pull request.
+
+### 6. Final semantic closure remediation
+
+A later closure pass found three places where the package's own status
+vocabulary could be misread as claiming more than it does, and fixed each
+without adding scope:
+
+- **Decision coverage truthfulness.** `buildDecisionAdvisory()` in
+  `decision-advisory.ts` now carries an explicit inline invariant:
+  *capability declared != evaluation attempted != evaluation completed*.
+  The registry always lists all 14 known decision-analysis functions
+  regardless of outcome (declared); `computeDecisionImpact()` is called
+  only when `roots.length > 0` — a real node id present in the overlay to
+  traverse from, never a proxy for "this looks decision-relevant"
+  (attempted); and `status: "evaluated"` is reported only once that call
+  has genuinely run for every root (completed) — never derived merely
+  from a touched ref, a "supported" registry flag, or a matching overlay
+  entry. `decision-capability-gating.test.ts` proves the non-trivial case
+  with a fixture carrying a real `node_type: "decision"` node and a
+  populated `DecisionStateLookup` (`decisionFixtureGraph()` /
+  `decisionFixtureStateLookup()` in `change-workbench-fixtures.ts`),
+  producing a real, non-fabricated `assumption_contradicted` finding —
+  not merely the previously-only-provable case of an always-empty
+  findings array. The 13 `@rvs/decision-intelligence` functions remain
+  structurally unreachable (never imported, never invoked); no Decision
+  Intelligence *package* function executes in 11.1 — the one wired
+  evaluator, `computeDecisionImpact()`, lives in `@rvs/knowledge-graph`.
+- **Internal proposal contradiction classification.** `remove_entity A`
+  combined with `add_relation`/`modify_relation` referencing `A` as
+  either endpoint is now detected by `validation.ts`'s `detectConflicts()`
+  itself, as a blocking `relation_from_removed_entity` issue (`invalid`
+  status) — before overlay construction is ever attempted. This replaces
+  the previous behavior, where the same combination passed validation as
+  `valid_sufficient` and only degraded to a non-blocking `unresolved`
+  overlay-build issue. `remove_relation` touching the same ref is
+  deliberately left unflagged (consistent, not contradictory), and a
+  genuinely unresolved external/missing reference (never confirmed, no
+  in-proposal `remove_entity` behind it) still only ever produces the
+  non-blocking overlay-layer `unresolved_add_relation_endpoint` — the two
+  conditions stay classified distinctly. Proven order-independently for
+  the `from`, `to`, and `modify_relation` variants, plus the
+  non-flagged `remove_relation` and genuinely-unresolved cases, in
+  `conflict-validation.test.ts`.
+- **No self-`devDependency`.** `packages/change-workbench/package.json`
+  no longer declares itself as a `devDependency`; `pnpm-lock.yaml` no
+  longer carries that self-link. No other workspace package depends on
+  `@rvs/change-workbench` yet, so `package-entry-point-equivalence.test.ts`
+  now proves barrel equivalence (`src/index.ts`'s re-exports vs. each
+  function's own defining submodule, both via relative import) rather
+  than node_modules package-name resolution. This is not installed-package
+  certification — the package is `private`, source-entry-point only, and
+  unbuilt, so there is no distinct package artifact for that claim to be
+  about yet; full tarball-level certification (the mechanism
+  `source-vs-package-equivalence.test.ts` uses for `@rvs/cli`) remains
+  Milestone 11.6's.
