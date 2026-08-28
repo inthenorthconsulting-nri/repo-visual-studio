@@ -1,7 +1,7 @@
 export type CheckStatus = "pass" | "fail" | "warn";
 
 export interface SceneCheckResult {
-  rule: "overflow" | "min-font-size" | "contrast" | "missing-evidence";
+  rule: "overflow" | "node-overlap" | "min-font-size" | "contrast" | "missing-evidence";
   status: CheckStatus;
   message: string;
 }
@@ -64,16 +64,121 @@ export function collectSceneReports(options: CollectOptions): SceneReport[] {
       }
     }
 
+    // --- node overlap ---
+    //
+    // The other layout rule. `overflow` asks whether a fixed-frame scene
+    // holds its content; a surface that scrolls on purpose -- the explorer and
+    // the change review both do -- declares no `.scene-inner` and so is asked
+    // nothing at all by it. That left the layout family reporting "passed"
+    // over zero measurements on exactly the two artifacts the delivery gate
+    // exists to gate, which is not a pass, it is an absence.
+    //
+    // What is measured instead is the invariant every grammar in
+    // @rvs/visual-grammar is built to hold and none of them states in the
+    // output: two entity boxes never occupy the same place. A drawing where
+    // they do has lost the thing a reader uses the geometry for -- which box
+    // the label belongs to, which box the arrow lands on -- however well the
+    // page scrolls.
+    //
+    // Boxes are compared within one `<svg>` only. A multi-view composition
+    // stacks several drawings on one page, and two views' coordinate spaces
+    // overlapping in the viewport is the layout working, not failing. The
+    // painted rectangle is measured rather than the group, because the group's
+    // bounding box includes the change marker a delta view hangs off the
+    // corner, and a badge deliberately drawn outside the box is not a
+    // collision.
+    const drawn: Array<{ root: Element; id: string; left: number; top: number; right: number; bottom: number }> = [];
+    for (const el of Array.from(scene.querySelectorAll<HTMLElement>("[data-rvs-node]"))) {
+      const root = el.closest("svg");
+      if (root === null) continue;
+      const shape = el.querySelector("rect") ?? el;
+      const measured = shape.getBoundingClientRect();
+      // Zero-sized means collapsed or hidden -- a detail view behind
+      // `display:none` is not on the page and cannot collide with anything.
+      if (measured.width <= 0 || measured.height <= 0) continue;
+      drawn.push({
+        root,
+        id: el.getAttribute("id") ?? el.getAttribute("data-rvs-node") ?? "",
+        left: measured.left,
+        top: measured.top,
+        right: measured.right,
+        bottom: measured.bottom,
+      });
+    }
+
+    // Sorted by position, then id, so the same drawing always reports the same
+    // pair first however the DOM happened to be walked.
+    drawn.sort((a, b) => a.top - b.top || a.left - b.left || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+    // A shared border is not an overlap, and neither is a pixel of rounding
+    // from the viewBox mapping, so a collision has to be real in both axes.
+    const tolerancePx = 2;
+    const collisions: string[] = [];
+    for (let i = 0; i < drawn.length; i += 1) {
+      for (let j = i + 1; j < drawn.length; j += 1) {
+        const a = drawn[i];
+        const b = drawn[j];
+        // Sorted by top: once one box starts below another's bottom, so does
+        // every box after it.
+        if (b.top >= a.bottom - tolerancePx) break;
+        if (a.root !== b.root) continue;
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (overlapX > tolerancePx && overlapY > tolerancePx) collisions.push(`${a.id} / ${b.id}`);
+      }
+    }
+
+    if (drawn.length === 0) {
+      checks.push({ rule: "node-overlap", status: "pass", message: "No drawn entities to check" });
+    } else if (collisions.length > 0) {
+      checks.push({
+        rule: "node-overlap",
+        status: "fail",
+        message: `${collisions.length} overlapping entity box pair(s): ${collisions.slice(0, 3).join(", ")}`,
+      });
+    } else {
+      checks.push({
+        rule: "node-overlap",
+        status: "pass",
+        message: `${drawn.length} entity boxes drawn without overlap`,
+      });
+    }
+
     // --- min font size + contrast on visible text elements (excluding footnote citations) ---
     const textElements = Array.from(
       scene.querySelectorAll<HTMLElement>("h1, p, li, span, text"),
     ).filter((el) => !el.closest(".citations") && el.textContent && el.textContent.trim().length > 0);
 
+    // The size a reader actually sees, not the size the markup declares.
+    //
+    // `getComputedStyle(el).fontSize` on an SVG `<text>` reports the attribute
+    // -- 14px -- however the element is transformed on its way to the screen.
+    // Grammar SVGs are drawn inside a `<g transform="scale(...)">` that fits
+    // the layout to the scene, and the SVG itself is then scaled again by the
+    // viewBox mapping when CSS gives it a width other than its intrinsic one.
+    // Both shrink the glyph; neither touches the computed style. So a page
+    // whose smallest text renders at 9px reported "smallest text is 14.0px"
+    // and passed. `getScreenCTM` is the composition of every transform between
+    // the element and the viewport, and its uniform scale factor -- the square
+    // root of the determinant, which is exact for the uniform scales these
+    // renderers emit and a fair average for any other -- converts the declared
+    // size into the CSS pixels the text occupies.
+    function renderedScale(el: Element): number {
+      const graphical = el as SVGGraphicsElement;
+      if (typeof graphical.getScreenCTM !== "function") return 1;
+      const ctm = graphical.getScreenCTM();
+      if (ctm === null) return 1;
+      const determinant = Math.abs(ctm.a * ctm.d - ctm.b * ctm.c);
+      const scale = Math.sqrt(determinant);
+      return Number.isFinite(scale) && scale > 0 ? scale : 1;
+    }
+
     let minFontSize = Infinity;
     let worstContrast = Infinity;
     for (const el of textElements) {
       const style = window.getComputedStyle(el);
-      const fontSize = Number.parseFloat(style.fontSize);
+      const declared = Number.parseFloat(style.fontSize);
+      const fontSize = Number.isNaN(declared) ? declared : declared * renderedScale(el);
       if (!Number.isNaN(fontSize)) minFontSize = Math.min(minFontSize, fontSize);
 
       const bg = window.getComputedStyle(scene).backgroundColor;

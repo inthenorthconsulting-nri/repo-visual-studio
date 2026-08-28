@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { loadConfig, type Logger } from "@rvs/core";
-import { validateHtmlFile } from "@rvs/validator";
+import { validateHtmlFile, type ContrastLevel } from "@rvs/validator";
 import type { CapabilityModel } from "@rvs/capability-intelligence";
 import { validateCapabilityModelStructure } from "@rvs/capability-intelligence";
 import type { ProductIdentityModel, ShowcasePlan } from "@rvs/product-intelligence";
@@ -162,6 +162,82 @@ export function validateCachedPortfolio(repoRoot: string, outputDir: string, log
   return { ran: true, hasError: errorCount > 0 };
 }
 
+/**
+ * The interactive artifacts `rvs validate` also checks, when they are on disk.
+ *
+ * Both are optional the same way capability intelligence is: a repository
+ * that never ran `rvs graph open` or `rvs graph review` sees no behaviour
+ * change at all. Paths mirror the defaults those two commands write to.
+ *
+ * These face the *same* checks deck.html faces -- @rvs/validator, the same
+ * contrast level from `.rvs` config, the same minimum type size out of
+ * @rvs/visual-intelligence. §32 is explicit that a second minimum must not be
+ * introduced, and §64 asks that these checks run through the CLI rather than
+ * only in a package's own suite. Before this, the checker had never looked at
+ * either file; the first run found the explorer rendering 13.6px chrome text.
+ */
+const INTERACTIVE_ARTIFACTS: readonly { label: string; path: string }[] = [
+  { label: "architecture explorer", path: ".rvs/out/architecture-explorer.html" },
+  { label: "architecture change review", path: "artifacts/visuals/change-review.html" },
+];
+
+/**
+ * Validate one artifact under both polarities.
+ *
+ * Both, because the dark palette is not a separate file -- it sits behind
+ * `prefers-color-scheme: dark` in the same stylesheet, so a single run
+ * measures half of what ships, and contrast is precisely the property that
+ * differs between the halves.
+ */
+async function validateInteractiveArtifacts(
+  repoRoot: string,
+  outputDir: string,
+  minimumContrast: ContrastLevel,
+  logger: Logger,
+): Promise<{ ran: boolean; hasError: boolean }> {
+  let ran = false;
+  let hasError = false;
+
+  for (const artifact of INTERACTIVE_ARTIFACTS) {
+    const path = resolve(repoRoot, artifact.path);
+    if (!existsSync(path)) continue;
+    ran = true;
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      const report = await validateHtmlFile(path, { minimumContrast, colorScheme });
+      writeFileSync(
+        resolve(outputDir, `${basename(artifact.path, ".html")}-${colorScheme}-validation-report.json`),
+        JSON.stringify(report, null, 2),
+      );
+
+      if (report.summary.scenes === 0) {
+        // Not a pass. A checker that found nothing to check has not cleared
+        // the file, and reporting it as clean is how a regression in the
+        // artifact's own markup would hide.
+        logger.warn(
+          `${artifact.label} (${colorScheme}) declared no validatable scene; nothing was checked in ${artifact.path}.`,
+        );
+        continue;
+      }
+
+      for (const scene of report.scenes) {
+        for (const check of scene.checks) {
+          if (check.status === "fail") {
+            logger.error(`[${artifact.label}/${colorScheme}] ${check.rule}: ${check.message}`);
+            hasError = true;
+          } else if (check.status === "warn") {
+            logger.warn(`[${artifact.label}/${colorScheme}] ${check.rule}: ${check.message}`);
+          }
+        }
+      }
+    }
+
+    logger.info(`Validated ${artifact.label} in light and dark.`);
+  }
+
+  return { ran, hasError };
+}
+
 export async function runValidate(repoRoot: string, ci: boolean, logger: Logger): Promise<void> {
   const config = loadConfig(repoRoot);
   const outputDir = resolve(repoRoot, config.defaults.output_dir);
@@ -188,11 +264,23 @@ export async function runValidate(repoRoot: string, ci: boolean, logger: Logger)
   const productIdentityOutcome = validateCachedProductIdentity(repoRoot, outputDir, logger);
   const showcaseOutcome = validateCachedShowcasePlan(repoRoot, outputDir, logger);
   const portfolioOutcome = validateCachedPortfolio(repoRoot, outputDir, logger);
+  const interactiveOutcome = await validateInteractiveArtifacts(
+    repoRoot,
+    outputDir,
+    config.quality.minimum_contrast,
+    logger,
+  );
 
   if (ci) {
     const blocking = report.scenes.some((scene) =>
       scene.checks.some((check) => {
-        if (check.status === "fail" && check.rule === "overflow") return config.quality.fail_on_overflow;
+        // Both layout rules answer the same question -- did the drawing
+        // fit where it was put -- so they answer to the same flag. A
+        // repository that has asked not to be stopped by content spilling
+        // out of its frame has not asked to be stopped by two boxes
+        // spilling into each other.
+        if (check.status === "fail" && (check.rule === "overflow" || check.rule === "node-overlap"))
+          return config.quality.fail_on_overflow;
         if (check.status === "fail" && (check.rule === "contrast" || check.rule === "min-font-size")) return true;
         if (check.status === "warn" && check.rule === "missing-evidence") return config.quality.fail_on_missing_evidence;
         return false;
@@ -203,7 +291,7 @@ export async function runValidate(repoRoot: string, ci: boolean, logger: Logger)
     // config.quality knob for these layers (checked packages/core's config
     // schema), matching the existing precedent that contrast/min-font-size
     // failures above always fail --ci regardless of the fail_on_* flags.
-    if (blocking || capabilityOutcome.hasError || productIdentityOutcome.hasError || showcaseOutcome.hasError || portfolioOutcome.hasError) {
+    if (blocking || capabilityOutcome.hasError || productIdentityOutcome.hasError || showcaseOutcome.hasError || portfolioOutcome.hasError || interactiveOutcome.hasError) {
       logger.error("Validation failed under --ci policy.");
       process.exitCode = 1;
     }

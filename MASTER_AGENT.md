@@ -122,6 +122,7 @@ actual ask).
 | 2.10 | Governance / continuous intelligence | "What changed architecturally between the last release and now?", "Is this PR a CI-blocking regression?", "Explain this governance finding" | Validate/build `IntelligenceSnapshot`s → Governance Intelligence (`rvs governance compare`/`check`/`explain`) → findings/report — diagnosis only, never a code fix |
 | 2.11 | Architecture decision intelligence | "What decisions explain this architecture?", "Which accepted decisions are not implemented?", "Did this release violate an ADR?", "Explain this decision drift/debt finding" | `rvs decisions analyze` (reads decision documents directly; optionally links against cached Architecture/Capability/Product/Portfolio/Governance artifacts) → decision report/findings — diagnosis and explanation only, never a code fix and never automatic decision creation |
 | 2.12 | Knowledge graph / impact analysis | "What is affected if this component changes?", "What's the blast radius of removing this?", "Why did these governance findings appear together?", "What decisions depend on this capability?", "What needs review if I remove this?" | `rvs graph build` (unifies whichever of the six upstream artifacts are already cached; all six are optional reads) → `rvs graph impact`/`path`/`roots`/`compare`/`plan-change`/`explain` → impact/root-cause/decision-impact/change-plan report — diagnosis and evidence-gathering only, never an automatic removal, edit, or refactor |
+| 2.13 | Semantic visualization / architecture change review / verified preview | "Show me the architecture I can explore", "Show what changed between these architecture snapshots", "Why does this change require review?", "Preview this architecture safely while I edit it", "Why wasn't the new visual published?" | `rvs graph build` → `rvs graph open` for one architecture; for two snapshots, Knowledge Graph comparison (`diffGraphs`, the same engine `rvs graph compare` runs) → `rvs graph review` → Before/Delta/After review, with Governance and Decision overlays read from their own layers and never re-derived; `--verified` on either command puts the output behind the delivery gate (candidate → profile verification → promote or preserve the last known good, plus a repair receipt) — read-only: it writes one local file and never comments on, approves, or blocks a PR |
 
 Class-specific rules:
 
@@ -166,9 +167,35 @@ Class-specific rules:
   like any other new content — never performed automatically as part of
   answering a decision-intelligence question. The 10 decision-aware
   governance rule kinds this layer adds to `@rvs/governance-intelligence`
-  are implemented at the package level but **not wired into `rvs
-  governance compare`/`check`** — do not report a decisions-related policy
-  rule as enforced by those commands (`docs/decision-governance.md`).
+  are wired end-to-end into `rvs governance compare`/`check` as of
+  Milestone 8.1 — a policy referencing one of these rule kinds is
+  actually evaluated by those commands, with real findings and real
+  `--ci` exit-code effects (`docs/decision-governance.md`).
+- **2.13** — the visual layer decides *how* to draw what the intelligence
+  layers already established and invents nothing they did not. Change Review
+  computes no architecture diff, capability regression, governance finding,
+  decision drift, impact path, or blast radius of its own; where an upstream
+  artifact is unavailable it reports the domain as not comparable, which is
+  never reported as "no change". Change Review remains **read-only**: it
+  writes one local HTML file, never comments on a pull request, never
+  approves or blocks one, and changes no merge behaviour. `rvs export
+  change-review-summary` likewise writes Markdown to disk for a person to
+  paste — posting it anywhere is a separate action requiring explicit,
+  current-turn authorization (§1.3). A governance lens showing nothing means
+  no finding was recorded, not that the change is safe to deploy; a missing
+  downstream route means no evidence-backed path was found within the
+  traversal boundary, not that there are no consumers.
+- **2.13, verified delivery** — `--verified` gates a candidate; it does not
+  repair one. Report the verification state and the receipt's findings as
+  the validators worded them, and preserve the distinction between
+  `incomplete` (a family that could not run, so nothing was measured) and
+  `failed` (a family that measured something wrong) — both refuse
+  promotion, and neither is a reason to relax a profile, re-run until it
+  passes, or edit the source to make the gate green. Fixing a rejected
+  candidate is a separate, explicitly authorized code-implementation task
+  (§2.5) under `pr-governance`. *Verified* means the named profile's
+  required checks passed on that exact candidate — never approved design,
+  certified architecture, safe architecture, or merge-ready.
 
 ---
 
@@ -568,3 +595,79 @@ implement the removal and the plan's affected follow-ups, then validate.
 Third, commit/push/PR remain their own explicit-authorization actions
 (§1.3) under `pr-governance`, never implied by having reviewed the plan or
 having implemented the change.
+
+**Q — Show what changed between these architecture snapshots.** *"What
+changed architecturally between these two snapshots?"* Semantic
+visualization (§2.13), on top of Knowledge Graph comparison (§2.12). Confirm
+both snapshot directories hold `graph-snapshot.json`, `nodes.json`, and
+`edges.json` → run `rvs graph review --from <a> --to <b>` → report what the
+review shows. The comparison is `diffGraphs`, the same engine `rvs graph
+compare` runs; the review visualizes that result and computes no second
+diff. An incompatible pair fails and writes nothing — say so rather than
+reporting "no change". A partial pair produces a review that names the
+domains it cannot speak about; carry that through to the caller. Read-only:
+no branch, no commit, no PR comment.
+
+**Q — Why does this change require review?** *"Why is this flagged for
+review?"* Semantic visualization (§2.13) → the Change Review's Governance
+and Decision overlays. Run the review, select the change, and report the
+governance findings and decision impacts *as those layers recorded them* —
+severity verbatim, decision state attributed to Architecture Decision
+Intelligence, never as this layer's verdict. Distinguish the three relation
+kinds the review distinguishes: a confirmed causal path (an upstream layer
+emitted that route), a related evidence path (both ends cite the same
+evidence artifact), and an unresolved relation (the far end could not be
+resolved upstream). Adjacency is not causality — do not present two nearby
+entities as cause and effect because they are drawn near each other. RVS
+approves and rejects nothing here.
+
+**Q — Fix this regression.** *"Fix the regression this review shows."*
+Multiple classes in one request, handled in order. First, semantic
+visualization (§2.13): run the review, read the evidence behind the
+regression, and report what the evidence supports — this step changes no
+code. Second, only once the caller confirms they want the change made:
+reclassify as code implementation (§2.5), load `pr-governance` plus whatever
+skill owns the affected code, and treat it as a new, separately authorized
+task. If the regression is a governance finding, PR Governance owns what
+happens to the pull request, not Change Review. Third, commit/push/PR remain
+their own explicit-authorization actions (§1.3), never implied by having run
+the review.
+
+**Q — Preview this architecture safely while I edit it.** *"Preview this
+architecture safely while I edit it."* Semantic visualization (§2.13) →
+Verified Preview. Run `rvs graph open --verified` (add `--profile <id>`
+only if the caller named one): the rendered file becomes a candidate, the
+profile's validators run over it, and the path named by `--output` is
+replaced only if every required check passed. Report the preview `file://`
+path and its status — Verified, Candidate validating, Candidate rejected,
+or Last known good retained — in those words. *Verified* means the named
+profile's required checks passed on that candidate; it is not approved
+design, certified architecture, safe architecture, or merge-ready, and must
+not be reported as any of those. Nothing is hosted, no port is bound, and
+no process survives the command, so there is no "preview server" to offer
+to start. Read-only against the repository: no branch, no commit, no PR.
+
+**Q — Why wasn't the new visual published?** *"Why wasn't the new visual
+published?"* Verified Preview → the repair receipt. Read the run's receipt
+and report the verification state (`failed`, `incomplete`, or `stale`), the
+validator family that refused the candidate, and each finding as that
+validator worded it. Distinguish `incomplete` from `failed`: a browser
+family that could not run measured nothing, which is not the same as
+something being wrong, though both refuse promotion. Say plainly what the
+system did with the existing file — the last known good was preserved
+unchanged — rather than describing the outcome as a failed publish. This
+step diagnoses and changes no code.
+
+**Q — Fix the visual validation failures.** *"Fix the visual validation
+failures."* Two classes in order, and the boundary between them is the
+point. First, Verified Preview supplies the evidence: the repair receipt's
+findings and the repair categories it names. **Verified Preview does not
+autonomously repair** — it reports, and RVS never edits source, re-runs
+itself until it passes, or relaxes a profile to make a candidate promote.
+Second, only once the caller confirms they want the change made: reclassify
+as code implementation (§2.5), load `pr-governance` plus whatever skill owns
+the affected code, and treat it as a new, separately authorized task. A
+receipt naming a repair category is a suggestion about where to look, never
+authorization to make the change. Third, commit/push/PR remain their own
+explicit-authorization actions (§1.3), never implied by having read a
+receipt or having fixed the candidate.

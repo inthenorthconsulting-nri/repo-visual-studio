@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // Milestone 10.0's purity gate, enforced by the compiler rather than by
+    // convention: dropping "DOM" from the inherited lib list means a stray
+    // `document`, `window`, `SVGElement`, or `fetch` reference in this
+    // package is a type error, not a silently-accepted browser dependency.
+    // @rvs/visual-grammar and @rvs/visual-explorer emit markup as strings and
+    // keep the same restriction; only @rvs/renderer-html and @rvs/validator
+    // (which genuinely drive a browser) keep DOM in scope.
+    "lib": ["ES2022"]
+  },
+  "include": ["src"]
+}

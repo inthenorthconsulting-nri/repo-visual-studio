@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
-import { chromium } from "playwright";
+import { launchChromium, type BrowserLaunchOptions } from "./browser.js";
+import { MINIMUM_TEXT_SIZE_PX } from "@rvs/visual-intelligence";
 import { collectSceneReports, type CollectOptions, type SceneReport } from "./checks.js";
 
 export type ContrastLevel = "AA" | "AAA";
@@ -7,6 +8,27 @@ export type ContrastLevel = "AA" | "AAA";
 export interface ValidationOptions {
   minFontSizePx?: number;
   minimumContrast?: ContrastLevel;
+  /**
+   * Which polarity of a dual-polarity stylesheet to measure.
+   *
+   * Milestone 10.5 generates one stylesheet carrying both palettes, the dark
+   * one behind `prefers-color-scheme: dark`. A checker that only ever sees
+   * the browser's default reports on half of what ships, and contrast is
+   * exactly the property that differs between the halves -- so a dark theme
+   * could fail WCAG AA in every reader's browser while every run here came
+   * back clean. Defaults to the browser's own preference, which keeps every
+   * existing caller's behaviour unchanged.
+   */
+  colorScheme?: "light" | "dark";
+  /**
+   * Passed straight to the browser launcher.
+   *
+   * Exists so a caller can pin an install, and so the "browser unavailable"
+   * path is reachable in a test without mocking the launcher away -- pointing
+   * at an executable that is not there produces the real failure, through the
+   * real code, rather than a forged one.
+   */
+  launchOptions?: BrowserLaunchOptions;
 }
 
 export interface ValidationSummary {
@@ -32,7 +54,11 @@ export async function validateHtmlFile(
   htmlPath: string,
   options: ValidationOptions = {},
 ): Promise<ValidationReport> {
-  const minFontSizePx = options.minFontSizePx ?? 14;
+  // The floor lives in @rvs/visual-intelligence, not here. Milestone 10.5
+  // introduced a token layer that also has to know the smallest legible size,
+  // and two literals that must agree are two literals that eventually will
+  // not. This module still owns *enforcement*; it no longer owns the number.
+  const minFontSizePx = options.minFontSizePx ?? MINIMUM_TEXT_SIZE_PX;
   const contrast = CONTRAST_THRESHOLDS[options.minimumContrast ?? "AA"];
 
   const collectOptions: CollectOptions = {
@@ -42,11 +68,13 @@ export async function validateHtmlFile(
     largeTextPx: 24,
   };
 
-  const browser = await chromium.launch();
+  const browser = await launchChromium(options.launchOptions);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await page.goto(pathToFileURL(htmlPath).toString());
-    await page.emulateMedia({ media: "print" });
+    await page.emulateMedia(
+      options.colorScheme === undefined ? { media: "print" } : { media: "print", colorScheme: options.colorScheme },
+    );
     await page.waitForTimeout(50); // allow layout to settle after the media-query switch
 
     // tsx/esbuild's dev transform wraps nested named functions with calls to a

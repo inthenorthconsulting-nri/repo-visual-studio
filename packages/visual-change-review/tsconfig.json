@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // No "DOM", for the same reason @rvs/visual-explorer drops it: the review
+    // runtime is authored as *text* and never executed in this package, so
+    // nothing here may hold a live `document` or `window`. A builder that
+    // could read the environment could write the environment into the output.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts"]
+}

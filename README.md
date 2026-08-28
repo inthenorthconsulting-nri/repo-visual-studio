@@ -520,10 +520,9 @@ explain <id>`** prints one decision's, link's, or finding's full reasoning.
 **Explicit limitations**: no `rvs decisions new` command and no automatic
 decision creation, approval, rejection, or modification anywhere in the
 command surface — this is analysis and explanation only; no cost or effort
-estimation on debt findings; the 10 new governance rule kinds are
-implemented at the package level but **`rvs governance compare`/`check`
-were not modified to evaluate them** — see
-[`docs/decision-governance.md#wiring-status-implemented-but-not-connected-in-this-cli`](docs/decision-governance.md#wiring-status-implemented-but-not-connected-in-this-cli).
+estimation on debt findings. The 10 new governance rule kinds are wired
+end-to-end into `rvs governance compare`/`check` as of Milestone 8.1 — see
+[`docs/decision-governance.md#wiring-status-connected-end-to-end-milestone-81`](docs/decision-governance.md#wiring-status-connected-end-to-end-milestone-81).
 See
 [`docs/architecture-decision-intelligence.md#known-limitations`](docs/architecture-decision-intelligence.md#known-limitations)
 for the complete list.
@@ -534,6 +533,45 @@ layer, which unifies all six into one queryable graph with impact
 analysis, root-cause grouping, decision-invalidation analysis, and change
 planning — see
 [`docs/architecture-knowledge-graph.md`](docs/architecture-knowledge-graph.md).
+
+### Semantic visualization
+
+On top of the graph sits a visual layer that decides *how* to draw what the
+intelligence layers already established, and refuses to invent anything they
+did not. A model is classified by semantic intent, matched to a visual grammar
+by evidence rather than by preference, reduced to a readable budget under one
+ranked degradation policy, and shipped with a **fidelity receipt** accounting
+for every entity that did not survive the reduction — see
+[`docs/visual-intelligence.md`](docs/visual-intelligence.md),
+[`docs/visual-grammar.md`](docs/visual-grammar.md), and
+[`docs/adaptive-detail.md`](docs/adaptive-detail.md).
+
+**`rvs graph open`** writes a self-contained interactive architecture explorer
+— search, focus, lenses, an evidence drawer, shareable view state, no server
+and no network — see
+[`docs/interactive-architecture.md`](docs/interactive-architecture.md).
+
+**`rvs graph review --from <snapshot> --to <snapshot>`** writes a Before /
+Delta / After architecture change review over two snapshots: what existed
+before, what evidence-backed changes occurred, what exists after, and how each
+change connects to capabilities, governance findings, decisions, downstream
+reach and unresolved impact. It runs the same comparison engine `rvs graph
+compare` runs and re-derives no upstream truth of its own; it is read-only and
+posts, approves and blocks nothing. **`rvs export change-review-summary`**
+writes the same review as Markdown for a person to paste somewhere themselves.
+See
+[`docs/architecture-change-review.md`](docs/architecture-change-review.md).
+
+**`--verified`** puts either of those two commands behind a delivery gate.
+The renderer's output becomes a *candidate* staged inside `.rvs/cache/`, a
+named verification profile runs the contract, fidelity, graph, layout,
+accessibility, interaction and motion validators over it, and only a
+candidate that passed replaces the file at `--output` — atomically. A
+candidate that failed leaves the last known good file exactly as it was and
+writes a repair receipt naming which validator refused it and what to do
+about it. RVS never repairs, commits, pushes or publishes anything on its
+own. See
+[`docs/verified-preview.md`](docs/verified-preview.md).
 
 ## Self-hosting
 
@@ -576,6 +614,12 @@ packages/
   governance-intelligence/  architecture/capability/product(/portfolio) artifacts -> IntelligenceSnapshot diffing, policy evaluation, blast-radius assessment, claim-controlled ContinuousIntelligenceReport/GovernancePlan
   narrative-planner/  audience profiles + deterministic narrative brief + VisualDoc builder (incl. architecture-intelligence + showcase + portfolio + governance scenes)
   renderer-html/      VisualDoc + design tokens -> standalone HTML deck (incl. showcase/portfolio/governance scene templates + premium theme layer)
+  visual-intelligence/  semantic intent classification, grammar selection, complexity budgets, ranked degradation policy, fidelity receipts
+  visual-grammar/       VisualCommunicationSpec -> deterministic layout + SVG for each grammar (incl. the three-panel `delta`)
+  visual-composition/   model -> adapted spec + audience rendering (an audience changes wording and emphasis, never which entities survive)
+  visual-explorer/      self-contained interactive architecture explorer (`rvs graph open`)
+  visual-change-review/ Before/Delta/After architecture change review (`rvs graph review`)
+  visual-delivery/      candidate staging, profile verification, atomic promotion, repair receipts (`--verified`)
   validator/          Playwright-based overflow/contrast/evidence checks + workflow/terraform layout/evidence/divergence checks + architecture-intelligence label/budget/staleness checks + product-identity/showcase/portfolio checks
   exporter/            Playwright-based PDF export
   cli/                the `rvs` command (Commander)
@@ -693,6 +737,13 @@ network-touching step in the whole system is the one-time, user-initiated
   can only express what the evaluator already knows how to check
   deterministically. No external model. See
   [`docs/architecture-governance.md#known-limitations`](docs/architecture-governance.md#known-limitations)
+  for the complete list.
+- Verified delivery (`--verified`) gates the two visual commands only,
+  reports rather than repairs, and verifies the candidate a renderer just
+  produced — not an arbitrary HTML file. Preview is a `file://` path, not
+  a server, and nothing is watched, hosted or re-verified after the
+  command exits. See
+  [`docs/verified-preview.md#known-limitations`](docs/verified-preview.md#known-limitations)
   for the complete list.
 - No video export, PowerPoint export, or Canvas/animation renderer.
 - Not yet published to the npm registry — see

@@ -33,6 +33,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @rvs/validator exec playwright install --with-deps chromium
       - run: pnpm -r exec vitest run --passWithNoTests
 
   build-deck:

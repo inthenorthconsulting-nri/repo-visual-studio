@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // No "DOM", even though this package produces a page that runs in a
+    // browser. The runtime script is authored as *text* and never executed
+    // here, so nothing in this package may hold a live `document` or `window`
+    // -- which is also what keeps the artifact reproducible: a builder that
+    // could read the environment could write the environment into the output.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts"]
+}

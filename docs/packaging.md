@@ -9,18 +9,59 @@ record and acceptance-criteria results; this document is the reference for
 ## Distribution model
 
 **Bundling**, not multi-package publishing. Every internal `@rvs/*`
-package (`core`, `repository-model`, `narrative-planner`,
-`visualdoc-schema`, `renderer-html`, `validator`, `exporter`,
-`workflow-graph`, `workflow-mermaid`, `workflow-svg`) is compiled straight
-into a single `dist/bin.cjs`. A consumer of the published `@rvs/cli`
-package never resolves a `workspace:*` or `@rvs/*` dependency, because
-after the build there aren't any.
+package is compiled straight into a single `dist/bin.cjs` — the original
+set (`core`, `repository-model`, `narrative-planner`, `visualdoc-schema`,
+`renderer-html`, `validator`, `exporter`, `workflow-graph`,
+`workflow-mermaid`, `workflow-svg`), the intelligence packages added since,
+and the Milestone 10 visual stack (`visual-intelligence`,
+`visual-grammar`, `visual-composition`, `visual-explorer`,
+`visual-change-review`, `visual-delivery`). A consumer of the published `@rvs/cli` package
+never resolves a `workspace:*` or `@rvs/*` dependency, because after the
+build there aren't any.
 
-`playwright` is the one exception: it stays an external, real npm
-dependency rather than being bundled, because it manages its own
-browser-binary download logic keyed to its own package location — bundling
-it would fight that rather than help it, and Chromium binaries must never
-ship inside the CLI tarball.
+`playwright` and `@cdktf/hcl2json` are the exceptions: they stay external,
+real npm dependencies rather than being bundled. Playwright manages its
+own browser-binary download logic keyed to its own package location —
+bundling it would fight that rather than help it, and Chromium binaries
+must never ship inside the CLI tarball. `@cdktf/hcl2json` ships a WASM
+payload that has to be resolved from its own package directory.
+
+### The visual stack's packaging path
+
+```
+packages/visual-intelligence ─┐
+packages/visual-grammar       ├─ workspace:* devDependencies of @rvs/cli
+packages/visual-composition   │  (never runtime dependencies)
+packages/visual-explorer      │
+packages/visual-change-review │
+packages/visual-delivery      ┘
+                              │
+                              ▼
+                    esbuild (bundle: true)
+                              │
+                              ▼
+              packages/cli/dist/bin.cjs   ← the only thing that ships
+```
+
+Nothing in that chain is published, which is exactly why none of it may
+appear under `dependencies`. An earlier packaging defect left bundled
+visual packages listed as runtime `workspace:*` dependencies; an installed
+consumer was then told to fetch packages that exist on no registry. The
+guard against recurrence is an assertion over the *packed* manifest rather
+than the source one, because `pnpm pack` rewrites `workspace:*` to a
+concrete version as it packs — so a runtime `@rvs/*` entry would no longer
+be recognizable by the `workspace:` marker alone. The rule enforced is
+therefore the stronger one: **no `@rvs/*` key may appear in the packed
+manifest's `dependencies` at all**, whatever version range it carries.
+
+The browser half of the visual stack (the explorer's and change review's
+interaction algorithms and the semantic-motion player) is authored as text
+in the visual packages, inlined into `dist/bin.cjs` as ordinary string
+constants, and written into the generated HTML. The build applies no
+minification, so those payloads reach an installed consumer character for
+character as the source workspace emits them — which is what makes
+byte-level source/package comparison of a rendered artifact possible at
+all.
 
 Internal package boundaries are preserved in source (each `@rvs/*` package
 still has its own `package.json`, own tests, own `tsc --noEmit` target) —
@@ -51,7 +92,9 @@ The script:
 1. Wipes and recreates `dist/` and `assets/`.
 2. Bundles `src/bin.ts` → `dist/bin.cjs` — `bundle: true`, `platform:
    "node"`, `format: "cjs"`, `target: "node20"`, `sourcemap: true`,
-   `external: ["playwright"]`.
+   `external: ["playwright", "@cdktf/hcl2json"]`. No `minify` — see
+   [The visual stack's packaging path](#the-visual-stacks-packaging-path)
+   for why the absence of minification is load-bearing.
 3. Copies `design-systems/` → `assets/design-systems/` and
    `skills/repo-visual-studio/` (which already contains
    `schemas/visualdoc.schema.json`) → `assets/skills/repo-visual-studio/`.
@@ -69,7 +112,7 @@ embedded absolute build-machine paths.
 
 ## Runtime dependency strategy
 
-- **Real npm dependency**: `playwright` only.
+- **Real npm dependencies**: `playwright` and `@cdktf/hcl2json` only.
 - **Bundled into `dist/bin.cjs`**: every `@rvs/*` internal package, plus
   their third-party transitive dependencies (`commander`, `yaml`, `zod`,
   `fast-glob`, `mdast-util-to-string`, `remark-parse`, `unified`,
@@ -266,6 +309,114 @@ system is `npx playwright install chromium` itself, which is an explicit,
 user-initiated one-time setup step, not something the CLI triggers on its
 own.
 
+## Installed-tarball equivalence
+
+Packaging is not proven by "the CLI starts". It is proven by generating
+the same artifacts twice — once from workspace source through `tsx`, once
+from a real tarball installed into a fresh external project — and
+requiring them to be the same artifact.
+
+`packages/cli/src/__tests__/source-vs-package-equivalence.test.ts` builds
+the CLI, packs it, `npm install --no-save`s the tarball into a temporary
+directory outside this repository whose path contains spaces, and drives
+both engines through identical scenarios: the interactive architecture
+explorer, the before/delta/after change review, the dependency-graph
+grammar, and root-cause grouping. The packaged side is invoked only as
+`npx rvs` or as the installed `dist/bin.cjs`; the source checkout is
+removed from `PATH` and every `npm_*`/`PNPM_*`/`NODE_PATH` variable is
+stripped, so a packaged run that silently reached back into the monorepo
+would fail rather than pass.
+
+What is compared, per artifact:
+
+| Layer | Compared as |
+| --- | --- |
+| VisualCommunicationSpec | the `data-rvs-*` spec attributes: id, schema version, intent, grammar, detail mode, motion intent, audience, format, focal ids |
+| Semantic design tokens | every `--rvs-*` custom property and its value |
+| Primitive / state model | the serialized `#rvs-model` / `#rvs-review` JSON island — nodes, edges, entities, changes, paths, unresolved relations, lenses, glyphs |
+| FidelityReceipt | the rendered receipt section in full: counts, preserved ids, collapsed groups, hidden ids, stand-ins, split views, reason codes, digests |
+| Accessibility metadata | every `aria-*`, `role`, `tabindex`, `<title>`/`<desc>` |
+| MotionPlan | the inlined `MOTION_ALGORITHMS` text, executed in an isolated `node:vm` context on both sides over every motion mode including the budget-compression path and reduced motion |
+| Motion runtime | the `MOTION_PLAYER` payload, character for character |
+| SVG geometry | the `<svg>` subtree, unnormalized — a geometry difference is a defect, not a tolerance |
+| Rendered HTML | byte-for-byte, after every layer above has been diffed individually so a failure names the layer that broke |
+
+Byte identity is asserted rather than approximated: the interactive
+artifacts embed no timestamp, no absolute path and no run-specific value,
+so there is nothing legitimate to normalize away. Five values are
+normalized anywhere in that test file, none of them belonging to a visual
+artifact, and each is declared at the point it is applied: the validator
+report's `generated_at` and `source_file`, the run root quoted inside an
+expected-error message, `rvs doctor`'s own path lines and Playwright
+version (the isolated install resolves the `^1.48.0` range for itself),
+and `npm warn`/`npm notice` lines that `npx` prints about the ambient npm
+configuration before `rvs` starts.
+
+Beyond equivalence, the same test asserts the packaging properties that
+equivalence alone would not catch: the packed file list contains no source,
+fixtures, caches, coverage or artifacts; all three design profiles resolve
+from `assets/design-systems` with no silent theme fallback; the generated
+pages declare their offline CSP and reference no remote asset; the motion
+runtime contains no `eval`, `new Function`, `innerHTML`, `setInterval`,
+`requestAnimationFrame`, `fetch(`, `XMLHttpRequest` or `WebSocket`; five
+consecutive packaged runs from five differently-named directories produce
+identical output; and shuffling every input array produces identical
+output.
+
+Finally, Playwright drives the *real generated files* — not hand-authored
+fixtures — from both sides, comparing focused ids, selected ids, route
+ids, motion emphasis, announcement text and reduced-motion behaviour.
+
+### Verified delivery, packaged
+
+The same test file runs the whole delivery gate through the installed CLI:
+six `--verified` invocations against two targets — explorer V1 promotes,
+V2 is refused with the browser made unreachable, V3 promotes; then the
+same three stages for the change review. Compared between source and
+package: the candidate identity, the verification profile and its config
+digest, the verification digest, every finding, the repair receipt (JSON
+and Markdown), the promotion state, the verified/last-known-good metadata,
+the console output line for line, and the promoted target's bytes. Two
+further normalizations are declared there, both belonging to what a CLI
+*said* rather than to what it drew: the three clock fields
+(`created_at`, `verified_at`, `generated_at`) and Playwright's own browser
+build string inside the "browser verification is unavailable" message,
+which names a build path that necessarily differs between an isolated
+install and the workspace.
+
+A second packaged test repeats a full verified promotion with the network
+hard-blocked by a `--require` preload, and asserts the candidate id,
+verification digest and promoted bytes match the online packaged run.
+Chromium launches over a pipe rather than a socket, so the complete
+interactive profile — rendered layout, accessibility and keyboard
+interaction — really runs under that block rather than degrading to a
+browser-free subset.
+
+The packaged middle stage is an *infrastructure* refusal rather than a
+content one, and that is a property of the system rather than a gap: `rvs`
+verifies only what its own renderers just produced, and those renderers
+never emit a content-invalid candidate. The content rejections are proved
+at source level against real validator output. The reasoning is written
+out in [`verified-preview.md`](verified-preview.md#why-the-packaged-proof-rejects-on-infrastructure).
+
+One scenario is compared indirectly, and the reason is worth stating
+rather than hiding: the `root_cause` intent and `fishbone` grammar exist
+and are selected by `@rvs/visual-intelligence`, but no CLI command renders
+through them — `rvs graph roots`, the root-cause surface, emits grouped
+causes as text and JSON, not a drawing. The suite therefore compares the
+layer that genuinely exists on both sides (the grouped-cause analysis and
+its evidence) and separately asserts that the grammar itself survived
+bundling, rather than adding a production command purely so a test could
+say "fishbone".
+
+These tests build and install a real tarball, so they are gated behind
+`RVS_TEST_PACKAGE=1` and skipped in a normal `pnpm test` run:
+
+```bash
+pnpm test                      # workspace behaviour
+RVS_TEST_PACKAGE=1 pnpm test   # + pack, install and compare
+```
+
 ## Installation scenarios covered
 
 - **Project-local install** (`npm install /path/to/rvs-cli.tgz` inside a
@@ -292,6 +443,3 @@ own.
   `npm publish` release flow exists.
 - The literal machine-wide `npm install -g` path (as opposed to an
   isolated `--prefix` sandbox) is not exercised by automated tests.
-- `npm pack --dry-run`'s file list is spot-checked, not asserted by an
-  automated test that would fail a future accidental `files` allowlist
-  regression.

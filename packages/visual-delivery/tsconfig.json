@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // No "DOM". This package decides whether an artifact may replace another
+    // one; it never touches a document. The browser-side checks it
+    // orchestrates live in @rvs/validator, which owns that boundary already.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts"]
+}

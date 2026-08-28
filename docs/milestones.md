@@ -2351,7 +2351,7 @@ addition purely to this CLI's own cache layout, since
 never embeds the raw architecture/capability/product/portfolio JSON it was
 fingerprinted from, only a per-domain digest. Full design:
 [docs/governance-showcase.md](governance-showcase.md) and
-[docs/governance-baselines.md](governance-baselines.md#the-snapshot-envelope-format).
+[docs/governance-baselines.md](governance-baselines.md#the-clis-on-disk-envelope-rawartifacts).
 
 ### 3. Key design decisions
 
@@ -3172,3 +3172,333 @@ and `docs/decision-governance.md`).
 
 Nothing from this milestone has been committed, pushed, merged, or opened
 as a pull request.
+
+## Milestone 10 — Semantic Visualization Intelligence
+
+**Status: slices 10.1–10.6 implemented, uncommitted on
+`feature/semantic-visualization-interactive-architecture`.** Objective: a
+layer that decides *how* to draw what Milestones 1–9 already established,
+and invents nothing they did not. Six new packages sit
+above the knowledge graph — `@rvs/visual-intelligence` (semantic intent,
+grammar selection, complexity budgets, the ranked degradation policy,
+fidelity receipts), `@rvs/visual-grammar` (deterministic layout and SVG per
+grammar), `@rvs/visual-composition` (adaptation plus audience rendering),
+`@rvs/visual-explorer` (`rvs graph open`), `@rvs/visual-change-review`
+(`rvs graph review`), and `@rvs/visual-delivery` (the `--verified`
+delivery gate) — none of which re-scans a repository, re-derives an
+upstream verdict, calls an external model, or reaches the network.
+
+Design documents carry the detail:
+[`docs/visual-intelligence.md`](visual-intelligence.md),
+[`docs/visual-grammar.md`](visual-grammar.md),
+[`docs/adaptive-detail.md`](adaptive-detail.md),
+[`docs/fidelity-receipts.md`](fidelity-receipts.md),
+[`docs/interactive-architecture.md`](interactive-architecture.md),
+[`docs/architecture-change-review.md`](architecture-change-review.md), and
+[`docs/verified-preview.md`](verified-preview.md). This
+entry records slice boundaries, coverage facts, and repository state, and
+defers to those seven for everything else.
+
+### 1. Slices
+
+- **10.1 — Visual intelligence core.** Semantic intent vocabulary, evidence-
+  weighted grammar selection (a grammar is *earned*, never assigned by
+  preference), per-grammar complexity budgets derived from the canonical
+  1088×576 content box and a 14px legibility floor rather than asserted, and
+  the `VisualCommunicationSpec` every downstream renderer consumes.
+- **10.2 — Grammar rendering and fidelity receipts.** Seven layout engines
+  covering the fifteen grammars, the shared coordinate contract, and the mandatory fidelity receipt: every
+  source entity is preserved, collapsed into a disclosed group, or hidden with
+  a receipt entry naming it, and `validateFidelityReceipt` proves those three
+  destinations partition the source set.
+- **10.3 — Interactive architecture explorer and degradation-policy
+  hardening.** `rvs graph open`, the two-copy runtime discipline (pure
+  algorithms exist in TypeScript and as browser text, and are tested against
+  each other in a `node:vm` context with no host objects), the anchor floor,
+  and split-before-shrink.
+- **10.4 — Before / Delta / After architecture change review.** `rvs graph
+  review` and `rvs export change-review-summary`, below.
+- **10.5 — Visual design, accessibility and semantic motion.** Semantic
+  design tokens (`design-tokens.ts`, `tokens-bridge.ts`) replacing the
+  hard-coded neutral style, the accessibility contract
+  (`accessibility.ts`) and its rendered proof against real files, and
+  finite semantic motion (`motion.ts` plus the browser-side
+  `motion-runtime.ts`) — every plan bounded, interruptible, skippable,
+  non-blocking, and empty under a reduced-motion preference. Its packaging
+  hardening is [§5](#5-milestone-105--installed-tarball-visual-equivalence)
+  below.
+- **10.6 — Verified preview and delivery.** `--verified` on both visual
+  commands: candidate staging, named verification profiles, the promotion
+  gate, repair receipts, and last-known-good preservation —
+  [§6](#6-milestone-106--verified-preview-and-delivery) below.
+
+### 2. Milestone 10.4
+
+New package `packages/visual-change-review` (`@rvs/visual-change-review`), 11
+non-test source modules: `contracts.ts` (the `ChangeReviewModel`, the
+eight-member change vocabulary, the three route kinds), `source.ts` (assembly
+from an already-computed `GraphChangeSet` plus governance findings, decision
+impacts, and cached impact results), `causality.ts` (confirmed / related /
+unresolved, containing no traversal at all), `lenses.ts` (six lenses that
+change visibility and emphasis and nothing else), `validation.ts` (twelve
+codes, each reachable and tested), `artifact.ts`, `runtime.ts`, `styles.ts`,
+`view-state.ts`, `ids.ts`, `index.ts`.
+
+It computes no difference of its own: `diffGraphs` is the same function
+`rvs graph compare` calls, and the CLI's `collectChangeReviewSource` is shared
+by the review and the summary so the two cannot disagree. Architecture diff,
+capability regression, governance finding, decision drift, impact path, and
+blast radius are all read, never re-derived. The command is read-only in the
+strongest sense available to a program: it writes a file, and posts, comments,
+approves, and blocks nothing.
+
+`@rvs/visual-intelligence` gained exactly one degradation rank —
+`VISUAL_PRESERVE_CHANGE_SUBJECT` at rank 3 — which is also what finally made
+`FIDELITY_ANCHOR_RELEASED` reachable by a test: release requires relocatable
+anchors, and change subjects are the first anchor kind that is one.
+
+### 3. Key design decisions
+
+- **Snapshot comparability turns on availability, not `complete` provenance.**
+  `assessSnapshotPairCompatibility` originally required a domain to be
+  `complete` in both snapshots. `rvs graph build` records no upstream snapshot
+  ids, so no snapshot RVS can actually produce has a `complete` domain, and
+  the gate refused every real pair. A check no real input can pass is not a
+  safety property; comparability now asks which domains were *read*, and
+  `docs/architecture-change-review.md#comparability` records why.
+- **No change-prefixed fidelity vocabulary.** A Delta view reports its
+  reductions with the codes every other grammar uses. A
+  `FIDELITY_CHANGE_SPLIT_VIEW` beside `FIDELITY_SPLIT_INTO_VIEWS` would be two
+  names for one event; the receipt already records the grammar.
+- **Only depth-1 reach becomes a drawn route.** `impact-results.json` records
+  that a deeper entity was reached and at what depth, but not the entities
+  between — so drawing origin → entity for a depth-4 reach would draw a
+  relationship that does not exist. Deeper reach still reaches the reader
+  through blast radius, and the command reports how many routes it declined to
+  draw.
+- **Unknown impact has fixed wording.** Three permitted statements, all about
+  the evidence; "no downstream impact", "safe change", and "no consumers" are
+  banned by test, because those are claims about the architecture.
+
+### 4. Test coverage and verification
+
+`@rvs/visual-change-review`: 128 tests across 6 files (`artifact`, `causality`,
+`runtime-parity`, `source`, `validation`, `view-state`) over the 15 fixtures
+the slice requires, including no-change, each change type, the causal chain,
+the large delta that forces split views, simplified mode against the anchor
+floor, and reordered inputs. Determinism is proved by five repeated builds per
+fixture with node, change, finding, decision, evidence, and lens order
+shuffled, compared byte-for-byte. The installed-tarball equivalence proof was
+extended to `rvs graph review` with nothing stripped from either side.
+
+### 5. Milestone 10.5 — installed-tarball visual equivalence
+
+The visual stack is bundled into `dist/bin.cjs`, so "it works in the
+workspace" says nothing about what an installed consumer gets.
+`packages/cli/src/__tests__/source-vs-package-equivalence.test.ts` gained 14
+tests that pack the CLI, `npm install --no-save` the tarball into a
+temporary project outside this repository under a path containing spaces,
+strip the checkout from `PATH` along with every `npm_*`/`PNPM_*`/`NODE_PATH`
+variable, and run four scenarios through both engines: the interactive
+explorer, the before/delta/after change review, the dependency-graph
+grammar, and root-cause grouping.
+
+Each artifact is compared layer by layer — spec attributes, semantic design
+tokens, the serialized primitive/state model, the fidelity receipt, every
+ARIA attribute, the SVG geometry, the inlined motion algorithms (executed in
+an isolated `node:vm` context on both sides, over every mode including
+budget compression and reduced motion), the motion player payload, the CSP —
+and then byte for byte. The layered diffs exist so that a failure names the
+layer that broke; the byte comparison exists because these artifacts embed
+no timestamp and no absolute path, so there is nothing legitimate to
+normalize. Playwright then drives the real generated files from both sides
+and compares focused ids, selected ids, route ids, motion emphasis and
+announcement text.
+
+Five values are normalized in the whole file, none belonging to a visual
+artifact, each declared where it is applied: the validator report's
+`generated_at` and `source_file`, the run root quoted inside an
+expected-error message, `rvs doctor`'s path lines and Playwright version
+(the isolated install resolves `^1.48.0` for itself), and the `npm warn`
+lines `npx` prints about the ambient npm configuration.
+
+Offline behaviour is proved rather than asserted: a `--require` preload
+throws from `net.Socket.prototype.connect`, `net.connect`,
+`net.createConnection`, `http`/`https` `request`/`get` and
+`globalThis.fetch`, and the packaged commands still produce identical
+artifacts under it. Alongside that: the packed file list carries no source,
+fixtures, caches, coverage or artifacts (34 files, 1.8 MB packed); all three
+design profiles resolve from `assets/design-systems` with no silent theme
+fallback; the motion runtime contains no `eval`, `new Function`,
+`innerHTML`, `setInterval`, `requestAnimationFrame`, `fetch(`,
+`XMLHttpRequest` or `WebSocket`; five packaged runs from five
+differently-named directories and a fully shuffled input ordering all
+produce identical output.
+
+**The workspace-dependency guard.** An earlier packaging defect left bundled
+visual packages as runtime `workspace:*` dependencies, telling an installed
+consumer to fetch packages that exist on no registry. `pnpm pack` rewrites
+`workspace:*` to a concrete version as it packs, so a guard looking for the
+`workspace:` marker in the packed manifest would find nothing and pass. The
+assertion is therefore the stronger one: no `@rvs/*` key may appear in the
+packed manifest's `dependencies` at all.
+
+**One real defect found and fixed.** The duplicate-DOM-id check required by
+this slice failed on the explorer: `renderGrammar` prefixed every element id
+with the *spec* id, which is correct when a spec produces one drawing and
+wrong when it produces several. The explorer renders one spec as an overview
+plus a detail view per split, all in one document, so every view minted the
+same `-title`, `-desc` and `-arrow-*` ids — and because `aria-labelledby`
+resolves to the first matching id in a document, each detail view was
+announced with the overview's name and description while its own were
+unreachable. `RenderInput` gained `id_scope`, `composeSplit` passes the view
+id, and `packages/visual-composition/src/__tests__/element-ids.test.ts`
+holds the fix: no id minted twice however many views a spec produced, every
+view's `aria-labelledby` pointing at its own title and description, and both
+stable across runs. The difference was fixed at its root rather than
+normalized away in the comparison.
+
+**Known limitation, stated rather than papered over.** The `root_cause`
+intent and `fishbone` grammar are implemented and selected by
+`@rvs/visual-intelligence`, but no CLI command renders through them — `rvs
+graph roots` emits grouped causes as text and JSON, not a drawing. That
+scenario compares the layer that exists on both sides and separately asserts
+the grammar survived bundling, rather than adding a production command
+purely so a test could say "fishbone".
+
+Verification: `pnpm -r exec tsc --noEmit` clean; `pnpm test` 3902 passed, 24
+skipped across 240 files; `RVS_TEST_PACKAGE=1 pnpm test` 3926 passed across
+242 files, no failures and nothing skipped.
+[`docs/packaging.md`](packaging.md#installed-tarball-equivalence) is the
+reference for the mechanism.
+
+### 6. Milestone 10.6 — verified preview and delivery
+
+A safety and delivery layer over the visual system 10.1–10.5 built, not a
+second renderer and not a second validation framework. New package
+`packages/visual-delivery` (`@rvs/visual-delivery`), 13 non-test source
+modules: `contracts.ts`, `candidate.ts` (staging and identity),
+`validation-profile.ts` (the four named profiles), `verification.ts` (the
+orchestrator), `promotion.ts` (atomic replace), `receipts.ts`,
+`repairs.ts`, `history.ts`, `preview.ts`, `ids.ts`, `security.ts`,
+`deliver.ts`, `index.ts`; plus `packages/cli/src/visual-delivery.ts`, the
+one delivery path both commands share so that "verified" cannot come to
+mean two different things depending on which command produced the file.
+
+The pipeline is: candidate → contract → fidelity → graph/reference →
+layout → accessibility → interaction → motion → decision, and on PASS an
+atomic replace of the target, on FAIL the last known good file left exactly
+as it was. It orchestrates the validators that already existed
+(`@rvs/visual-intelligence`, `@rvs/visual-grammar`'s coordinate contract,
+`@rvs/validator`'s rendered and interaction checks,
+`@rvs/visual-change-review`'s twelve codes) and redefines none of their
+truth.
+
+- **Four profiles**, versioned by identity: `visual-standard-v1` (no
+  browser), `visual-interactive-v1`, `visual-change-review-v1`,
+  `visual-print-v1`. A profile's semantics never change while its id stays
+  the same; the verification digest folds in the profile id, its
+  configuration digest, and the semantic version of each validator that
+  ran, so a receipt states what it was actually measured against.
+- **Four verification states** — `passed`, `failed`, `incomplete`,
+  `stale`. Only `passed` promotes. `incomplete` (a browser family that
+  could not run) is deliberately not `failed`: nothing was measured, which
+  is not the same as something being wrong, and both refuse promotion.
+- **Named profiles only.** There is no flag for a threshold, a rule or a
+  validator: the artifact being gated does not choose how strictly it is
+  gated.
+- **Preview is a file, not a server.** A `file://` path and one of four
+  status labels — Verified / Candidate validating / Candidate rejected /
+  Last known good retained. No daemon survives the command, nothing is
+  hosted, nothing is watched, no port is bound.
+- **Repair receipts report; they never repair.** Ten repair categories
+  plus two infrastructure actions, each finding mapped to the categories
+  that could address it. Fixing a rejected candidate is an implementation
+  task a person authorizes, routed through PR Governance like any other.
+
+**One real defect found and fixed at its root.** The layout family passed
+over zero measurements on exactly the two artifacts this gate exists to
+gate. `@rvs/validator`'s `overflow` rule only speaks when a scene declares
+`.scene-inner`, and the explorer and the change review deliberately omit it
+because they scroll on purpose — so `layout: passed, checks: 0`, which is
+an absence rather than a pass. Per §3 of the slice ("do not create a second
+visual-validation framework"; add a missing invariant to the owning
+package), `@rvs/validator` gained a second rendered layout rule,
+`node-overlap`: two entity boxes never occupy the same place. It compares
+painted rectangles within one `<svg>` root, skips zero-sized elements,
+allows 2px in both axes for shared borders and viewBox rounding, and sorts
+deterministically so the same drawing always names the same pair first. It
+is wired into the layout family with its own required value, mapped to
+repair categories, and grouped with `overflow` under `fail_on_overflow` for
+`rvs validate --ci`. No fake validator result was created to make a test
+pass, and no assertion was relaxed to accept the absence.
+
+**Four more defects, all fixed where they came from.** Building the gate
+meant pointing the existing validators at the two interactive artifacts for
+the first time, and they had things to say. (1) `min-font-size` measured
+the *declared* size: `getComputedStyle` on an SVG `<text>` reports 14px
+however many fit transforms shrink it on the way to the screen, so a page
+whose smallest text rendered at 9px passed a 14px floor. It now multiplies
+by the element's `getScreenCTM` scale and measures what a reader sees —
+which immediately found the explorer rendering 13.6px chrome text. (2) The
+dark palette was never measured at all: it is not a separate file but a
+`prefers-color-scheme: dark` block in the same stylesheet, so every run had
+been checking half of what ships, and contrast is precisely the property
+that differs between the halves. `validateHtmlFile` gained a `colorScheme`
+option and `rvs validate` now runs each interactive artifact under both.
+(3) That second polarity found two real contrast failures in
+`editorial-light`'s tokens — `accent` and `warning` — corrected in the token
+file rather than excused in the checker. (4) The 14px floor existed as a
+literal in two packages; `@rvs/validator` now takes
+`MINIMUM_TEXT_SIZE_PX` from `@rvs/visual-intelligence` and owns enforcement
+rather than the number. The delivery layer passes the primary view's real
+`render_scale` through for the same reason the CTM fix exists: a floor
+measured against a pre-layout size is not a floor.
+
+**A zero-check family that is honest, and stays.** `motion` reports zero
+checks on the static explorer, because `rvs graph open` renders a static
+surface and passes no motion plan. §33 says static is valid; the packaged
+assertion therefore requires *exactly* zero there and greater than zero
+everywhere else, rather than the behaviour being changed to manufacture a
+check.
+
+**Coverage.** `@rvs/visual-delivery`: 139 tests across 7 files
+(`delivery`, `identity`, `promotion`, `receipts`, `security`, `staging`,
+`verification`). At CLI level, `verified-delivery.test.ts` (11 tests)
+drives real `rvs graph open` / `rvs graph review` runs end to end —
+promotion, rejection with the last known good preserved byte for byte,
+generation-monotonic promotion refusal, the entity-boxes-stacked rejection
+against real Chromium — and `rendered-accessibility.test.ts` (8 tests)
+measures the new layout rule on both real surfaces, including the case
+that must *not* be called a collision: two views of one page whose
+coordinate spaces coincide. The installed-tarball proof was extended with
+six `--verified` invocations across both targets plus an offline repeat;
+[`docs/packaging.md`](packaging.md#verified-delivery-packaged) records what
+is compared and the two normalizations declared there.
+
+Verification: `pnpm -r exec tsc --noEmit` clean; `pnpm test` 4056 passed,
+26 skipped across 250 files; `RVS_TEST_PACKAGE=1 pnpm test` 4082 passed
+across 250 files, no failures and nothing skipped.
+
+### 7. Current repository state
+
+Milestone 10's work, 10.6 included, sits uncommitted on
+`feature/semantic-visualization-interactive-architecture`, whose merge base
+with `main` is its own HEAD (`4001642`) — the branch carries no commits.
+`git status --short` shows the new `packages/visual-*` package directories
+(`visual-intelligence`, `visual-grammar`, `visual-composition`,
+`visual-explorer`, `visual-change-review`, `visual-delivery`), the new CLI
+command and support modules (`graph-open.ts`, `graph-review.ts`,
+`export-change-review-summary.ts`, `visual-delivery.ts`,
+`snapshot-dir.ts`), the new validator modules (`browser.ts`,
+`interaction-checks.ts`, `validate-interaction.ts`), the new CLI test files
+(`verified-delivery.test.ts`, `rendered-accessibility.test.ts`,
+`upstream-fixtures.ts`), the seven new design documents, and modifications
+to `bin.ts`, `validate.ts`, `graph-compare.ts`, `checks.ts`, the two
+package manifests, `README.md`, `MASTER_AGENT.md`,
+`skills/repo-visual-studio/SKILL.md` and this file. No candidate,
+verification or promoted-target artifact is tracked: everything the
+delivery layer writes lands under the git-ignored `.rvs/cache/`, and the
+one file a verified run replaces is the `--output` path the user named.
+Nothing from this milestone has been committed, pushed, merged, or opened as a
+pull request.

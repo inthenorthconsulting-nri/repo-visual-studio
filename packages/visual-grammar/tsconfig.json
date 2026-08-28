@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // The same compiler-enforced purity gate @rvs/visual-intelligence uses.
+    // This package emits SVG as *strings*: it never touches an SVGElement, a
+    // document, or a browser API, and dropping "DOM" makes that a type error
+    // rather than a code-review convention. It is also what lets the same
+    // renderer run in the CLI, in a test, and inside a page without behaving
+    // differently in any of them.
+    "lib": ["ES2022"]
+  },
+  "include": ["src"]
+}

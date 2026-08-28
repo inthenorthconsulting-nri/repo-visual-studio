@@ -12,6 +12,7 @@ import { runDecisionsExplain } from "./commands/decisions-explain.js";
 import { runDecisionsValidate } from "./commands/decisions-validate.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runExportCapabilities } from "./commands/export-capabilities.js";
+import { runExportChangeReviewSummary } from "./commands/export-change-review-summary.js";
 import { runExportDecisionReport } from "./commands/export-decision-report.js";
 import { runExportDecisionSummary } from "./commands/export-decision-summary.js";
 import { runExportGraphReport } from "./commands/export-graph-report.js";
@@ -33,6 +34,8 @@ import { runGraphCompareCommand } from "./commands/graph-compare.js";
 import { runGraphExplainCommand } from "./commands/graph-explain.js";
 import { runGraphImpactCommand } from "./commands/graph-impact.js";
 import { runGraphInspectCommand } from "./commands/graph-inspect.js";
+import { runGraphOpenCommand } from "./commands/graph-open.js";
+import { runGraphReviewCommand } from "./commands/graph-review.js";
 import { runGraphPathCommand } from "./commands/graph-path.js";
 import { runGraphPlanChangeCommand } from "./commands/graph-plan-change.js";
 import { runGraphRootsCommand } from "./commands/graph-roots.js";
@@ -363,6 +366,35 @@ graph
   });
 
 graph
+  .command("open")
+  .description("Write a self-contained interactive architecture explorer (one HTML file; no server, no network, nothing left running)")
+  .option("--output <path>", "where to write the file (default: .rvs/out/architecture-explorer.html)")
+  .option("--audience <audience>", "executive|product|architecture-review|engineering|operations|mixed (default: engineering)")
+  .option("--detail <mode>", "faithful|balanced|simplified (default: balanced)")
+  .option("--focus <entity-id>", "entity to open focused on; never adapted away (repeatable)", (value: string, previous: string[]) => [...previous, value], [] as string[])
+  .option("--verified", "verify the generated candidate first, and replace --output only if every required check passes; on failure the existing file is left exactly as it was and a repair receipt is written")
+  .option("--profile <id>", "verification profile for --verified: visual-standard-v1|visual-interactive-v2|visual-change-review-v2|visual-print-v1 (default: visual-interactive-v2)")
+  .action(async (opts: { output?: string; audience?: string; detail?: string; focus?: string[]; verified?: boolean; profile?: string }) => {
+    await runGraphOpenCommand(process.cwd(), opts, logger);
+  });
+
+graph
+  .command("review")
+  .description("Write a self-contained before/delta/after architecture change review over two snapshots (one HTML file; read-only, no server, no network)")
+  .option("--from <snapshot-dir>", "directory containing the baseline graph-snapshot.json/nodes.json/edges.json (required)")
+  .option("--to <snapshot-dir>", "directory containing the target graph-snapshot.json/nodes.json/edges.json (required)")
+  .option("--output <path>", "where to write the file (default: artifacts/visuals/change-review.html)")
+  .option("--audience <audience>", "executive|product|architecture-review|engineering|operations|mixed (default: engineering)")
+  .option("--detail <mode>", "faithful|balanced|simplified (default: balanced)")
+  .option("--lens <lens>", "architecture|capabilities|governance|decisions|impact|unresolved (default: architecture)")
+  .option("--motion <mode>", "none|compare (default: compare)")
+  .option("--verified", "verify the generated candidate first, and replace --output only if every required check passes; on failure the existing file is left exactly as it was and a repair receipt is written")
+  .option("--profile <id>", "verification profile for --verified: visual-standard-v1|visual-interactive-v2|visual-change-review-v2|visual-print-v1 (default: visual-change-review-v2)")
+  .action(async (opts: { from?: string; to?: string; output?: string; audience?: string; detail?: string; lens?: string; motion?: string; verified?: boolean; profile?: string }) => {
+    await runGraphReviewCommand(process.cwd(), opts, logger);
+  });
+
+graph
   .command("explain")
   .description("Print a human-readable explanation for a node/edge/impact-result/root-cause-group/decision-impact/change-plan id")
   .argument("<id>", "id to explain")
@@ -376,6 +408,16 @@ exportCmd
   .description("Export the deck to a paginated PDF")
   .action(async () => {
     await runExportPdf(process.cwd(), logger);
+  });
+
+exportCmd
+  .command("change-review-summary")
+  .description("Write a Markdown summary of an architecture change review (local file only; posts nothing, approves nothing)")
+  .option("--from <snapshot-dir>", "directory containing the baseline graph-snapshot.json/nodes.json/edges.json (required)")
+  .option("--to <snapshot-dir>", "directory containing the target graph-snapshot.json/nodes.json/edges.json (required)")
+  .option("--output <path>", "output path (default: change-review-summary.md)")
+  .action(async (opts: { from?: string; to?: string; output?: string }) => {
+    await runExportChangeReviewSummary(process.cwd(), opts, logger);
   });
 
 exportCmd

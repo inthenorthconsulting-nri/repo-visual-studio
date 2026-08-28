@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // No "DOM". Composition decides *what document to produce*, then hands
+    // the work to @rvs/visual-grammar, which emits SVG as text. Nothing here
+    // may reach for a browser API, and the compiler is what enforces it
+    // rather than a reviewer noticing.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts"]
+}
