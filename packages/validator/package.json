@@ -13,6 +13,7 @@
     "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/repository-model": "workspace:*",
     "@rvs/terraform-graph": "workspace:*",
+    "@rvs/visual-intelligence": "workspace:*",
     "@rvs/visualdoc-schema": "workspace:*",
     "@rvs/workflow-graph": "workspace:*",
     "@rvs/workflow-svg": "workspace:*",

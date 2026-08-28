@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Logger } from "@rvs/core";
-import { defaultConfig, serializeConfig } from "@rvs/core";
 import type {
   ChangePlanEntry,
   DecisionImpactEntry,
@@ -13,7 +12,8 @@ import type {
   RootCauseGroup,
   ValidationFinding,
 } from "@rvs/knowledge-graph";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { chromium, type Browser, type Page } from "playwright";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runCreateSlides } from "../commands/create-slides.js";
 import { runExportGraphReport } from "../commands/export-graph-report.js";
 import { runExportImpactSummary } from "../commands/export-impact-summary.js";
@@ -23,8 +23,11 @@ import { runGraphCompareCommand } from "../commands/graph-compare.js";
 import { runGraphExplainCommand } from "../commands/graph-explain.js";
 import { runGraphImpactCommand } from "../commands/graph-impact.js";
 import { runGraphInspectCommand } from "../commands/graph-inspect.js";
+import { runGraphOpenCommand } from "../commands/graph-open.js";
 import { runGraphPathCommand } from "../commands/graph-path.js";
 import { runGraphPlanChangeCommand } from "../commands/graph-plan-change.js";
+import { runExportChangeReviewSummary } from "../commands/export-change-review-summary.js";
+import { runGraphReviewCommand } from "../commands/graph-review.js";
 import { runGraphRootsCommand } from "../commands/graph-roots.js";
 import { runGraphValidateCommand } from "../commands/graph-validate.js";
 
@@ -47,220 +50,15 @@ import { runGraphValidateCommand } from "../commands/graph-validate.js";
 // real code path it exercises.
 // ---------------------------------------------------------------------------
 
-function makeLogger(): Logger & { infos: string[]; warns: string[]; errors: string[] } {
-  const infos: string[] = [];
-  const warns: string[] = [];
-  const errors: string[] = [];
-  return {
-    infos,
-    warns,
-    errors,
-    info: (m: string) => infos.push(m),
-    warn: (m: string) => warns.push(m),
-    error: (m: string) => errors.push(m),
-    debug: () => {},
-  };
-}
+import {
+  archiveSnapshot,
+  makeLogger,
+  REPOSITORY_ID,
+  writeBaseRepoFixtures,
+  writeFullUpstreamFixtures,
+  writePolicyFixture,
+} from "./upstream-fixtures.js";
 
-// `rvs create slides --profile knowledge-graph` (case: create-slides)
-// unconditionally calls loadConfig()/readCachedJson() for
-// repository-model.json/evidence-manifest.json BEFORE any profile-specific
-// branching runs (see create-slides.ts's runCreateSlides top few lines,
-// shared verbatim by every profile) -- so exercising the graph-specific "no
-// cached plan" error requires these three fixtures to already be in place,
-// mirroring decisions-cli.test.ts's/governance-cli.test.ts's
-// writeBaseRepoFixtures precedent exactly.
-function writeBaseRepoFixtures(repoRoot: string): void {
-  mkdirSync(resolve(repoRoot, ".rvs/cache"), { recursive: true });
-  writeFileSync(resolve(repoRoot, ".rvs/config.yml"), serializeConfig(defaultConfig("graph-cli-test")));
-  writeFileSync(resolve(repoRoot, ".rvs/cache/repository-model.json"), JSON.stringify({ git: { commit: "abc1234" } }));
-  writeFileSync(resolve(repoRoot, ".rvs/cache/evidence-manifest.json"), JSON.stringify({ claims: [] }));
-}
-
-const REPOSITORY_ID = "github.com/acme/fixture-repo";
-
-// A minimal, self-consistent, single-domain policy file: `condition: { kind:
-// forbid_component_removal }` alone is schema-valid (policy-loader.ts's
-// ForbidComponentRemovalConditionSchema declares every other field
-// optional) -- content/enforcement behavior is irrelevant here, only that
-// loadPolicyFiles() successfully parses one GovernancePolicy so
-// graph-build.ts's `governance.policies` array is non-empty and
-// buildPolicyId("test-policy") deterministically yields
-// "governance:policy:test-policy" (governance-intelligence/src/ids.ts) --
-// the exact policy_id every fixture governance finding below must reference
-// for its `policy --governs--> finding` edge to resolve.
-function writePolicyFixture(repoRoot: string): void {
-  mkdirSync(resolve(repoRoot, ".rvs/policies"), { recursive: true });
-  writeFileSync(
-    resolve(repoRoot, ".rvs/governance.yml"),
-    "schema_version: 1\npolicies:\n  - .rvs/policies/test-policy.yml\n",
-  );
-  writeFileSync(
-    resolve(repoRoot, ".rvs/policies/test-policy.yml"),
-    [
-      "schema_version: 1",
-      "id: test-policy",
-      "name: Test Policy",
-      "rules:",
-      "  - id: rule-1",
-      "    title: Placeholder rule",
-      "    description: Placeholder rule for fixture purposes.",
-      "    kind: forbid_component_removal",
-      "    condition:",
-      "      kind: forbid_component_removal",
-      "    severity: advisory",
-      "    enabled: true",
-      "",
-    ].join("\n"),
-  );
-}
-
-/**
- * Writes a complete, cross-consistent set of upstream cache artifacts across
- * all six knowledge-graph domains (architecture/capability/product/
- * portfolio/governance/decision), designed so that a `rvs graph build`
- * against it deterministically produces:
- *   - compatibility.status "compatible" (every domain present, consistent
- *     repository_id, no schema_version/source_generated_at fields set at
- *     all so stages 3/5 of compatibility.ts's staged assessment never
- *     trigger).
- *   - zero unresolved_reference nodes / GRAPH_REFERENCE_BROKEN findings --
- *     every cross-artifact reference below (domainId, logicalComponents,
- *     workflows, currentCapabilities, affected_entity_ids, policy_id,
- *     decision_id, target_id) points at an id defined by a fixture in this
- *     same set (verified directly against node-builder.ts/edge-builder.ts's
- *     exact field-reading behavior).
- *   - exactly one "confirmed" root-cause group: two capabilities
- *     (process-payment, refund-payment) share one capability_domain
- *     (domain:payments) via `domainId`, and two distinct governance
- *     findings each `affects` a different one of those two capabilities --
- *     root-cause.ts's traceAncestors (causal-only upstream BFS) from either
- *     capability finds domain:payments as its sole ancestor (the
- *     domain--contains-->capability edge is causal), so the two findings'
- *     ancestor sets intersect in exactly one node -> "confirmed"
- *     (root-cause.ts lines 150-166).
- *   - zero blocking validation findings (serves as the "zero blocking
- *     findings" `graph validate --ci` fixture).
- */
-function writeFullUpstreamFixtures(repoRoot: string, repositoryId: string = REPOSITORY_ID): void {
-  mkdirSync(resolve(repoRoot, ".rvs/cache"), { recursive: true });
-  mkdirSync(resolve(repoRoot, ".rvs/cache/governance"), { recursive: true });
-  mkdirSync(resolve(repoRoot, ".rvs/cache/decisions"), { recursive: true });
-
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/architecture-intelligence.json"),
-    JSON.stringify({
-      identity: { id: repositoryId, name: { displayLabel: "Fixture Repo" } },
-      components: [
-        {
-          id: "component:api-gateway",
-          label: { displayLabel: "API Gateway" },
-          implementation: { entryPoints: ["src/gateway/main.ts"] },
-        },
-        { id: "component:billing-service", label: { displayLabel: "Billing Service" } },
-      ],
-      workflowFamilies: [{ id: "workflow:checkout", label: { displayLabel: "Checkout" } }],
-      flows: [
-        {
-          id: "flow:gateway-to-billing",
-          label: "Gateway calls Billing",
-          fromId: "component:api-gateway",
-          toId: "component:billing-service",
-        },
-      ],
-    }),
-  );
-
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/capability-model.json"),
-    JSON.stringify({
-      domains: [{ id: "domain:payments", displayName: "Payments" }],
-      includedCapabilities: [
-        {
-          id: "capability:process-payment",
-          displayName: "Process Payment",
-          domainId: "domain:payments",
-          logicalComponents: ["component:billing-service"],
-          workflows: ["workflow:checkout"],
-        },
-        {
-          id: "capability:refund-payment",
-          displayName: "Refund Payment",
-          domainId: "domain:payments",
-          logicalComponents: ["component:billing-service"],
-        },
-      ],
-    }),
-  );
-
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/product-identity-model.json"),
-    JSON.stringify({
-      identity: {
-        displayName: "Fixture Product",
-        currentCapabilities: ["capability:process-payment"],
-        qualifiedCapabilities: ["capability:refund-payment"],
-        evidence: [{ id: "evidence:product-overview", sourcePath: "docs/product.md", text: "Fixture product overview." }],
-      },
-    }),
-  );
-
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/portfolio-model.json"),
-    JSON.stringify({
-      products: [{ id: "product:fixture-app", displayName: "Fixture App", currentCapabilityIds: ["capability:process-payment"] }],
-    }),
-  );
-
-  writePolicyFixture(repoRoot);
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/governance/governance-report.json"),
-    JSON.stringify({
-      repository_id: repositoryId,
-      findings: [
-        {
-          id: "finding:process-payment-review",
-          policy_id: "governance:policy:test-policy",
-          statement: "Process Payment capability requires additional review.",
-          affected_entity_ids: ["capability:process-payment"],
-        },
-        {
-          id: "finding:refund-payment-review",
-          policy_id: "governance:policy:test-policy",
-          statement: "Refund Payment capability requires additional review.",
-          affected_entity_ids: ["capability:refund-payment"],
-        },
-      ],
-    }),
-  );
-
-  writeFileSync(resolve(repoRoot, ".rvs/cache/decisions/decision-snapshot.json"), JSON.stringify({ repository_id: repositoryId }));
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/decisions/decisions.json"),
-    JSON.stringify({ decisions: [{ id: "decision:use-stripe", title: "Use Stripe for payments", decision_status: "accepted" }] }),
-  );
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/decisions/assumptions.json"),
-    JSON.stringify([{ id: "assumption:stripe-uptime", decision_id: "decision:use-stripe", statement: "Stripe maintains high uptime." }]),
-  );
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/decisions/consequences.json"),
-    JSON.stringify([{ id: "consequence:stripe-lockin", decision_id: "decision:use-stripe", statement: "Vendor lock-in to Stripe APIs." }]),
-  );
-  writeFileSync(
-    resolve(repoRoot, ".rvs/cache/decisions/decision-links.json"),
-    JSON.stringify([
-      {
-        id: "link:decision-to-capability",
-        decision_id: "decision:use-stripe",
-        target_id: "capability:process-payment",
-        link_type: "implements",
-        resolution: "resolved",
-        detail: "Decision implements the Process Payment capability.",
-      },
-    ]),
-  );
-}
 
 /** architecture + governance only (consistent repository_id) -- capability/product/portfolio/decision all absent, so compatibility.ts's stage 4 ("one or more artifacts are absent") applies -> status "partial", never "incompatible". */
 function writePartialUpstreamFixtures(repoRoot: string, repositoryId: string = REPOSITORY_ID): void {
@@ -939,4 +737,627 @@ describe("runCreateSlides --profile knowledge-graph", () => {
     const visualdoc = JSON.parse(readFileSync(visualdocPath, "utf8")) as { scenes: unknown[] };
     expect(visualdoc.scenes.length).toBeGreaterThanOrEqual(2);
   });
+});
+
+// ---------------------------------------------------------------------------
+// `rvs graph review` -- the before/delta/after change review (Milestone 10.4).
+//
+// Every case below runs the real command over two real archived snapshot
+// directories produced by `rvs graph build`, so what is asserted is what a
+// reviewer would get. The review computes no diff of its own: the point of
+// the first case is that it agrees, change for change, with `rvs graph
+// compare` over the same pair.
+// ---------------------------------------------------------------------------
+describe("runGraphReviewCommand", () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "rvs-graph-review-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  /** Builds a baseline, adds a component, rebuilds: two snapshots that differ by one addition. */
+  async function twoSnapshots(): Promise<void> {
+    writeFullUpstreamFixtures(repoRoot);
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    archiveSnapshot(repoRoot, "snapshot-before");
+
+    const path = resolve(repoRoot, ".rvs/cache/architecture-intelligence.json");
+    const architecture = JSON.parse(readFileSync(path, "utf8"));
+    architecture.components.push({ id: "component:reporting-service", label: { displayLabel: "Reporting Service" } });
+    writeFileSync(path, JSON.stringify(architecture));
+
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    archiveSnapshot(repoRoot, "snapshot-after");
+  }
+
+
+  it("refuses to run without both snapshots, because a review of one state is not a review", async () => {
+    const logger = makeLogger();
+    await expect(runGraphReviewCommand(repoRoot, { from: "snapshot-before" }, logger)).rejects.toThrow(
+      "`rvs graph review` requires --from <snapshot-dir> and --to <snapshot-dir>.",
+    );
+    await expect(runGraphReviewCommand(repoRoot, { to: "snapshot-after" }, logger)).rejects.toThrow(
+      "`rvs graph review` requires --from <snapshot-dir> and --to <snapshot-dir>.",
+    );
+  });
+
+  it("shows exactly the changes `rvs graph compare` reports over the same pair", async () => {
+    await twoSnapshots();
+
+    // The comparison, first, through the command that owns it.
+    await runGraphCompareCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, makeLogger());
+    const changeSet = JSON.parse(
+      readFileSync(resolve(repoRoot, ".rvs/cache/knowledge-graph/graph-changes.json"), "utf8"),
+    ) as GraphChangeSet;
+
+    const logger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+    expect(logger.errors).toEqual([]);
+
+    const html = readFileSync(resolve(repoRoot, "artifacts/visuals/change-review.html"), "utf8");
+    // Every node and edge the comparison called added is a change the review
+    // shows. A review that showed a different set would be worse than no
+    // review. Ids reach the page through the same sanitiser every RVS id
+    // passes through, so they are matched in that form.
+    const slug = (id: string) => id.replace(/[^A-Za-z0-9.]+/g, "-");
+    for (const id of [...changeSet.nodes_added, ...changeSet.edges_added]) {
+      expect(html, id).toContain(`review:change-entry:added:${slug(id)}`);
+    }
+    expect(changeSet.nodes_added).toContain("graph:node:component-reporting-service");
+    expect(html).toContain("Reporting Service");
+    expect(
+      logger.infos.some((m) =>
+        m.includes(`(${changeSet.nodes_added.length + changeSet.edges_added.length} changes,`),
+      ),
+    ).toBe(true);
+  });
+
+  it("writes one self-contained file that needs no server and no network", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+
+    const html = readFileSync(resolve(repoRoot, "artifacts/visuals/change-review.html"), "utf8");
+    expect(html.replace(/xmlns(:\w+)?="[^"]*"/g, "")).not.toMatch(/https?:\/\//);
+    expect(html).not.toMatch(/<link\b|@import|fetch\(|XMLHttpRequest|WebSocket|EventSource/);
+    expect(html).toContain("<style");
+    expect(html).toContain("<script");
+    // And it says so itself, to whoever opens it.
+    expect(html).toContain("This review is read-only");
+    expect(logger.infos).toContain("  Open it directly from the filesystem; it needs no server and no network.");
+    expect(logger.infos).toContain("  This review is read-only: nothing was posted, approved, or blocked.");
+  });
+
+  it("honours --output, --detail, --audience, --lens and --motion, and rejects nothing else", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runGraphReviewCommand(
+      repoRoot,
+      {
+        from: "snapshot-before",
+        to: "snapshot-after",
+        output: "out/review.html",
+        detail: "simplified",
+        audience: "executive",
+        lens: "governance",
+        motion: "none",
+      },
+      logger,
+    );
+
+    expect(logger.errors).toEqual([]);
+    const html = readFileSync(resolve(repoRoot, "out/review.html"), "utf8");
+    expect(html).toContain('value="governance" selected');
+    expect(existsSync(resolve(repoRoot, "artifacts/visuals/change-review.html"))).toBe(false);
+    expect(html).toContain("executive · simplified detail");
+    expect(html).toContain("Audience: executive · Detail: simplified");
+  });
+
+  it("names the domains it could not compare rather than calling them unchanged", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+
+    // These fixtures carry no cached impact results, which is exactly the
+    // condition §21 is about: unresolved reach, never "no impact".
+    expect(
+      logger.infos.some((m) => m.includes("downstream consumer reach is unresolved for every change")),
+    ).toBe(true);
+    const html = readFileSync(resolve(repoRoot, "artifacts/visuals/change-review.html"), "utf8");
+    expect(html).not.toMatch(/no downstream impact|safe change|\bno consumers\b/i);
+  });
+
+  it("says so plainly when a snapshot is compared against itself", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-before" }, logger);
+
+    expect(logger.infos).toContain("  No material graph changes were detected between these compatible snapshots.");
+    const html = readFileSync(resolve(repoRoot, "artifacts/visuals/change-review.html"), "utf8");
+    expect(html).toContain("No material graph changes were detected between these compatible snapshots.");
+    // Not a blank diagram standing in for an answer.
+    expect(html).not.toContain("<svg");
+  });
+
+  it("refuses two snapshots that cannot be compared, and writes nothing", async () => {
+    await twoSnapshots();
+    const path = resolve(repoRoot, "snapshot-after/graph-snapshot.json");
+    const snapshot = JSON.parse(readFileSync(path, "utf8"));
+    snapshot.repository_id = "repo:something-else-entirely";
+    writeFileSync(path, JSON.stringify(snapshot));
+
+    await expect(
+      runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, makeLogger()),
+    ).rejects.toThrow(/not comparable/);
+    expect(existsSync(resolve(repoRoot, "artifacts/visuals/change-review.html"))).toBe(false);
+  });
+
+  it("produces the same bytes every time it is run over the same two snapshots", async () => {
+    await twoSnapshots();
+    const digests = new Set<string>();
+    const bytes = new Set<string>();
+    for (let run = 0; run < 5; run++) {
+      const logger = makeLogger();
+      await runGraphReviewCommand(
+        repoRoot,
+        { from: "snapshot-before", to: "snapshot-after", output: `run-${run}.html` },
+        logger,
+      );
+      bytes.add(readFileSync(resolve(repoRoot, `run-${run}.html`), "utf8"));
+      // The log line names the output file, which is deliberately different
+      // each run; the digest inside it is the claim under test.
+      digests.add(/digest ([0-9a-f]+)/.exec(logger.infos.find((m) => m.includes("digest")) ?? "")?.[1] ?? "");
+    }
+    expect(bytes.size).toBe(1);
+    expect(digests.size).toBe(1);
+  });
+
+  it("posts nothing, approves nothing, and touches no git state", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+
+    // The command's whole output surface is the log and one file: it creates
+    // no git state, and the only sentence mentioning approval is the one
+    // telling the reader that none happened.
+    expect(existsSync(resolve(repoRoot, ".git"))).toBe(false);
+    const mentions = logger.infos.filter((m) => /comment|approv|merge|push|post/i.test(m));
+    expect(mentions).toEqual(["  This review is read-only: nothing was posted, approved, or blocked."]);
+    expect(logger.warns).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `rvs export change-review-summary` -- the same review, as Markdown a person
+// can paste somewhere themselves. The tests that matter here are the ones
+// about what it does *not* do.
+// ---------------------------------------------------------------------------
+describe("runExportChangeReviewSummary", () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "rvs-change-review-summary-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  async function twoSnapshots(): Promise<void> {
+    writeFullUpstreamFixtures(repoRoot);
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    const graphCacheDir = resolve(repoRoot, ".rvs/cache/knowledge-graph");
+    const copy = (name: string) => {
+      mkdirSync(resolve(repoRoot, name), { recursive: true });
+      for (const file of ["graph-snapshot.json", "nodes.json", "edges.json"]) {
+        writeFileSync(resolve(repoRoot, name, file), readFileSync(resolve(graphCacheDir, file), "utf8"));
+      }
+    };
+    copy("snapshot-before");
+    const path = resolve(repoRoot, ".rvs/cache/architecture-intelligence.json");
+    const architecture = JSON.parse(readFileSync(path, "utf8"));
+    architecture.components.push({ id: "component:reporting-service", label: { displayLabel: "Reporting Service" } });
+    writeFileSync(path, JSON.stringify(architecture));
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    copy("snapshot-after");
+  }
+
+  it("requires both snapshots", async () => {
+    await expect(runExportChangeReviewSummary(repoRoot, { from: "snapshot-before" }, makeLogger())).rejects.toThrow(
+      "requires --from <snapshot-dir> and --to <snapshot-dir>",
+    );
+  });
+
+  it("summarises the same changes the review draws", async () => {
+    await twoSnapshots();
+    const reviewLogger = makeLogger();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, reviewLogger);
+
+    const logger = makeLogger();
+    await runExportChangeReviewSummary(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+
+    const markdown = readFileSync(resolve(repoRoot, "change-review-summary.md"), "utf8");
+    expect(markdown).toContain("# Architecture change review");
+    expect(markdown).toContain("## What changed");
+    expect(markdown).toContain("component:reporting-service");
+    // The same count the review reported, from the same collector.
+    const reviewCount = /\((\d+) changes,/.exec(reviewLogger.infos.find((m) => m.includes("changes,")) ?? "")?.[1];
+    expect(logger.infos[0]).toContain(`(${reviewCount} changes)`);
+  });
+
+  it("writes a file and posts nothing", async () => {
+    await twoSnapshots();
+    const logger = makeLogger();
+    await runExportChangeReviewSummary(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, logger);
+
+    const markdown = readFileSync(resolve(repoRoot, "change-review-summary.md"), "utf8");
+    expect(markdown).toContain("nothing was posted, commented, approved, or blocked");
+    expect(logger.infos).toContain(
+      "  Nothing was posted, commented, approved, or blocked. Sharing it is a decision you make.",
+    );
+    expect(existsSync(resolve(repoRoot, ".git"))).toBe(false);
+  });
+
+  it("calls unknown reach unresolved rather than absent", async () => {
+    await twoSnapshots();
+    await runExportChangeReviewSummary(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, makeLogger());
+    const markdown = readFileSync(resolve(repoRoot, "change-review-summary.md"), "utf8");
+    expect(markdown).toContain("## Unresolved");
+    expect(markdown).toContain("downstream consumer reach is unresolved");
+    expect(markdown).not.toMatch(/no downstream impact|safe change|\bno consumers\b/i);
+  });
+
+  it("says plainly when a snapshot is compared against itself", async () => {
+    await twoSnapshots();
+    await runExportChangeReviewSummary(repoRoot, { from: "snapshot-after", to: "snapshot-after" }, makeLogger());
+    const markdown = readFileSync(resolve(repoRoot, "change-review-summary.md"), "utf8");
+    expect(markdown).toContain("No material graph changes were detected between these compatible snapshots.");
+    expect(markdown).not.toContain("## What changed");
+  });
+
+  it("produces the same bytes on every run", async () => {
+    await twoSnapshots();
+    const outputs = new Set<string>();
+    for (let run = 0; run < 5; run++) {
+      await runExportChangeReviewSummary(
+        repoRoot,
+        { from: "snapshot-before", to: "snapshot-after", output: `s-${run}.md` },
+        makeLogger(),
+      );
+      outputs.add(readFileSync(resolve(repoRoot, `s-${run}.md`), "utf8"));
+    }
+    expect(outputs.size).toBe(1);
+  });
+
+  it("refuses an incomparable pair, and writes nothing", async () => {
+    await twoSnapshots();
+    const path = resolve(repoRoot, "snapshot-after/graph-snapshot.json");
+    const snapshot = JSON.parse(readFileSync(path, "utf8"));
+    snapshot.repository_id = "repo:something-else-entirely";
+    writeFileSync(path, JSON.stringify(snapshot));
+    await expect(
+      runExportChangeReviewSummary(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, makeLogger()),
+    ).rejects.toThrow(/not comparable/);
+    expect(existsSync(resolve(repoRoot, "change-review-summary.md"))).toBe(false);
+  });
+});
+
+describe("runGraphOpenCommand", () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "rvs-graph-open-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  async function built(): Promise<void> {
+    writeFullUpstreamFixtures(repoRoot);
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+  }
+
+  it("draws an explorer for a repository that has actually run decision intelligence", async () => {
+    // The regression. `decisions.json` is an object with a `decisions` array
+    // in it -- the shape `writeFullUpstreamFixtures` writes, because it is the
+    // shape decision intelligence produces and the shape graph-build,
+    // graph-compare, graph-impact, graph-plan-change and graph-review all
+    // read. This command read it as a bare array and threw
+    // "decisions.map is not a function", so `rvs graph open` succeeded only
+    // in repositories where the file was missing.
+    await built();
+    const logger = makeLogger();
+    await runGraphOpenCommand(repoRoot, {}, logger);
+
+    expect(logger.errors).toEqual([]);
+    const html = readFileSync(resolve(repoRoot, ".rvs/out/architecture-explorer.html"), "utf8");
+    expect(html).toContain("<!doctype html>");
+    // The decision reached the page rather than being dropped on the way.
+    expect(logger.infos.join(" ")).not.toContain("No cached decisions");
+  });
+
+  it("still draws one for a repository that has never run decision intelligence", async () => {
+    await built();
+    rmSync(resolve(repoRoot, ".rvs/cache/decisions/decisions.json"));
+    const logger = makeLogger();
+    await runGraphOpenCommand(repoRoot, {}, logger);
+
+    expect(logger.errors).toEqual([]);
+    expect(logger.infos.join(" ")).toContain("No cached decisions");
+    expect(existsSync(resolve(repoRoot, ".rvs/out/architecture-explorer.html"))).toBe(true);
+  });
+
+  it("writes one self-contained file that needs no server and no network", async () => {
+    await built();
+    await runGraphOpenCommand(repoRoot, {}, makeLogger());
+    const html = readFileSync(resolve(repoRoot, ".rvs/out/architecture-explorer.html"), "utf8");
+    expect(html.replace(/xmlns(:\w+)?="[^"]*"/g, "")).not.toMatch(/https?:\/\//);
+    expect(html).not.toMatch(/<link\b|@import|fetch\(|XMLHttpRequest|WebSocket|EventSource/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Milestone 10.5.5 -- semantic finite motion, proved in a real browser.
+//
+// The motion PLAN is data, and @rvs/visual-intelligence's tests hold it to
+// account. What no unit test can show is that the delivered artifact actually
+// plays it, stops when a reader does something else, terminates on its own,
+// and carries no information a reader with reduced motion would lose. Those
+// are properties of a page in a browser, so they are checked in one.
+//
+// Every assertion below is about behaviour a reader could observe. Nothing
+// here inspects the runtime's source text; that is what the parity tests in
+// @rvs/visual-grammar and @rvs/visual-explorer are for.
+// ---------------------------------------------------------------------------
+
+describe("motion in the delivered artifacts", () => {
+  let repoRoot: string;
+  let browser: Browser;
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "rvs-motion-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  /** The same baseline-plus-one-component pair `runGraphReviewCommand`'s tests use. */
+  async function twoSnapshots(): Promise<void> {
+    const archive = (name: string): void => {
+      const dir = resolve(repoRoot, name);
+      mkdirSync(dir, { recursive: true });
+      for (const file of ["graph-snapshot.json", "nodes.json", "edges.json"]) {
+        writeFileSync(
+          resolve(dir, file),
+          readFileSync(resolve(repoRoot, ".rvs/cache/knowledge-graph", file), "utf8"),
+        );
+      }
+    };
+    writeFullUpstreamFixtures(repoRoot);
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    archiveSnapshot(repoRoot, "snapshot-before");
+    const path = resolve(repoRoot, ".rvs/cache/architecture-intelligence.json");
+    const architecture = JSON.parse(readFileSync(path, "utf8"));
+    architecture.components.push({ id: "component:reporting-service", label: { displayLabel: "Reporting Service" } });
+    writeFileSync(path, JSON.stringify(architecture));
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    archiveSnapshot(repoRoot, "snapshot-after");
+  }
+
+  async function buildExplorer(): Promise<string> {
+    writeFullUpstreamFixtures(repoRoot);
+    await runGraphBuildCommand(repoRoot, {}, makeLogger());
+    await runGraphOpenCommand(repoRoot, {}, makeLogger());
+    return resolve(repoRoot, ".rvs/out/architecture-explorer.html");
+  }
+
+  async function buildReview(): Promise<string> {
+    await twoSnapshots();
+    await runGraphReviewCommand(repoRoot, { from: "snapshot-before", to: "snapshot-after" }, makeLogger());
+    return resolve(repoRoot, "artifacts/visuals/change-review.html");
+  }
+
+  /**
+   * Opens a page and starts recording every element that is ever given
+   * `data-rvs-motion`.
+   *
+   * A MutationObserver rather than polling: a step lasts 140ms and clears
+   * itself, so sampling would miss most of a sequence and the test would be
+   * measuring its own timing rather than the page's behaviour.
+   */
+  async function open(path: string, reducedMotion?: "reduce"): Promise<Page> {
+    const context = await browser.newContext(reducedMotion ? { reducedMotion } : {});
+    const page = await context.newPage();
+    await page.goto(`file://${path}`);
+    await page.evaluate(() => {
+      (window as unknown as { __seen: string[] }).__seen = [];
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const element = record.target as Element;
+          // Only additions. The observer fires on removal too, and a removal
+          // is the sequence tidying up after itself, not motion.
+          if (element.getAttribute("data-rvs-motion") === null) continue;
+          (window as unknown as { __seen: string[] }).__seen.push(
+            element.getAttribute("data-rvs-node") ?? element.getAttribute("data-rvs-edge") ?? "?",
+          );
+        }
+      }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-rvs-motion"] });
+    });
+    return page;
+  }
+
+  const seen = (page: Page) => page.evaluate(() => (window as unknown as { __seen: string[] }).__seen);
+  const stillMoving = (page: Page) => page.evaluate(() => document.querySelectorAll("[data-rvs-motion]").length);
+  const status = (page: Page) => page.evaluate(() => document.getElementById("rvs-status")?.textContent ?? "");
+
+  it("does not move until the reader asks it to", async () => {
+    // §50, and plain courtesy. A page that starts animating on load makes the
+    // reader wait to be allowed to read it.
+    const page = await open(await buildReview());
+    await page.waitForTimeout(1200);
+    expect(await seen(page)).toEqual([]);
+    expect(await stillMoving(page)).toBe(0);
+    await page.context().close();
+  }, 180_000);
+
+  it("plays the compare sequence when asked, and stops on its own", async () => {
+    const page = await open(await buildReview());
+    await page.click("#rvs-animate");
+    await page.waitForTimeout(5000);
+
+    const touched = await seen(page);
+    expect(touched.length).toBeGreaterThan(0);
+    // Finite. §46 forbids anything that repeats, and the strongest evidence
+    // that nothing does is that the page is at rest afterwards without anyone
+    // having stopped it.
+    expect(await stillMoving(page)).toBe(0);
+    // The sequence emphasises entities the review already lists as changed.
+    // Motion that touched something the list does not mention would be motion
+    // carrying information.
+    const listed = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-rvs-change]")).map((el) =>
+        el.getAttribute("data-rvs-change"),
+      ),
+    );
+    expect(listed.length).toBeGreaterThan(0);
+    expect(await status(page)).toContain("Compared");
+    await page.context().close();
+  }, 180_000);
+
+  it("abandons a sequence the moment the reader does something else", async () => {
+    // §50's interruptibility, observed rather than asserted about the source.
+    const page = await open(await buildReview());
+    await page.click("#rvs-animate");
+    await page.waitForTimeout(120);
+    await page.keyboard.press("Escape");
+    const atInterrupt = (await seen(page)).length;
+    await page.waitForTimeout(3000);
+
+    expect((await seen(page)).length).toBe(atInterrupt);
+    expect(await stillMoving(page)).toBe(0);
+    await page.context().close();
+  }, 180_000);
+
+  it("plays nothing at all when the reader has asked for reduced motion", async () => {
+    // Not "plays it faster". §49's fallback is that the sequence does not
+    // happen, and §26's claim is that this costs the reader nothing.
+    const page = await open(await buildReview(), "reduce");
+    await page.click("#rvs-animate");
+    await page.waitForTimeout(3000);
+
+    expect(await seen(page)).toEqual([]);
+    expect(await stillMoving(page)).toBe(0);
+    // The announcement still arrives. It is the one thing in the sequence
+    // that was ever a fact rather than an emphasis.
+    expect(await status(page)).toContain("Compared");
+    await page.context().close();
+  }, 180_000);
+
+  it("says exactly the same things with motion and without it", async () => {
+    // Static completeness, §35. Two pages, one animated and one not, asked
+    // the same question, must end up reading identically -- including every
+    // state attribute, because those are what colour and shape are drawn
+    // from.
+    const path = await buildReview();
+    const readOut = async (page: Page): Promise<unknown> => {
+      const first = await page.evaluate(
+        () => document.querySelector("[data-rvs-change]")?.getAttribute("data-rvs-change") ?? "",
+      );
+      await page.click(`[data-rvs-change="${first}"]`);
+      await page.waitForTimeout(2500);
+      return page.evaluate(() => ({
+        text: document.body.textContent?.replace(/\s+/g, " ").trim(),
+        nodes: Array.from(document.querySelectorAll("[data-rvs-node]")).map((el) => [
+          el.getAttribute("data-rvs-node"),
+          el.getAttribute("data-rvs-route"),
+          el.getAttribute("class"),
+        ]),
+      }));
+    };
+
+    const animated = await open(path);
+    const still = await open(path, "reduce");
+    expect(await readOut(animated)).toEqual(await readOut(still));
+    await animated.context().close();
+    await still.context().close();
+  }, 180_000);
+
+  it("traces the route the graph found, and only that route", async () => {
+    // §47: the motion layer does not choose the route. The pair below is
+    // chosen with the page's own traversal, so the test never asks for a
+    // route the graph does not have -- and the edges the trace emphasises are
+    // compared against the ones that traversal returned.
+    const page = await open(await buildExplorer());
+    const pair = await page.evaluate(() => {
+      const model = JSON.parse(document.getElementById("rvs-model")?.textContent ?? "{}");
+      for (const from of model.nodes) {
+        for (const to of model.nodes) {
+          if (from.id === to.id) continue;
+          const traced = (globalThis as never as { rvsTraceRoute: Function }).rvsTraceRoute(
+            model,
+            from.id,
+            to.id,
+            "downstream",
+          ) as { found: boolean; edge_ids: string[] };
+          if (traced.found && traced.edge_ids.length > 1) {
+            return { from: from.id, to: to.id, edges: traced.edge_ids };
+          }
+        }
+      }
+      return null;
+    });
+    expect(pair, "the fixture graph has no multi-hop route to trace").not.toBeNull();
+
+    await page.click(`[data-rvs-node="${pair!.from}"]`);
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => (window as unknown as { __seen: string[] }).__seen = []);
+    await page.selectOption("#rvs-route-to", pair!.to);
+    await page.waitForTimeout(4000);
+
+    const touched = await seen(page);
+    expect(touched.length).toBeGreaterThan(0);
+    // Every emphasised edge is one the traversal returned, and they arrive in
+    // the order it returned them. A trace that wandered would be inventing a
+    // relationship.
+    expect(touched).toEqual(pair!.edges);
+    expect(await stillMoving(page)).toBe(0);
+    await page.context().close();
+  }, 180_000);
+
+  it("fans out by the depths the traversal actually reached", async () => {
+    // §48: impact motion uses the graph's own depths, and never fabricates an
+    // intermediate the traversal could not produce.
+    const page = await open(await buildExplorer());
+    const origin = await page.evaluate(
+      () => document.querySelector("[data-rvs-node]")?.getAttribute("data-rvs-node") ?? "",
+    );
+    await page.click(`[data-rvs-node="${origin}"]`);
+    await page.waitForTimeout(3000);
+
+    const touched = await seen(page);
+    expect(touched[0]).toBe(origin);
+    const reached = await page.evaluate((id: string) => {
+      const model = JSON.parse(document.getElementById("rvs-model")?.textContent ?? "{}");
+      return (globalThis as never as { rvsReachFrom: Function }).rvsReachFrom(model, id, "downstream", 2) as {
+        node_ids: string[];
+      };
+    }, origin);
+    for (const id of touched) expect(reached.node_ids, id).toContain(id);
+    expect(await stillMoving(page)).toBe(0);
+    await page.context().close();
+  }, 180_000);
 });

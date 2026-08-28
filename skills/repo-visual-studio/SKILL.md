@@ -247,20 +247,96 @@ for them.
 
 `rvs create slides --profile knowledge-graph` is cache-read-only: it fails
 with an explicit error if `rvs graph build` hasn't been run yet rather than
-triggering a build itself. And as of this branch, the knowledge-graph CLI
-surface is not yet represented in `packages/cli/src/__tests__/
-source-vs-package-equivalence.test.ts`, and none of `@rvs/visualdoc-schema`,
+triggering a build itself. The knowledge-graph CLI surface is covered by
+`packages/cli/src/__tests__/source-vs-package-equivalence.test.ts` (as is
+`rvs graph review`, below), but none of `@rvs/visualdoc-schema`,
 `@rvs/narrative-planner`, or `@rvs/renderer-html` has a dedicated unit test
-for the new knowledge-graph presentation surfaces — don't tell a user that
+for the knowledge-graph presentation surfaces — don't tell a user that
 coverage is equivalent to the other five intelligence layers' presentation
 paths until that gap is closed.
+
+## Semantic visualization (Milestone 10)
+
+Two commands write self-contained HTML that opens from disk: no server, no
+watcher, no network, no CDN, no external JavaScript. Both read caches and
+write one file.
+
+```bash
+rvs graph open [--output <path>] [--audience <a>] [--detail <mode>] [--focus <id>]...     [--verified] [--profile <id>]
+rvs graph review --from <snapshot-dir> --to <snapshot-dir>     [--output <path>] [--audience <a>] [--detail <mode>]     [--lens architecture|capabilities|governance|decisions|impact|unresolved]     [--motion none|compare] [--verified] [--profile <id>]
+rvs export change-review-summary --from <snapshot-dir> --to <snapshot-dir> [--output <path>]
+```
+
+`rvs graph open` is an explorer over one architecture: search, focus, lenses,
+an evidence drawer, and shareable view state
+([`docs/interactive-architecture.md`](../../docs/interactive-architecture.md)).
+
+`rvs graph review` is a Before / Delta / After review over **two** snapshots
+([`docs/architecture-change-review.md`](../../docs/architecture-change-review.md)).
+A snapshot directory is one holding `graph-snapshot.json`, `nodes.json`, and
+`edges.json` — the same shape `rvs graph compare --from` reads. The review runs
+the same comparison engine `rvs graph compare` runs; it does not compute its
+own diff and does not re-derive governance findings, decision state, impact
+paths, or blast radius.
+
+**Three things not to say about a review.** Its governance lens showing nothing
+means no finding was *recorded*, not that the change is safe to deploy. Its
+decision lens reports state, not correctness — RVS approves and rejects
+nothing. And an absent downstream route means no evidence-backed path was found
+within the traversal boundary, which is not "no consumers" and not "no
+impact"; the artifact's own wording is the wording to reuse.
+
+**Change Review is read-only.** It never comments on a pull request, never
+approves or blocks one, and changes no merge behaviour. `rvs export
+change-review-summary` writes Markdown to a local file for a *person* to paste
+somewhere if they choose — offering to post it is a separate, explicitly
+authorized action, not part of running the command.
+
+An incompatible snapshot pair fails the review and writes nothing; a partial
+one produces a review that says on its own face which domains it cannot speak
+about. "Not comparable" is never reported as "no change".
+
+### Verified delivery (`--verified`)
+
+Add `--verified` to either command to put its output behind a delivery
+gate. The rendered file becomes a *candidate* staged under `.rvs/cache/`;
+a named verification profile runs the contract, fidelity, graph, layout,
+accessibility, interaction and motion validators over it; and the path
+named by `--output` is replaced only if the candidate passed. On failure
+the existing file is left byte-for-byte as it was, a repair receipt is
+written next to the run, and the command exits non-zero.
+`--profile <id>` picks the profile — `visual-standard-v1` (no browser),
+`visual-interactive-v2` (the `graph open` default),
+`visual-change-review-v2` (the `graph review` default), `visual-print-v1`.
+There is no flag for an individual threshold, rule or validator.
+([`docs/verified-preview.md`](../../docs/verified-preview.md).)
+
+**Say what the words mean.** *Verified* means the named profile's required
+checks passed on that exact candidate. It does not mean approved design,
+certified architecture, safe architecture, or merge-ready. *Promoted* means
+the file was replaced; *last known good* means it was not.
+
+**The gate reports; it does not repair.** A repair receipt names the
+validator that refused the candidate and the categories of change that
+could address it. Acting on it is an ordinary implementation task the user
+authorizes, taken through PR Governance like any other — RVS never edits
+source, commits, pushes, or publishes to fix its own rejection.
+
+**Preview is a file, not a server.** A verified run reports a `file://`
+path and one of four statuses (Verified / Candidate validating / Candidate
+rejected / Last known good retained). Nothing is hosted, no port is bound,
+no process survives the command, and nothing is re-verified afterwards.
 
 ## Quality gate
 
 Always run `rvs validate --ci` before treating a deck as done, and read
 `references/quality-policy.md` to know what `fail_on_overflow`,
 `fail_on_missing_evidence`, and `minimum_contrast` in `.rvs/config.yml`
-actually gate. If validation fails, fix it by adjusting content inputs
+actually gate. It checks five rules per scene, and it also checks the
+interactive explorer and the change review when those files exist — each
+under both `prefers-color-scheme: light` and `dark`, because the dark
+palette ships in the same stylesheet behind a media query and contrast is
+what differs between the halves. If validation fails, fix it by adjusting content inputs
 (shorter brief text, fewer bullets) — never by hand-editing the rendered
 `deck.html`, since it will be regenerated and the fix would be lost.
 
