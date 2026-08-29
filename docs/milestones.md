@@ -3730,9 +3730,10 @@ without adding scope:
 
 ## Milestone 11.2 — Proposal Interface & Advisory Execution
 
-**Status: implemented, uncommitted on `feature/change-workbench-proposal-interface`**,
-branched from `main` at `6c0c402f5cba4d628e7efcf8387491f5bb29d98b` (the
-merged Milestone 11.1 tip, PR #12). Objective: the one CLI surface a
+**Status: merged to `main` via PR #13** (merge commit
+`14054921b22152fb4841879d4a18a224724d8cac`), branched from `main` at
+`6c0c402f5cba4d628e7efcf8387491f5bb29d98b` (the merged Milestone 11.1 tip,
+PR #12). Objective: the one CLI surface a
 human, script, or agent uses to validate and evaluate a *hypothetical*
 proposal before it exists — `rvs change validate`/`evaluate`/`explain` —
 without ever letting the CLI become a second semantic authority alongside
@@ -3897,9 +3898,11 @@ regression or weakening of any existing test anywhere in the repository.
 
 ### 5. Current repository state
 
-11.2's work sits uncommitted on `feature/change-workbench-proposal-interface`,
-branched from `main` at `6c0c402f5cba4d628e7efcf8387491f5bb29d98b`. Files
-touched: `packages/change-workbench/src/index.ts`,
+11.2's work merged to `main` via PR #13 (merge commit
+`14054921b22152fb4841879d4a18a224724d8cac`), from
+`feature/change-workbench-proposal-interface`, branched at
+`6c0c402f5cba4d628e7efcf8387491f5bb29d98b`. Files touched:
+`packages/change-workbench/src/index.ts`,
 `packages/change-workbench/src/validation.ts`,
 `packages/change-workbench/src/decode.ts` (new),
 `packages/change-workbench/src/__tests__/decode.test.ts` (new),
@@ -3908,5 +3911,106 @@ touched: `packages/change-workbench/src/index.ts`,
 `packages/cli/src/commands/change-{baseline,decode,evaluate,explain,presentation,shared,validate}.ts`
 (new), `packages/cli/src/bin.ts`, `packages/cli/package.json`,
 `packages/cli/src/__tests__/change-cli.test.ts` (new), `pnpm-lock.yaml`.
+This milestone's work is committed, pushed, merged to `main`, and closed
+as PR #13.
+
+## Milestone 11.3.0 — Proposed-State Visual Truth Contract
+
+**Status: implemented, uncommitted on
+`feature/proposed-state-visual-truth-contract`**, branched from `main` at
+`14054921b22152fb4841879d4a18a224724d8cac` (the merged Milestone 11.2 tip,
+PR #13). This is a contract-definition slice only — it defines and tests
+the `ProposalTruthDisclosure` type and its builder/validator; it does not
+implement Milestone 11.3 as a whole. Milestone 11.3's visualization
+adapter, rendering behavior, CLI surface, visual grammar, and delivery
+verification remain unimplemented and are explicitly out of scope for
+this slice.
+
+An investigation preceding this slice (not itself committed to this
+document) concluded that a proposal-review artifact needs a dedicated
+truth-qualification contract before any adapter or renderer work begins,
+so that a rendered proposal view can never be indistinguishable from an
+observed one, even when the artifact is detached from its source
+tooling (offline, printed, exported, screenshotted, or cropped).
+
+### What this slice adds, in `@rvs/visual-intelligence`
+
+- **`contracts.ts`**: `PROPOSAL_TRUTH_DISCLOSURE_SCHEMA_VERSION`,
+  `ProposalTruthArtifactKind`, `ProposalTruthBaselineBasis`,
+  `ProposalTruthProposalBasis`, `ProposalTruthProjectionBasis`,
+  `ProposalTopologyDisclosureStatus`, `ProposalAdvisoryFreshness`,
+  the closed `ProposalTruthQualificationCode` vocabulary, and the
+  `ProposalTruthDisclosure` interface itself.
+- **`ids.ts`**: `buildProposalTruthDisclosureId()`, following the
+  package's existing pure-function-of-stable-inputs id convention.
+- **`proposal-truth.ts`** (new): `buildProposalTruthDisclosure()`,
+  `validateProposalTruthDisclosure()`, `reduceTopologyDisclosureStatus()`,
+  the qualification-wording templates, and
+  `FORBIDDEN_PROPOSAL_TRUTH_WORDING`.
+
+`topology_disclosure_status` deliberately preserves
+`@rvs/change-workbench`'s `TopologyDisclosureStatus` disclosure
+semantics, not a completeness claim: `"explicit"` means the proposal
+supplied explicit topology information according to the authoritative
+Workbench topology disclosure, never that RVS has proven the proposed
+topology is complete (a Milestone 11.3.0 semantic-closure remediation
+finding — an earlier draft of this contract named the field
+`topology_completeness`, which was corrected before this slice was
+considered done). That authoritative status must come only from
+`ChangeAdvisory.topology[]`'s own `.status`, reduced worst-case-wins —
+never from `OverlayEntityProvenance`, overlay entity/edge counts, or
+any other structural proxy. `OverlayEntityProvenance` governs a
+separate, still-deferred concern (per-entity visual provenance —
+badges/markers on individual confirmed/proposed/modified/removed
+entities), not artifact-level topology disclosure. A future Milestone
+11.3.1+ adapter therefore has two independent mappings to implement,
+not one: (a) `ChangeAdvisory.topology.status` →
+`ProposalTruthDisclosure.topology_disclosure_status` (artifact-level,
+authoritative for this contract), and (b) `OverlayEntityProvenance` →
+future per-entity visual provenance semantics (a separate rendering
+concern). This slice implements neither mapping; it only defines the
+contract that receives an already-authoritative topology disclosure
+value.
+
+Placed in `@rvs/visual-intelligence` rather than a new package: it is
+already the leaf-most, zero-`@rvs/*`-dependency package that owns
+truth-adjacent communication semantics, so the contract adds zero new
+dependency edges. `@rvs/change-workbench`'s own types
+(`TopologyDisclosureStatus`, `ChangeAdvisoryFreshness`) are echoed by
+literal value, never imported, matching the package's existing
+echo-not-import convention for upstream vocabulary.
+
+### Coverage
+
+`packages/visual-intelligence/src/__tests__/proposal-truth.test.ts`:
+covers construction, validation, determinism (repeated and
+shuffled-topology-order constructions), stable/tamper-evident ids,
+truth-basis/topology-disclosure/freshness distinctions, a full 4x3
+topology x freshness state matrix (exact codes, canonical code order,
+exact text, validator acceptance, id stability per cell), closed-
+vocabulary qualification-code validation (unknown/duplicate/missing/
+state-inconsistent codes rejected), qualification-text tamper
+rejection, an explicit "explicit topology is not complete" regression
+test, forbidden-wording absence across the full state space, caller
+non-authority over identity and qualification fields (including an
+injected `qualification_codes: ["approved"]`), a topology-authority
+boundary test proving only `.status` is read off topology array
+entries, serialization round-tripping, and a package-boundary check
+that the module imports nothing from `@rvs/change-workbench`.
+
+Verification: `pnpm --filter @rvs/visual-intelligence exec tsc --noEmit`
+clean; `pnpm -r exec tsc --noEmit` (all 29 workspace packages) clean;
+`pnpm test` (repository-wide) passing, no regressions attributable to
+this slice; `RVS_TEST_PACKAGE=1 pnpm test` (installed-tarball package
+mode) also passing. The package-mode run proves the installed CLI
+tarball still builds, packs, installs, and executes correctly with
+`@rvs/visual-intelligence` bundled into it — it does **not** by itself
+prove that `ProposalTruthDisclosure` specifically survived bundling or
+executed from the installed tarball, since no 11.3.1/CLI consumer of
+the contract exists yet and esbuild's tree-shaking may remove an
+unreferenced export entirely. That installed/bundled contract-
+equivalence gap is legitimately deferred until a real installed
+consumer exists; it is not a blocker for this slice.
+
 Nothing from this milestone has been committed, pushed, merged, or
 opened as a pull request.

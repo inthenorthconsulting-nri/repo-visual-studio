@@ -407,3 +407,170 @@ export interface VisualCommunicationSpec {
   fidelity_receipt?: FidelityReceipt;
   generation_metadata: VisualGenerationMetadata;
 }
+
+// ---------------------------------------------------------------------------
+// ProposalTruthDisclosure -- Milestone 11.3.0's proposed-state truth-boundary
+// contract (see docs/milestones.md, Milestone 11.3.0).
+//
+// FidelityReceipt (above) answers "did adaptation preserve the entity set".
+// This answers a different question entirely: "is the entity set this
+// artifact draws observed architecture, or a caller-proposed/deterministically
+// projected one". The two are deliberately kept as siblings on whatever
+// future artifact envelope carries them (Milestone 11.3.0 investigation §16)
+// -- neither owns the other, and this type adds nothing to FidelityReceipt's
+// field list.
+//
+// This package still imports nothing from @rvs/change-workbench. The three
+// literal *_basis fields and `topology_disclosure_status`/`advisory_freshness`
+// below structurally echo @rvs/change-workbench's own vocabulary
+// (TopologyDisclosureStatus, ChangeAdvisoryFreshness) exactly the way
+// VisualResolution/VisualConfidence already echo @rvs/knowledge-graph's
+// ResolutionStatus/ConfidenceLevel above -- by value, never by import. A
+// future Milestone 11.3.1 adapter is what actually reads a ChangeOverlay/
+// ChangeAdvisory and calls `buildProposalTruthDisclosure()`; this package
+// only defines what it must hand over.
+//
+// Authority boundary (Milestone 11.3.0 semantic-closure remediation):
+// `buildProposalTruthDisclosure()` is a deterministic *qualifier*, not an
+// evaluator or an authority authenticator. It packages structurally supplied
+// values -- it can check their shape and internal consistency, but it cannot
+// and does not prove their upstream provenance. Proving that
+// `topology_disclosure_status` and `advisory_freshness` actually came from a
+// real `ChangeAdvisory`/`assessChangeAdvisoryFreshness()` call is the future
+// 11.3.1 adapter's job, not this package's.
+//
+// `artifact_kind` exists solely to keep this contract from being reused,
+// even by accident, on a view of purely observed architecture -- see the
+// investigation's decisive invariant: the contract must make it harder, not
+// easier, for a hypothetical architecture to be mistaken for observed
+// architecture.
+
+export const PROPOSAL_TRUTH_DISCLOSURE_SCHEMA_VERSION = 1;
+
+/** The only artifact kind this contract is currently defined for. A second value is a deliberate future widening, never an accidental one. */
+export type ProposalTruthArtifactKind = "proposal_review";
+
+/** Always "observed": the baseline every proposal-review artifact starts from is, by construction, observed architecture. Stated explicitly rather than omitted, so a detached reader never has to assume it. */
+export type ProposalTruthBaselineBasis = "observed";
+
+/** Always "caller_supplied": the proposal operations layered on the baseline originate from the caller, never from RVS analysis. */
+export type ProposalTruthProposalBasis = "caller_supplied";
+
+/** Always "deterministically_projected": the resulting entity/relation set is Change Workbench's deterministic structural projection (`ChangeOverlay`) of baseline + proposal -- never a prediction, guarantee, approved target, or deployment plan (Milestone 11.3 investigation §4/§11). */
+export type ProposalTruthProjectionBasis = "deterministically_projected";
+
+/**
+ * Echoes @rvs/change-workbench's `TopologyDisclosureStatus` verbatim
+ * ("explicit"|"not_supplied"|"partial"|"unresolved"). This is the
+ * artifact-level worst-case reduction of a `ChangeAdvisory.topology[]`
+ * array -- see `buildProposalTruthDisclosure()` in proposal-truth.ts for the
+ * reduction rule. A `"not_supplied"`/`"partial"`/`"unresolved"` value must
+ * never be presented as "no relations" or "no impact" by any later
+ * renderer (investigation §14, frozen here as an invariant).
+ *
+ * DECISIVE: `"explicit"` means the proposal supplied explicit topology
+ * information according to the authoritative Workbench topology
+ * disclosure. It does NOT mean RVS has proven the proposed topology is
+ * complete. This type deliberately carries "disclosure status" in its own
+ * name, not "completeness" -- a prior draft named it
+ * `ProposalTopologyCompleteness` with a field called `topology_completeness`,
+ * which claimed a stronger guarantee ("we know this is complete") than the
+ * underlying `TopologyDisclosureStatus` value actually supports ("the
+ * caller disclosed topology explicitly" is not the same fact as "the
+ * topology is complete"). Renamed during the Milestone 11.3.0
+ * semantic-closure remediation; no compatibility alias is kept, since this
+ * contract has no consumer yet.
+ *
+ * AUTHORITY: this value must come only from `ChangeAdvisory.topology[]`'s
+ * own `.status` (the authoritative Workbench topology disclosure), reduced
+ * worst-case-wins across the array. It must never be inferred from
+ * `OverlayEntityProvenance`, overlay entity/edge counts, the presence of
+ * proposed entities, the absence of unresolved entities, rendered graph
+ * connectivity, the absence of validation errors, or the absence of impact
+ * findings -- none of those signals is topology disclosure, and treating
+ * any of them as a proxy for it would silently strengthen an unproven
+ * claim (Milestone 11.3.0 semantic-closure remediation, closure 2).
+ */
+export type ProposalTopologyDisclosureStatus = "explicit" | "not_supplied" | "partial" | "unresolved";
+
+/**
+ * The first two values echo @rvs/change-workbench's `ChangeAdvisoryFreshness`
+ * verbatim and must only ever be set to a value that package's own
+ * `assessChangeAdvisoryFreshness()` actually returned -- this package never
+ * recomputes freshness itself. `"unknown"` is this package's own addition:
+ * an artifact-communication state for when no current baseline could be
+ * resolved at all, which `assessChangeAdvisoryFreshness()` has no way to
+ * express (investigation §15). It is not, and must never become, a
+ * `@rvs/change-workbench` domain value.
+ */
+export type ProposalAdvisoryFreshness = "current" | "stale_equivalent" | "unknown";
+
+/**
+ * The closed, machine-readable vocabulary `qualification_codes` is drawn
+ * from -- a fixed enum, never free-form strings, so a disclosure's codes
+ * can be asserted against in a test and validated against unknown/tampered
+ * values at runtime, exactly like `FidelityReasonCode` above.
+ *
+ * Exactly four codes appear on every disclosure, one per semantic axis, in
+ * this fixed canonical order (never Set-insertion order, never caller
+ * array order): artifact/truth qualification, projection qualification,
+ * topology qualification, freshness qualification. None of these codes
+ * carries semantics stronger than the structured field it is derived from
+ * -- in particular, `PROPOSAL_TRUTH_TOPOLOGY_EXPLICIT` means "topology was
+ * explicitly disclosed", never "topology is complete" (Milestone 11.3.0
+ * semantic-closure remediation, closure 3).
+ */
+export type ProposalTruthQualificationCode =
+  | "PROPOSAL_TRUTH_NOT_OBSERVED"
+  | "PROPOSAL_TRUTH_DETERMINISTIC_PROJECTION"
+  | "PROPOSAL_TRUTH_TOPOLOGY_EXPLICIT"
+  | "PROPOSAL_TRUTH_TOPOLOGY_NOT_SUPPLIED"
+  | "PROPOSAL_TRUTH_TOPOLOGY_PARTIAL"
+  | "PROPOSAL_TRUTH_TOPOLOGY_UNRESOLVED"
+  | "PROPOSAL_TRUTH_ADVISORY_CURRENT"
+  | "PROPOSAL_TRUTH_ADVISORY_STALE_EQUIVALENT"
+  | "PROPOSAL_TRUTH_ADVISORY_FRESHNESS_UNKNOWN";
+
+/**
+ * The deterministic, renderer-independent description of a proposal-review
+ * artifact's epistemic basis and provenance (Milestone 11.3.0).
+ *
+ * Every field here either identifies the authoritative source this
+ * disclosure was built from (`repository_id`, `base_snapshot_digest`,
+ * `proposal_id`, `advisory_id`) or carries a qualification that source
+ * cannot express on its own (`topology_disclosure_status`, `advisory_freshness`,
+ * and the three `*_basis` fields). It calculates nothing Change Workbench
+ * did not already establish, and it never carries impact, governance,
+ * decision, or proposal-validity content -- that remains `ChangeAdvisory`'s
+ * alone (investigation §7, §28).
+ *
+ * `qualification_text`/`qualification_codes` are generated deterministically
+ * by `buildProposalTruthDisclosure()` from the fields above; no caller may
+ * supply or override them (investigation §9, §22). `id` is likewise always
+ * computed, never caller-supplied (investigation §18-21). Neither
+ * `qualification_text` nor `qualification_codes` is itself included in the
+ * `id`'s digest input (see `ids.ts`) -- both are pure derivations of
+ * `base_snapshot_digest`/`topology_disclosure_status`/`advisory_freshness`,
+ * so including them would be redundant, never able to change the id
+ * independently of the fields already covered.
+ */
+export interface ProposalTruthDisclosure {
+  schema_version: number;
+  id: string;
+  artifact_kind: ProposalTruthArtifactKind;
+  repository_id: string;
+  /** The observed baseline this artifact's projection was computed against. Authoritative identity: `ChangeOverlay`/`ChangeAdvisory` both already key off this digest, and this contract deliberately introduces no second baseline identity (investigation §53). */
+  base_snapshot_digest: string;
+  proposal_id: string;
+  advisory_id: string;
+  baseline_basis: ProposalTruthBaselineBasis;
+  proposal_basis: ProposalTruthProposalBasis;
+  projection_basis: ProposalTruthProjectionBasis;
+  /** Whether the caller-proposed topology was explicitly disclosed -- see `ProposalTopologyDisclosureStatus`. Never a claim of completeness, only of disclosure. */
+  topology_disclosure_status: ProposalTopologyDisclosureStatus;
+  advisory_freshness: ProposalAdvisoryFreshness;
+  /** Deterministically generated from the fields above. Never caller-authored, never a proposal title/label. Runtime-validated by recomputation, not merely checked for presence (see `validateProposalTruthDisclosure`). */
+  qualification_text: string;
+  /** Exactly four codes, drawn from the closed `ProposalTruthQualificationCode` vocabulary, in the fixed canonical order documented on that type. Runtime-validated by recomputation against the disclosure's own structured fields, not merely checked as a non-empty array. */
+  qualification_codes: readonly ProposalTruthQualificationCode[];
+}
