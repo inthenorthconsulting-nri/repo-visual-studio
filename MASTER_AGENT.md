@@ -123,6 +123,7 @@ actual ask).
 | 2.11 | Architecture decision intelligence | "What decisions explain this architecture?", "Which accepted decisions are not implemented?", "Did this release violate an ADR?", "Explain this decision drift/debt finding" | `rvs decisions analyze` (reads decision documents directly; optionally links against cached Architecture/Capability/Product/Portfolio/Governance artifacts) → decision report/findings — diagnosis and explanation only, never a code fix and never automatic decision creation |
 | 2.12 | Knowledge graph / impact analysis | "What is affected if this component changes?", "What's the blast radius of removing this?", "Why did these governance findings appear together?", "What decisions depend on this capability?", "What needs review if I remove this?" | `rvs graph build` (unifies whichever of the six upstream artifacts are already cached; all six are optional reads) → `rvs graph impact`/`path`/`roots`/`compare`/`plan-change`/`explain` → impact/root-cause/decision-impact/change-plan report — diagnosis and evidence-gathering only, never an automatic removal, edit, or refactor |
 | 2.13 | Semantic visualization / architecture change review / verified preview | "Show me the architecture I can explore", "Show what changed between these architecture snapshots", "Why does this change require review?", "Preview this architecture safely while I edit it", "Why wasn't the new visual published?" | `rvs graph build` → `rvs graph open` for one architecture; for two snapshots, Knowledge Graph comparison (`diffGraphs`, the same engine `rvs graph compare` runs) → `rvs graph review` → Before/Delta/After review, with Governance and Decision overlays read from their own layers and never re-derived; `--verified` on either command puts the output behind the delivery gate (candidate → profile verification → promote or preserve the last known good, plus a repair receipt) — read-only: it writes one local file and never comments on, approves, or blocks a PR |
+| 2.14 | Hypothetical change proposal / advisory (pre-implementation "what if") | "What would happen if I made this change?", "Validate this proposed change set", "Give me an advisory for this proposal before I implement it", "Explain this cached advisory" | `rvs change validate --file <proposal.json>` (structural + semantic validation only, no baseline required) and/or `rvs change evaluate --file <proposal.json>` (requires a built Knowledge Graph baseline — run `rvs graph build` first if missing, never auto-built) → `@rvs/change-workbench`'s `ChangeAdvisory` → `rvs change explain <advisory-id>` (only for an advisory previously persisted via `evaluate --cache`) — the proposal is read, validated, and evaluated in memory only; RVS never copies, saves, caches, registers, or promotes a caller's proposal file, and an advisory is never treated as an observed/authoritative architecture state |
 
 Class-specific rules:
 
@@ -196,6 +197,28 @@ Class-specific rules:
   (§2.5) under `pr-governance`. *Verified* means the named profile's
   required checks passed on that exact candidate — never approved design,
   certified architecture, safe architecture, or merge-ready.
+- **2.14** — the Change Workbench is a strictly hypothetical, pre-
+  implementation advisory tool: it never mutates the repository, the
+  Knowledge Graph cache, or any observed architecture state, and a
+  `ChangeAdvisory` is never promoted into or confused with an actual scan
+  result. `@rvs/change-workbench` owns the one canonical runtime
+  decode/validation boundary for a `ProposedChangeSet` — the CLI never
+  re-implements or bypasses it, whether called via `rvs change` or
+  directly as a library, and every caller (human, script, CI process, or
+  agent) receives the same evidence-qualified advisory for the same input.
+  `rvs change evaluate` resolves its baseline only from an already-built
+  Knowledge Graph snapshot (`.rvs/cache/knowledge-graph/`) and fails with
+  guidance to run `rvs graph build` when one is missing — it never builds
+  one itself. A proposal file is never copied, cached, registered, or
+  promoted into RVS's own storage; an advisory is persisted only on
+  explicit `--cache`, never by default. `rvs change explain` narrates only
+  evidence already present on a previously cached advisory — it never
+  re-evaluates, re-validates, or manufactures a causal claim beyond what
+  the advisory itself recorded. This class is distinct from §2.12's
+  `rvs graph plan-change` (which reports what review an *actual* entity
+  removal would require, composing already-computed impact/decision-impact
+  results) — the Change Workbench instead validates and assesses a
+  *hypothetical* multi-operation proposal before any change is made.
 
 ---
 
@@ -216,6 +239,7 @@ Class-specific rules:
 | Explain a governance finding or report | No | No | No | No | Required | No | No |
 | What decisions explain this architecture / which decisions aren't implemented / did this violate an ADR | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Optional link-resolution input | Required | No |
 | What is affected if this component changes / what's the blast radius / why did these governance findings appear together / what decisions depend on this capability | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Optional graph input, already-cached | Required |
+| Validate or evaluate a hypothetical proposed change before implementing it | No | No | No | No | No | No | Required as baseline input, already-cached (`rvs graph build`, never auto-run) |
 
 "Artifact validation only" and "Inputs only" mean: read and structurally
 validate the already-generated artifact; do not re-synthesize it from

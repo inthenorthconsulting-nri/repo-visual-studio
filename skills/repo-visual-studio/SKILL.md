@@ -327,6 +327,72 @@ path and one of four statuses (Verified / Candidate validating / Candidate
 rejected / Last known good retained). Nothing is hosted, no port is bound,
 no process survives the command, and nothing is re-verified afterwards.
 
+## Architecture Change Workbench (proposal advisory, Milestone 11.2)
+
+Use this when the user wants to know "what would happen if I made this
+change" *before* actually making it — a hypothetical, multi-operation
+proposal, not a real edit. It is strictly advisory: nothing it produces is
+ever written back into the repository, the Knowledge Graph cache, or any
+other observed-architecture artifact, and a `ChangeAdvisory` is never
+treated as an actual scan result.
+
+```bash
+rvs change validate --file <proposal.json>            [--output <path>]
+rvs change evaluate --file <proposal.json>             [--output <path>] [--cache]
+rvs change explain <advisory-id>
+```
+
+A proposal file is a JSON `ProposedChangeSet` built from six operation
+kinds only: `add_entity`, `remove_entity`, `modify_attributes`,
+`add_relation`, `remove_relation`, `modify_relation`. Every caller — this
+CLI, a script, CI, or an agent calling `@rvs/change-workbench` directly —
+goes through the same runtime decode/validation boundary and gets the same
+evidence-qualified advisory back; the CLI adds no parallel semantic model
+of its own.
+
+`rvs change validate` decodes and semantically validates a proposal only —
+no Knowledge Graph baseline is required. A missing baseline only degrades
+ref-confirmation to the validator's own non-blocking "unresolved" state,
+never a hard failure.
+
+`rvs change evaluate` additionally resolves a baseline from the already-
+built Knowledge Graph cache (`.rvs/cache/knowledge-graph/`) and produces a
+full `ChangeAdvisory`, echoing the exact `base_snapshot_digest` it was
+evaluated against. **It never runs `rvs graph build` itself** — a missing
+baseline fails with guidance to run that command first. By default nothing
+is persisted; pass `--cache` to explicitly store the advisory for later
+`rvs change explain <advisory-id>` lookup. The proposal file itself is
+never copied, saved, or promoted into `.rvs/cache` — RVS reads it, decides,
+and discards it.
+
+`rvs change explain` narrates only evidence already present on a
+previously cached advisory (governance/decision findings, coverage,
+impact) — it never re-validates, re-evaluates, or manufactures a causal
+claim the advisory itself doesn't carry.
+
+**Watch the wording.** A proposal is `VALID PROPOSAL` / `INVALID
+PROPOSAL`; an advisory's coverage is `ADVISORY COMPLETE` / `ADVISORY
+PARTIAL` / `ADVISORY UNRESOLVED`; a finding is a `PROPOSED GOVERNANCE
+CONCERN` or `PROPOSED DECISION CONCERN` — never "safe", "no impact",
+"approved", "compliant", "no risk", or "ready to deploy". These commands
+answer "what would this proposal mean if applied", never "is this
+approved" or "is this deployed".
+
+**Distinct from `rvs graph plan-change`.** `plan-change` reports what
+review an *actual* entity removal already in the graph would require,
+composed from already-computed impact/decision-impact results (see
+[docs/graph-change-planning.md](../../docs/graph-change-planning.md)). The
+Change Workbench instead validates and assesses a *hypothetical*,
+not-yet-applied, multi-operation proposal. Do not conflate the two or
+extend `graph plan-change` to cover proposal evaluation — they are
+separate command families with separate contracts.
+
+There is no `--emit-overlay`, projected-graph export, visualization,
+`FidelityReceipt`, or `visual-delivery` profile support in this command
+family; a proposal advisory is text/JSON only (terminal output, or
+deterministic JSON via `--output <path>` — there is no global `--json`
+flag and no HTML/SVG/Markdown output from `rvs change *`).
+
 ## Quality gate
 
 Always run `rvs validate --ci` before treating a deck as done, and read

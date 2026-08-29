@@ -126,6 +126,9 @@ importers:
       '@rvs/capability-intelligence':
         specifier: workspace:*
         version: link:../capability-intelligence
+      '@rvs/change-workbench':
+        specifier: workspace:*
+        version: link:../change-workbench
       '@rvs/core':
         specifier: workspace:*
         version: link:../core

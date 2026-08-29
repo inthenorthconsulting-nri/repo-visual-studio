@@ -25,6 +25,7 @@
   "devDependencies": {
     "@rvs/architecture-intelligence": "workspace:*",
     "@rvs/capability-intelligence": "workspace:*",
+    "@rvs/change-workbench": "workspace:*",
     "@rvs/core": "workspace:*",
     "@rvs/decision-intelligence": "workspace:*",
     "@rvs/exporter": "workspace:*",
