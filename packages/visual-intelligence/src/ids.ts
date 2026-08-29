@@ -85,3 +85,20 @@ export function buildVisualPathId(nodeIdsInOrder: readonly string[]): string {
 export function buildValidationFindingId(code: string, subjectId: string): string {
   return `visual:validation:${sanitize(code)}:${sanitize(subjectId)}`;
 }
+
+/**
+ * Identity for a `ProposalTruthDisclosure`: a pure function of the
+ * proposal/advisory/repository identity it describes plus every
+ * qualification value it carries, so two disclosures can only share an id
+ * when every one of those inputs is byte-identical -- a changed topology
+ * disclosure status or freshness state always produces a different id
+ * (Milestone 11.3.0 investigation §19).
+ */
+export function buildProposalTruthDisclosureId(
+  repositoryId: string,
+  proposalId: string,
+  advisoryId: string,
+  qualificationDigest: string,
+): string {
+  return `visual:truth-disclosure:${sanitize(repositoryId)}:${sanitize(proposalId)}:${sanitize(advisoryId)}:${sanitize(qualificationDigest.slice(0, 16))}`;
+}

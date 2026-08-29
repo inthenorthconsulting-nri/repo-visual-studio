@@ -25,3 +25,4 @@ export * from "./design-tokens.js";
 export * from "./visual-state.js";
 export * from "./accessibility.js";
 export * from "./motion.js";
+export * from "./proposal-truth.js";
