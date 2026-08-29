@@ -13,6 +13,7 @@
 import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 import type { ProposalOperation, ProposalValidationIssue, ProposalValidationResult, ProposedChangeSet } from "./contracts.js";
 import { classifyEdgeAttributes, classifyNodeAttributes } from "./attribute-support.js";
+import { CHANGE_WORKBENCH_SCHEMA_VERSION } from "./constants.js";
 import { canonicalize, digestOf } from "./ids.js";
 import { isWellFormedRefString } from "./refs.js";
 
@@ -23,14 +24,44 @@ export interface ValidationContext {
 
 const PROTOTYPE_POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/** The six operations validateOperationShape's switch recognizes -- kept in sync with it by hand, since a `default:` branch (needed to reject an unrecognized `kind` at runtime; see validateOperationShape) makes the switch itself unusable as an exhaustiveness source. Used only to keep detectConflicts/operationKey (also an exhaustive switch, with no default) from ever being handed an operation shape they don't recognize. */
+const KNOWN_OPERATION_KINDS = new Set(["add_entity", "remove_entity", "modify_attributes", "add_relation", "remove_relation", "modify_relation"]);
+
+function isKnownOperationKind(operation: ProposalOperation): boolean {
+  return KNOWN_OPERATION_KINDS.has((operation as { kind?: unknown }).kind as string);
+}
+
+/**
+ * Sentinel `operation_index` for a proposal-level issue that is not about
+ * any single operation (currently: unsupported schema_version).
+ * ProposalValidationIssue.operation_index is non-optional, unlike
+ * OverlayBuildIssue's, so a sentinel is required rather than omitting the
+ * field; sortIssues' ascending sort puts it first, which is the right place
+ * for a whole-proposal-level rejection to surface.
+ */
+const PROPOSAL_LEVEL_ISSUE_INDEX = -1;
+
 export function validateProposedChangeSet(changeSet: ProposedChangeSet, context: ValidationContext = {}): ProposalValidationResult {
   const issues: ProposalValidationIssue[] = [];
+
+  // Unsupported schema_version is rejected outright, here, in the one
+  // canonical validator -- never silently evaluated as the current version,
+  // and never left to a caller-specific layer (e.g. a CLI) to catch, since a
+  // caller invoking this package directly must get the identical rejection.
+  if (changeSet.schema_version !== CHANGE_WORKBENCH_SCHEMA_VERSION) {
+    issues.push({
+      code: "unsupported_schema_version",
+      operation_index: PROPOSAL_LEVEL_ISSUE_INDEX,
+      detail: `schema_version ${JSON.stringify(changeSet.schema_version)} is not supported -- this package only evaluates schema_version ${CHANGE_WORKBENCH_SCHEMA_VERSION}. There is no migration path: an unsupported version is rejected outright, never silently evaluated as the current version.`,
+      blocking: true,
+    });
+  }
 
   changeSet.operations.forEach((operation, index) => {
     issues.push(...validateOperationShape(operation, index, changeSet, context));
   });
 
-  issues.push(...detectConflicts(changeSet.operations));
+  issues.push(...detectConflicts(changeSet.operations.filter(isKnownOperationKind)));
 
   const hasBlocking = issues.some((issue) => issue.blocking);
   const hasUnresolved = issues.some((issue) => !issue.blocking && issue.code.startsWith("unresolved_"));
@@ -90,6 +121,23 @@ function validateOperationShape(operation: ProposalOperation, index: number, cha
       issues.push(...confirmedRefIssue(operation.to_ref, index, "modify_relation to_ref", context));
       issues.push(...attributeIssues(operation.attributes, index, "edge"));
       break;
+    default: {
+      // Reached only at runtime: untrusted JSON has no compile-time type, so
+      // an operation with an unrecognized `kind` narrows `operation` to
+      // `never` here only from TypeScript's point of view -- the actual
+      // value can be anything. Rejected outright, exactly like an
+      // unsupported schema_version above: never silently skipped, never
+      // partially validated, and impossible to bypass by calling this
+      // package directly instead of through a CLI.
+      const unrecognized = operation as { kind?: unknown };
+      issues.push({
+        code: "unsupported_operation_kind",
+        operation_index: index,
+        detail: `Operation kind ${JSON.stringify(unrecognized.kind)} is not one of the six supported operations (add_entity, remove_entity, modify_attributes, add_relation, remove_relation, modify_relation).`,
+        blocking: true,
+      });
+      return issues;
+    }
   }
 
   for (const ref of refsToCheck) {

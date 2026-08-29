@@ -3,6 +3,7 @@ export * from "./constants.js";
 export * from "./ids.js";
 export * from "./refs.js";
 export * from "./attribute-support.js";
+export * from "./decode.js";
 export * from "./validation.js";
 export * from "./overlay.js";
 export * from "./impact-advisory.js";

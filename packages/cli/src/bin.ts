@@ -3,6 +3,9 @@ import { createLogger } from "@rvs/core";
 import { Command } from "commander";
 import { runBrief } from "./commands/brief.js";
 import { runCapabilitiesExplain } from "./commands/capabilities-explain.js";
+import { runChangeEvaluateCommand } from "./commands/change-evaluate.js";
+import { runChangeExplainCommand } from "./commands/change-explain.js";
+import { runChangeValidateCommand } from "./commands/change-validate.js";
 import { runCreateSlides } from "./commands/create-slides.js";
 import { runCreateTopology } from "./commands/create-topology.js";
 import { runCreateWorkflow } from "./commands/create-workflow.js";
@@ -400,6 +403,35 @@ graph
   .argument("<id>", "id to explain")
   .action(async (id: string) => {
     await runGraphExplainCommand(process.cwd(), id, {}, logger);
+  });
+
+const change = program.command("change").description("Validate and evaluate a structured ProposedChangeSet against the current knowledge graph via the Architecture Change Workbench");
+
+change
+  .command("validate")
+  .description("Decode and validate a proposed change set (structural/security/completeness checks only -- no impact/governance/decision evaluation)")
+  .option("--file <path>", "path to a proposal JSON document (a ProposedChangeSet) (required)")
+  .option("--output <path>", "write the validation result as deterministic JSON to this path")
+  .action(async (opts: { file?: string; output?: string }) => {
+    await runChangeValidateCommand(process.cwd(), opts, logger);
+  });
+
+change
+  .command("evaluate")
+  .description("Decode a proposed change set, resolve it against the current knowledge graph baseline, and produce a ChangeAdvisory (impact, governance, and decision advisories, all on a proposed, not-yet-applied basis)")
+  .option("--file <path>", "path to a proposal JSON document (a ProposedChangeSet) (required)")
+  .option("--output <path>", "write the resulting ChangeAdvisory as deterministic JSON to this path")
+  .option("--cache", "persist the resulting ChangeAdvisory under .rvs/cache/change-workbench/ (opt-in; not persisted by default)")
+  .action(async (opts: { file?: string; output?: string; cache?: boolean }) => {
+    await runChangeEvaluateCommand(process.cwd(), opts, logger);
+  });
+
+change
+  .command("explain")
+  .description("Print a human-readable explanation for a previously cached ChangeAdvisory id (requires `rvs change evaluate --cache`)")
+  .argument("<advisory-id>", "id of a ChangeAdvisory previously written via `rvs change evaluate --cache`")
+  .action(async (advisoryId: string) => {
+    await runChangeExplainCommand(process.cwd(), advisoryId, {}, logger);
   });
 
 const exportCmd = program.command("export").description("Export the deck to another format");

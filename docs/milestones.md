@@ -3505,7 +3505,8 @@ pull request.
 
 ## Milestone 11.1 — Proposed Change Model & Deterministic Overlay Core
 
-**Status: implemented, uncommitted on `feature/architecture-change-workbench`.**
+**Status: merged to `main` via PR #12** (feature commit `faa6eb73e924b23b1b040bc6042e5c571ad049ab`,
+merge commit `6c0c402f5cba4d628e7efcf8387491f5bb29d98b`).
 Objective: a foundation for reasoning about a *proposed* change to the
 architecture knowledge graph — before it exists — without re-implementing
 any of the read-only analysis Milestones 7–9 already own. The new
@@ -3666,10 +3667,11 @@ weakening of any existing test anywhere in the repository.
 
 ### 5. Current repository state
 
-11.1's work sits uncommitted on `feature/architecture-change-workbench`,
-branched from `main` at `38dbd71` (the merged Milestone 10 tip). No
-other file in the repository was modified. Nothing from this milestone
-has been committed, pushed, merged, or opened as a pull request.
+11.1 was merged to `main` as PR #12 (feature commit
+`faa6eb73e924b23b1b040bc6042e5c571ad049ab`, merge commit
+`6c0c402f5cba4d628e7efcf8387491f5bb29d98b`), branched originally from
+`main` at `38dbd71` (the merged Milestone 10 tip). No other file in the
+repository was modified by this slice.
 
 ### 6. Final semantic closure remediation
 
@@ -3725,3 +3727,186 @@ without adding scope:
   about yet; full tarball-level certification (the mechanism
   `source-vs-package-equivalence.test.ts` uses for `@rvs/cli`) remains
   Milestone 11.6's.
+
+## Milestone 11.2 — Proposal Interface & Advisory Execution
+
+**Status: implemented, uncommitted on `feature/change-workbench-proposal-interface`**,
+branched from `main` at `6c0c402f5cba4d628e7efcf8387491f5bb29d98b` (the
+merged Milestone 11.1 tip, PR #12). Objective: the one CLI surface a
+human, script, or agent uses to validate and evaluate a *hypothetical*
+proposal before it exists — `rvs change validate`/`evaluate`/`explain` —
+without ever letting the CLI become a second semantic authority alongside
+`@rvs/change-workbench`.
+
+### 1. Scope boundary
+
+Deliberately excluded from this slice, same as 11.1 stated for itself one
+level down: `--emit-overlay`/projected-graph export, TruthDisclosure
+rendering, visualization, `FidelityReceipt` changes, and the
+`visual-delivery` profile. `rvs graph plan-change` and
+`packages/knowledge-graph/src/change-planning.ts` were not modified —
+proposal evaluation is a separate command family with a separate
+contract, not an extension of removal-only change planning
+([docs/graph-change-planning.md](graph-change-planning.md)).
+
+### 2. What changed in `@rvs/change-workbench`
+
+- **`decode.ts`** (new): the runtime decode boundary for untrusted
+  proposal JSON. Owns structural and resource-bound concerns only —
+  never semantic ones. Constants: `MAX_SERIALIZED_BYTES = 2_000_000`,
+  `MAX_OPERATION_COUNT = 500`, `MAX_JSON_DEPTH = 12`,
+  `MAX_OBJECT_KEYS = 200`, `MAX_ARRAY_LENGTH = 1000`. Rejects
+  `__proto__`/`constructor`/`prototype`-shaped keys anywhere in the
+  payload before any semantic code runs. Never trusts a caller-supplied
+  proposal `id` — always recomputes it via `buildProposedChangeSetId()`.
+  Rejection codes: `input_too_large`, `malformed_envelope`,
+  `prototype_pollution_shaped_key`, `resource_bound_exceeded`,
+  `too_many_operations`, `malformed_operation`.
+- **`validation.ts`** (extended): `validateProposedChangeSet()` now
+  rejects an unsupported `schema_version` (blocking
+  `unsupported_schema_version`, `operation_index: -1`) and an unknown
+  operation `kind` (blocking `unsupported_operation_kind`) — both
+  unconditional, so no caller can bypass them by calling the Workbench
+  library directly instead of going through a CLI command.
+- **`index.ts`** (extended): the new decode boundary and its constants
+  are part of the package's public barrel, so an agent calling
+  `@rvs/change-workbench` directly gets the identical decode/validate
+  path the CLI uses — proven in the CLI test suite's "agent parity"
+  cases (below).
+
+### 3. The `rvs change` command family
+
+```bash
+rvs change validate --file <proposal.json>            [--output <path>]
+rvs change evaluate --file <proposal.json>             [--output <path>] [--cache]
+rvs change explain <advisory-id>
+```
+
+Eight new CLI-layer files, all thin wrappers around the package's own
+decode/validate/advisory functions — none re-implements or duplicates
+semantic logic that already exists in `@rvs/change-workbench`:
+
+- **`change-decode.ts`** — reads and decodes a proposal file, mapping
+  decode rejections to CLI-presentable issues.
+- **`change-baseline.ts`** — resolves the Knowledge Graph baseline from
+  `.rvs/cache/knowledge-graph/` via the existing `graph-cache.ts`
+  conventions; a missing snapshot fails with the same guidance message
+  every other `rvs graph *`-dependent command already gives (`` Run `rvs
+  graph build` first. ``) — it never triggers a build itself.
+- **`change-shared.ts`** — the one shared execution function,
+  `runChangeWorkbenchEvaluation()` (plus
+  `runChangeWorkbenchValidation()` for the no-baseline path), that both
+  `change validate` and `change evaluate` call. This is the single place
+  that composes decode → baseline resolution → `@rvs/change-workbench`;
+  neither command handler re-derives it.
+- **`change-presentation.ts`** — `sanitizeTerminalText()` strips control
+  and ANSI-escape characters from caller-controlled `title`/`label`/
+  `detail` text before it reaches the terminal, and
+  `overallCoverageLabel()` maps a `ChangeAdvisory`'s coverage to exactly
+  one of `ADVISORY COMPLETE` / `ADVISORY PARTIAL` / `ADVISORY
+  UNRESOLVED`. Sanitization is presentation-only — it never mutates the
+  stored advisory's own truth value.
+- **`change-workbench-cache.ts`** — the CLI-owned persistence layer
+  (`writeStoredChangeAdvisory()`, `findStoredChangeAdvisoryById()`),
+  mirroring every other domain's `*-cache.ts` file. Duplicates
+  `persistence.ts`'s private `sanitizePathSegment()` locally per the
+  repository's existing `ids.ts` convention (small deterministic
+  path/id utilities are duplicated per package, not cross-imported).
+  Advisory caching is opt-in only (`--cache`); default `evaluate` never
+  persists, and a caller's proposal file itself is never copied, saved,
+  or promoted into `.rvs/cache`.
+- **`change-validate.ts`** / **`change-evaluate.ts`** / **`change-explain.ts`**
+  — the three command handlers. `validate` prints `VALID PROPOSAL`/
+  `INVALID PROPOSAL` and per-issue detail; `evaluate` additionally
+  echoes the exact resolved `base_snapshot_digest` and prints
+  `PROPOSED GOVERNANCE CONCERN`/`PROPOSED DECISION CONCERN` sections
+  faithfully from the advisory's own pre-phrased statements — neither
+  command reconstructs governance or decision wording itself.
+  `change-explain.ts` follows the existing `*explain` command
+  convention (try/catch, `logger.error`, soft `process.exitCode = 1`)
+  and narrates only evidence already present on a previously cached
+  `ChangeAdvisory`. When the Knowledge Graph baseline is available, it
+  also discloses the advisory's freshness (`Advisory freshness: current`
+  or `stale_equivalent`, with both baseline digests printed when stale)
+  by reusing `resolveChangeWorkbenchBaseline()` and the package's own
+  `assessChangeAdvisoryFreshness()` — best-effort only; a missing
+  baseline is not an error, since `explain` does not otherwise depend on
+  `rvs graph build` having run. This never invalidates, regenerates, or
+  re-evaluates the stored advisory — staleness is disclosure, not
+  recomputation.
+
+Exit codes throughout: `0` on success; `1` (via soft
+`process.exitCode = 1`, never `process.exit()`) on a command/input/decode
+failure or an `invalid` proposal. A successfully computed advisory with
+partial or unresolved coverage is **not** a process failure by default —
+only `proposal_validation.status === "invalid"` sets `1`.
+
+Output is terminal text by default, or deterministic JSON via
+`--output <path>` — there is no global `--json` flag on these commands,
+and `ChangeAdvisory` (not a CLI-invented wrapper) is the entire
+`--output` payload for `evaluate`, so CLI presentation stays a view over
+the one truth contract rather than a second one.
+
+### 4. Coverage
+
+`packages/cli/src/__tests__/change-cli.test.ts` (new): 41 tests across
+`runChangeValidateCommand`, `runChangeEvaluateCommand`, `determinism`,
+`agent parity`, `runChangeExplainCommand`, `sanitizeTerminalText`, and
+`security` (37 from initial implementation, plus 4 added during the
+Milestone 11.2 final semantic-closure pass: a caller-supplied-`id`
+non-authority regression across proposal/advisory identity and the
+persisted cache path, and three `rvs change explain` freshness-disclosure
+cases — current, stale, and no-baseline-available). Notable proof
+obligations:
+
+- **Determinism.** Byte-identical `ChangeAdvisory` JSON across 5 repeated
+  runs and across 5 shuffled non-conflicting-operation orderings of the
+  same proposal (conflict-detection issues carry array-position-dependent
+  `operation_index` values by design, consistent with the package's own
+  `determinism.test.ts` precedent, so shuffle-identity is proven only
+  over non-conflicting operation sets).
+- **Agent parity.** A direct `decodeProposedChangeSet()` +
+  `buildChangeAdvisory()` call (no Commander, no file I/O) produces
+  byte-identical output to the CLI's `runChangeWorkbenchEvaluation()`;
+  a direct `validateProposedChangeSet()` call on an unknown-kind
+  proposal produces an identical rejection to the CLI's
+  `runChangeWorkbenchValidation()`.
+- **Security.** Genuine raw-JSON-text prototype-pollution payloads
+  (a literal `"__proto__"` key from `JSON.parse()`, not a JS object
+  literal, which sets a prototype rather than an own property and would
+  never exercise the real code path) are rejected by the decode
+  boundary; a hostile `repository_id` sanitizes to a single safe path
+  segment with no actual `".."` traversal segment when building an
+  advisory cache path; a symlinked `--file` reads safely; a rejected
+  proposal leaves no filesystem artifacts beyond an explicit `--output`;
+  a static source-grep over all 8 CLI change-* implementation files
+  proves no network, child-process, or git-mutation patterns exist
+  anywhere in this command family.
+- **Baseline handling.** A missing Knowledge Graph snapshot fails
+  `evaluate` with the `rvs graph build` guidance message and leaves no
+  partial cache artifacts; `evaluate` never mutates the observed
+  Knowledge Graph cache files it reads.
+
+Verification: `pnpm --filter @rvs/cli exec tsc --noEmit` clean;
+`pnpm -r exec tsc --noEmit` (all 30 workspace packages) clean;
+`pnpm test` (repository-wide) 266 test files passed (2 skipped,
+pre-existing and unrelated), 4308 tests passed (26 skipped, pre-existing
+and unrelated); `RVS_TEST_PACKAGE=1 pnpm test` 266 test files passed
+(all), 4308 tests passed (all) — confirming this slice caused no
+regression or weakening of any existing test anywhere in the repository.
+
+### 5. Current repository state
+
+11.2's work sits uncommitted on `feature/change-workbench-proposal-interface`,
+branched from `main` at `6c0c402f5cba4d628e7efcf8387491f5bb29d98b`. Files
+touched: `packages/change-workbench/src/index.ts`,
+`packages/change-workbench/src/validation.ts`,
+`packages/change-workbench/src/decode.ts` (new),
+`packages/change-workbench/src/__tests__/decode.test.ts` (new),
+`packages/change-workbench/src/__tests__/schema-version-and-unknown-kind.test.ts` (new),
+`packages/cli/src/change-workbench-cache.ts` (new),
+`packages/cli/src/commands/change-{baseline,decode,evaluate,explain,presentation,shared,validate}.ts`
+(new), `packages/cli/src/bin.ts`, `packages/cli/package.json`,
+`packages/cli/src/__tests__/change-cli.test.ts` (new), `pnpm-lock.yaml`.
+Nothing from this milestone has been committed, pushed, merged, or
+opened as a pull request.
