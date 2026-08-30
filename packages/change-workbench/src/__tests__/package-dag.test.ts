@@ -104,4 +104,14 @@ describe("package DAG: @rvs/change-workbench never appears as a transitive depen
     expect(changeWorkbenchDeps.has("@rvs/knowledge-graph")).toBe(true);
     expect(changeWorkbenchDeps.has("@rvs/governance-intelligence")).toBe(true);
   });
+
+  it("Milestone 11.3.1A: the new canonical evaluation envelope does not introduce a dependency on any @rvs/visual-* package or @rvs/cli, direct or transitive", () => {
+    const graph = loadWorkspaceDependencyGraph();
+    const changeWorkbenchDeps = transitiveDependencies(graph, "@rvs/change-workbench");
+    changeWorkbenchDeps.add("@rvs/change-workbench");
+    for (const dep of changeWorkbenchDeps) {
+      expect(dep.startsWith("@rvs/visual-")).toBe(false);
+      expect(dep).not.toBe("@rvs/cli");
+    }
+  });
 });

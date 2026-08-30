@@ -9,7 +9,7 @@
 import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 import type { DecisionStateLookup } from "@rvs/knowledge-graph";
 import type { EvaluatePolicyInput } from "@rvs/governance-intelligence";
-import type { ChangeAdvisory, DomainCoverageState, DomainCoverageStatus, EvidenceRef, ProposalOperation, ProposedChangeSet, TopologyDisclosure } from "./contracts.js";
+import type { ChangeAdvisory, DomainCoverageState, DomainCoverageStatus, EvidenceRef, OverlayBuildResult, ProposalOperation, ProposalValidationResult, ProposedChangeSet, TopologyDisclosure } from "./contracts.js";
 import { CHANGE_WORKBENCH_SCHEMA_VERSION } from "./constants.js";
 import { buildChangeAdvisoryId, buildProposedChangeSetId } from "./ids.js";
 import { validateProposedChangeSet } from "./validation.js";
@@ -51,6 +51,46 @@ export function buildChangeAdvisory(params: BuildChangeAdvisoryParams): ChangeAd
   const { changeSet, confirmedNodes, confirmedEdges, baseSnapshotDigest, maxImpactDepth, decisionStateLookup, governanceEvaluationInput } = params;
 
   const proposalValidation = validateProposedChangeSet(changeSet, { confirmedNodes, confirmedEdges });
+  const overlayResult = proposalValidation.status === "invalid" ? undefined : buildChangeOverlay({ changeSet, confirmedNodes, confirmedEdges, baseSnapshotDigest });
+
+  return buildChangeAdvisoryFromEvaluationInputs({
+    changeSet,
+    baseSnapshotDigest,
+    proposalValidation,
+    overlayResult,
+    maxImpactDepth,
+    decisionStateLookup,
+    governanceEvaluationInput,
+  });
+}
+
+export interface BuildChangeAdvisoryFromEvaluationInputsParams {
+  changeSet: ProposedChangeSet;
+  baseSnapshotDigest: string;
+  /** Already computed by the caller -- never re-derived here. */
+  proposalValidation: ProposalValidationResult;
+  /**
+   * Already computed by the caller -- never re-derived here. `undefined`
+   * means overlay construction was never attempted (currently: an invalid
+   * proposal); it is never a stand-in for "attempted and produced nothing".
+   */
+  overlayResult: OverlayBuildResult | undefined;
+  maxImpactDepth?: number;
+  decisionStateLookup?: DecisionStateLookup;
+  governanceEvaluationInput?: EvaluatePolicyInput;
+}
+
+/**
+ * The shared advisory-construction core behind both buildChangeAdvisory()
+ * and evaluateProposedChange(). Takes proposal validation and overlay
+ * construction as already-computed inputs so neither caller ever replays
+ * validateProposedChangeSet() or buildChangeOverlay() -- this function has
+ * no access to confirmedNodes/confirmedEdges and structurally cannot call
+ * either itself.
+ */
+export function buildChangeAdvisoryFromEvaluationInputs(params: BuildChangeAdvisoryFromEvaluationInputsParams): ChangeAdvisory {
+  const { changeSet, baseSnapshotDigest, proposalValidation, overlayResult, maxImpactDepth, decisionStateLookup, governanceEvaluationInput } = params;
+
   const topology = buildTopologyDisclosure(changeSet);
   const id = buildChangeAdvisoryId(changeSet.id, baseSnapshotDigest);
   const governance = buildGovernanceAdvisory({ evaluationInput: governanceEvaluationInput });
@@ -77,8 +117,7 @@ export function buildChangeAdvisory(params: BuildChangeAdvisoryParams): ChangeAd
     };
   }
 
-  const overlayResult = buildChangeOverlay({ changeSet, confirmedNodes, confirmedEdges, baseSnapshotDigest });
-  const overlay = overlayResult.overlay;
+  const overlay = overlayResult?.overlay;
 
   const impact = overlay
     ? buildImpactAdvisory({ overlay, operations: changeSet.operations, maxDepth: maxImpactDepth, decisionStateLookup })

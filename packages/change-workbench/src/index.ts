@@ -10,4 +10,5 @@ export * from "./impact-advisory.js";
 export * from "./governance-advisory.js";
 export * from "./decision-advisory.js";
 export * from "./change-advisory.js";
+export * from "./evaluation.js";
 export * from "./persistence.js";
