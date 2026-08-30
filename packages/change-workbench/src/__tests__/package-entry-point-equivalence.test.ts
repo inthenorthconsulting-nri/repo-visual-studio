@@ -53,6 +53,7 @@ import {
   buildChangeAdvisory as pkgBuildChangeAdvisory,
   toStoredChangeAdvisory as pkgToStoredChangeAdvisory,
   assessChangeAdvisoryFreshness as pkgAssessChangeAdvisoryFreshness,
+  evaluateProposedChange as pkgEvaluateProposedChange,
 } from "../index.js";
 import type { ProposalOperation, ProposedChangeSet } from "../index.js";
 
@@ -65,6 +66,7 @@ import { tryConfirmEntityRef as srcTryConfirmEntityRef, proposeEntityRef as srcP
 import { buildChangeOverlay as srcBuildChangeOverlay } from "../overlay.js";
 import { buildChangeAdvisory as srcBuildChangeAdvisory } from "../change-advisory.js";
 import { toStoredChangeAdvisory as srcToStoredChangeAdvisory, assessChangeAdvisoryFreshness as srcAssessChangeAdvisoryFreshness } from "../persistence.js";
+import { evaluateProposedChange as srcEvaluateProposedChange } from "../evaluation.js";
 
 import { BASE_SNAPSHOT_DIGEST, baseFixtureGraph, confirmedRef, REPOSITORY_ID } from "./change-workbench-fixtures.js";
 
@@ -131,5 +133,16 @@ describe("public-entry-point equivalence: src/index.ts barrel vs direct submodul
     expect(pkgAssessChangeAdvisoryFreshness(storedViaBarrel, BASE_SNAPSHOT_DIGEST)).toBe("current");
     expect(pkgAssessChangeAdvisoryFreshness(storedViaBarrel, "a-different-baseline")).toBe(srcAssessChangeAdvisoryFreshness(storedViaSubmodule, "a-different-baseline"));
     expect(pkgAssessChangeAdvisoryFreshness(storedViaBarrel, "a-different-baseline")).toBe("stale_equivalent");
+  });
+
+  it("the canonical evaluateProposedChange() produces a byte-identical ChangeWorkbenchEvaluation via the barrel and via its direct submodule", () => {
+    const operations: ProposalOperation[] = [{ kind: "modify_attributes", ref: pkgMutateExistingEntityRef(confirmedRef("comp-b", nodes)), attributes: { label: "Renamed B" } }];
+    const changeSet: ProposedChangeSet = { schema_version: 1, id: pkgBuildProposedChangeSetId(REPOSITORY_ID, operations), repository_id: REPOSITORY_ID, operations };
+
+    const viaBarrel = pkgEvaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest: BASE_SNAPSHOT_DIGEST });
+    const viaSubmodule = srcEvaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest: BASE_SNAPSHOT_DIGEST });
+
+    expect(JSON.stringify(viaBarrel)).toBe(JSON.stringify(viaSubmodule));
+    expect(viaBarrel.advisory.id).toBe(viaSubmodule.advisory.id);
   });
 });

@@ -4014,3 +4014,111 @@ consumer exists; it is not a blocker for this slice.
 
 Nothing from this milestone has been committed, pushed, merged, or
 opened as a pull request.
+
+## Milestone 11.3.1A — Canonical Workbench Evaluation Envelope
+
+Implementation-only slice, scoped to `@rvs/change-workbench` alone,
+fixing the information-loss gap the Milestone 11.3.1 architecture
+investigation surfaced: `buildChangeOverlay()` computes
+`OverlayBuildResult.issues`, but `buildChangeAdvisory()` read the
+overlay result only for its `.overlay` field and never carried
+`.issues` forward — a downstream consumer holding only a
+`ChangeAdvisory` had no way to know some projection operations failed
+to resolve.
+
+### What changed
+
+- **`contracts.ts`**: added `ChangeWorkbenchProjectionOutcome` (a
+  discriminated union — `{status: "built", result: OverlayBuildResult}`
+  or `{status: "not_built", reason: string}`, never an empty-array
+  stand-in for "not built") and `ChangeWorkbenchEvaluation` (the
+  canonical envelope: `schema_version`, `repository_id`, `proposal_id`,
+  `base_snapshot_digest`, `proposal_validation`, `projection`,
+  `advisory`). `ChangeWorkbenchEvaluation` is a sibling to
+  `ChangeAdvisory`, not an extension of it — `ChangeAdvisory`'s own
+  shape and identity are unchanged.
+- **`change-advisory.ts`**: extracted the shared advisory-construction
+  core into `buildChangeAdvisoryFromEvaluationInputs()`, which accepts
+  already-computed `proposalValidation`/`overlayResult` and has no
+  access to `confirmedNodes`/`confirmedEdges` — it structurally cannot
+  call `validateProposedChangeSet()` or `buildChangeOverlay()` itself.
+  `buildChangeAdvisory()` is now a thin wrapper: it computes validation
+  once and overlay at most once, then delegates. Its public signature,
+  return shape, and byte-level output are unchanged (proven by the
+  existing `change-advisory.test.ts`/`determinism.test.ts`/
+  `golden-scenarios.test.ts`/etc. suites passing unmodified).
+- **`evaluation.ts`** (new): `evaluateProposedChange()`, the canonical
+  Workbench evaluation entry point. Calls `validateProposedChangeSet()`
+  exactly once and `buildChangeOverlay()` at most once (never for an
+  invalid proposal), then passes those same results — never replayed —
+  to `buildChangeAdvisoryFromEvaluationInputs()` to build the advisory
+  it returns alongside them.
+- **`index.ts`**: exports `evaluation.ts`'s public surface from the
+  package barrel.
+
+Downstream proposal-review integrations — including a future
+Milestone 11.3.1 visual adapter — can now consume one
+`ChangeWorkbenchEvaluation` from `evaluateProposedChange()` rather than
+separately calling proposal validation, overlay construction, and
+advisory generation to reconstruct the same result. Overlay-build
+issues survive into `evaluation.projection` byte-for-byte, are never
+merged with proposal-validation issues, and never influence
+`ChangeAdvisory.topology` (topology disclosure remains derived only
+from proposal operations, per the existing `buildTopologyDisclosure()`
+logic). Freshness (`assessChangeAdvisoryFreshness()`) and persistence
+(`toStoredChangeAdvisory()`/`writeChangeAdvisory()`/
+`readChangeAdvisory()`) are unchanged and continue operating on
+`ChangeAdvisory`, not the new envelope — this slice adds no new cache
+or persistence surface.
+
+This slice implements no visualization, no CLI command, and no
+proposal-review adapter — proposal-derived state remains non-observed,
+and no deployment occurred. The Milestone 11.3.1 visual adapter itself
+remains unimplemented and unauthorized by this slice.
+
+### Coverage
+
+`packages/change-workbench/src/__tests__/evaluation.test.ts` (new):
+valid-proposal advisory/overlay byte-identity against the existing
+public APIs; the primary fixture this slice exists for — an
+`add_relation` to an unresolved endpoint, which validates but produces
+a real, non-blocking `unresolved_add_relation_endpoint` overlay-build
+issue that survives into `evaluation.projection` while leaving
+`ChangeAdvisory.topology` unaffected; invalid-proposal semantics
+(`projection.status === "not_built"`, advisory unchanged from the
+existing short-circuit path); the identity contract
+(`repository_id`/`proposal_id`/`base_snapshot_digest` independently
+answerable and matching the advisory's own fields; the overlay's own
+matching fields; confirmation that `ChangeOverlay` deliberately carries
+no `proposal_id`); determinism across 5 shuffled and 5 repeated runs;
+and a static call-graph proof (source-text call-site counting, no
+mocks, matching this suite's existing `package-dag.test.ts`
+fs-based-static-analysis convention) that `evaluateProposedChange()`
+calls `validateProposedChangeSet()`/`buildChangeOverlay()` exactly once
+each, that `buildChangeAdvisoryFromEvaluationInputs()` calls neither,
+and that `buildChangeAdvisory()` still calls each exactly once.
+`package-entry-point-equivalence.test.ts` was extended with a barrel-
+vs-direct-submodule equivalence case for `evaluateProposedChange()`.
+`package-dag.test.ts` was extended with a static dependency-graph
+assertion that change-workbench's transitive dependencies gained no
+`@rvs/visual-*` package and no `@rvs/cli`.
+
+Verification: focused new/extended tests, the full
+`@rvs/change-workbench` suite (142 tests), `pnpm -r exec tsc --noEmit`
+(all 29 workspace packages), and the full repository-wide `pnpm test`
+(266 files / 4356 tests, 2 pre-existing skips) all pass with no
+regressions attributable to this slice.
+`RVS_TEST_PACKAGE=1 vitest run` of
+`source-vs-package-equivalence.test.ts` (the installed-tarball CLI
+suite) also passes, but — as `package-entry-point-equivalence.test.ts`'s
+own header documents — `@rvs/change-workbench` has no compiled/packed
+artifact of its own (`"private": true`, no build script, no other
+in-repo consumer), so that run does not independently prove
+`evaluateProposedChange()` specifically survived any bundling or
+executed from an installed package. CANONICAL WORKBENCH EVALUATION
+INSTALLED-PACKAGE EQUIVALENCE: NOT INDEPENDENTLY PROVEN — acceptable
+and non-blocking for this slice, matching Milestone 11.3.0's own
+installed/bundled-equivalence deferral.
+
+Nothing from this milestone has been committed, pushed, merged, or
+opened as a pull request.

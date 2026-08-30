@@ -308,6 +308,58 @@ export interface ChangeAdvisory {
 }
 
 // ---------------------------------------------------------------------------
+// Canonical Workbench evaluation envelope (Milestone 11.3.1A) -- see
+// evaluation.ts. A sibling to ChangeAdvisory, not an extension of it:
+// ChangeAdvisory remains the deterministic derived assessment of a proposal;
+// ChangeWorkbenchEvaluation is the outer envelope binding proposal
+// validation, projection (including the raw OverlayBuildResult -- and its
+// `issues`, which ChangeAdvisory itself never carries) and the resulting
+// ChangeAdvisory together under one evaluation identity, so a caller never
+// has to separately invoke validateProposedChangeSet() / buildChangeOverlay()
+// / buildChangeAdvisory() to reconstruct what one evaluateProposedChange()
+// call already computed once.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether overlay construction was attempted for this evaluation.
+ * "built" means buildChangeOverlay() was called and `result` is its
+ * complete, unmodified OverlayBuildResult -- including `result.issues`.
+ * `result.status` / `result.overlay` still carry the finer-grained
+ * ok/unresolved/invalid distinction that "built" alone does not collapse:
+ * "built" records only that an attempt happened, not that it produced a
+ * usable overlay. "not_built" means overlay construction was never
+ * attempted at all (currently: proposal validation was invalid) -- a
+ * distinct fact from an attempted build that produced an empty or
+ * issue-laden overlay, and never represented as an empty-array overlay.
+ */
+export type ChangeWorkbenchProjectionOutcome =
+  | { status: "built"; result: OverlayBuildResult }
+  | { status: "not_built"; reason: string };
+
+/**
+ * The canonical Workbench evaluation envelope. Binds one proposal's
+ * validation, projection outcome (with overlay-build issues preserved
+ * verbatim) and resulting advisory under one evaluation identity.
+ * Downstream integrations (e.g. a future proposal-review visual adapter)
+ * should consume this rather than separately calling
+ * validateProposedChangeSet(), buildChangeOverlay() and
+ * buildChangeAdvisory() to reconstruct it.
+ *
+ * Deliberately not folded into ChangeAdvisory: ChangeAdvisory and raw
+ * projection diagnostics are related but different semantic products --
+ * see this type's header comment and evaluation.ts.
+ */
+export interface ChangeWorkbenchEvaluation {
+  schema_version: number;
+  repository_id: string;
+  proposal_id: string;
+  base_snapshot_digest: string;
+  proposal_validation: ProposalValidationResult;
+  projection: ChangeWorkbenchProjectionOutcome;
+  advisory: ChangeAdvisory;
+}
+
+// ---------------------------------------------------------------------------
 // Persistence / staleness (see persistence.ts)
 // ---------------------------------------------------------------------------
 
