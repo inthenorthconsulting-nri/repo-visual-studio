@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // Same compiler-enforced purity gate @rvs/visual-grammar and
+    // @rvs/visual-intelligence use. This package binds structured evaluation
+    // data only -- no DOM, no rendering, no geometry -- so dropping "DOM"
+    // makes any accidental browser-API dependency a type error rather than a
+    // code-review convention.
+    "lib": ["ES2022"]
+  },
+  "include": ["src"]
+}

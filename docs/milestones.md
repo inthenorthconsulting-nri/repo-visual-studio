@@ -4122,3 +4122,126 @@ installed/bundled-equivalence deferral.
 
 Nothing from this milestone has been committed, pushed, merged, or
 opened as a pull request.
+
+## Milestone 11.3.1 — Proposal Review Visual Adapter
+
+Implementation-only slice adding a new, thin package —
+`@rvs/proposal-review` — that binds one Milestone 11.3.1A
+`ChangeWorkbenchEvaluation` envelope, an explicit observed baseline
+(`GraphSnapshot`, `@rvs/knowledge-graph`), and an explicit
+caller-supplied freshness qualification into a `ProposalReviewVisualInput`.
+It sits between `@rvs/change-workbench` and `@rvs/visual-intelligence`
+in the package dependency graph; neither of those two packages gained
+a dependency on each other or on the new package.
+
+### What changed
+
+- **New package `packages/proposal-review/`** (`contracts.ts`,
+  `ids.ts`, `adapter.ts`, `index.ts`): `buildProposalReviewVisualInput()`
+  reads `evaluation.proposal_validation`, `evaluation.projection`, and
+  `evaluation.advisory` verbatim from the supplied
+  `ChangeWorkbenchEvaluation` — it calls no `@rvs/change-workbench`
+  evaluator (`evaluateProposedChange`, `validateProposedChangeSet`,
+  `buildChangeOverlay`, `buildChangeAdvisory`/
+  `buildChangeAdvisoryFromEvaluationInputs`, `buildImpactAdvisory`,
+  `buildGovernanceAdvisory`, `buildDecisionAdvisory`) and every
+  `@rvs/change-workbench` import in its source is `import type` only.
+  It reuses, rather than reimplements, the existing Milestone 11.3.0
+  `buildProposalTruthDisclosure()` (`@rvs/visual-intelligence`) to
+  produce the binding's `truth_disclosure`; topology-disclosure
+  authority remains `evaluation.advisory.topology`, reduced only
+  through that existing builder — never inferred from overlay issues,
+  entity provenance, or entity/edge counts.
+- Baseline/evaluation `repository_id` and `base_snapshot_digest`
+  compatibility is a hard failure, not a warning: a caller cannot
+  obtain a `ProposalReviewVisualInput` for an evaluation checked
+  against a baseline this package cannot independently confirm. Three
+  further defensive checks reject a hand-constructed or
+  deserialization-boundary-crossed `ChangeWorkbenchEvaluation` whose
+  `advisory.proposal_id`/`repository_id`/`base_snapshot_digest`
+  disagree with the envelope's own fields (a mismatch that cannot
+  occur for any evaluation genuinely produced by
+  `evaluateProposedChange()`, per that function's own internal
+  consistency guarantee).
+- A `projection.status === "not_built"` evaluation is passed through
+  as `not_built`, never presented as an empty `"built"` overlay.
+  `OverlayBuildIssue[]` (on `projection`) stays structurally distinct
+  from `proposal_validation.issues`. All four `OverlayEntityProvenance`
+  values (`confirmed`/`proposed`/`modified`/`removed`) survive
+  unmodified.
+- `advisoryFreshness` is an explicit caller-supplied input
+  (`ProposalAdvisoryFreshness`: `current`/`stale_equivalent`/
+  `unknown`) — this package never discovers, caches, or
+  filesystem-probes freshness itself.
+- Output is named `ProposalReviewVisualInput`, not `...Artifact` or
+  `...FidelityReceipt`: no rendering, adaptation, or fidelity-accounting
+  stage has run over this binding, so no `FidelityReceipt` (a strictly
+  post-rendering concept, `@rvs/visual-intelligence`'s `fidelity.ts`)
+  is fabricated or implied.
+
+This slice implements no visual grammar, visual composition,
+visual-change-review rendering, visual explorer, visual delivery, or
+CLI wiring — the adapter produces a visual *input*, not a rendered or
+delivered artifact, and nothing was deployed.
+
+### Coverage
+
+`packages/proposal-review/src/__tests__/adapter.test.ts`: determinism
+(byte-identical output across repeated calls and across structurally
+identical but distinct evaluation objects); provenance preservation
+(all four `OverlayEntityProvenance` values survive a mixed
+removal/modification/addition proposal); the `not_built`-vs-
+empty-`built` distinction; five independently-triggerable
+baseline/identity mismatch hard failures (repository_id mismatch,
+digest mismatch, and the three advisory-consistency checks), including
+a case proving two mismatches are reported together, not just the
+first; a forbidden-wording regression sweep (`FORBIDDEN_PROPOSAL_TRUTH_WORDING`,
+imported from `@rvs/visual-intelligence`) over the full serialized
+output across every evaluation/freshness fixture; and freshness
+isolation (`advisoryFreshness` passes straight through to
+`truth_disclosure.advisory_freshness` unchanged, and changing it alone
+changes nothing else in the output). `package-dag.test.ts` asserts
+whole-workspace acyclicity, this package's declared placement (depends
+on `@rvs/change-workbench`/`@rvs/knowledge-graph`/
+`@rvs/visual-intelligence`; none of its own dependencies depend back on
+it), and that neither `@rvs/change-workbench` nor
+`@rvs/visual-intelligence` gained a dependency on the new package or on
+each other. `forbidden-evaluator-call.test.ts` is a static source-text
+audit (comment-stripped, `node:fs`-based, matching this repository's
+existing static-analysis convention) proving every
+`@rvs/change-workbench` import in non-test source is `import type` and
+that no Workbench evaluator/builder name appears as a call anywhere in
+non-test source. `package-entry-point-equivalence.test.ts` proves the
+package barrel (`index.ts`) re-exports `buildProposalReviewVisualInput`/
+`buildProposalReviewVisualInputId` faithfully against their defining
+submodules, for both an accepted and a rejected result.
+
+Verification: the new focused suite (34 tests), the full
+`@rvs/change-workbench` and `@rvs/visual-intelligence` regression
+suites (438 tests, unmodified, no regressions), `pnpm -r --if-present
+run typecheck` (30 of 31 workspace packages, including the new
+`@rvs/proposal-review`), and the full repository-wide `pnpm test`
+(272 files / 4390 tests passed, 26 pre-existing skips) all pass. A
+manual static sweep of the new package's non-test source
+(`ids.ts`/`contracts.ts`/`adapter.ts`/`index.ts`) found no
+`child_process`, no network call, no filesystem write, no `eval`/
+`Function`, no `Math.random()`, and no wall-clock read.
+
+`@rvs/proposal-review` is `"private": true` with `"main": "src/index.ts"`,
+no `"exports"` field, and no build script — same as every other
+package in this repository except `@rvs/cli`. PROPOSAL-REVIEW
+INSTALLED-PACKAGE EQUIVALENCE: NOT INDEPENDENTLY PROVEN, distinct from
+and in addition to Milestone 11.3.1A's own pre-existing
+`@rvs/change-workbench` installed-package-equivalence deferral — this
+is a new package with no compiled/packed artifact and no in-repo
+consumer of its own yet, so this run does not prove
+`buildProposalReviewVisualInput()` survived any bundling or executed
+from an installed package.
+
+This slice does not complete Milestone 11.3 overall — visual grammar,
+composition, change-review rendering, explorer, delivery, and CLI/deploy
+integration for proposal review remain unimplemented and unauthorized
+by this slice.
+
+Nothing from this milestone has been committed, pushed, merged, or
+opened as a pull request.
