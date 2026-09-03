@@ -1,0 +1,21 @@
+{
+  "name": "@rvs/proposal-review",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rvs/change-workbench": "workspace:*",
+    "@rvs/knowledge-graph": "workspace:*",
+    "@rvs/visual-intelligence": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
