@@ -14,30 +14,35 @@ import { buildProposalTruthDisclosureId, canonicalize, digestOf } from "./ids.js
 // checks one.
 
 // ---------------------------------------------------------------------------
-// Entity-provenance -> future per-entity visual-provenance mapping
-// (Milestone 11.3.0 investigation §12). Documentation, not logic: this
-// package does not import `@rvs/change-workbench`'s `OverlayEntityProvenance`
-// and this constant is not read by any function below or anywhere else in
-// this package. It exists solely to freeze, at review time, how a future
-// (still-unscheduled) adapter must interpret each `ChangeOverlay` provenance
-// value for per-entity rendering -- so that decision does not get
-// re-litigated, or litigated differently by different call sites, once
-// adapter code is actually written. The string-literal keys echo
-// `OverlayEntityProvenance`'s four values verbatim.
+// Entity-provenance -> per-entity visual-provenance mapping (Milestone
+// 11.3.0 investigation §12). This package still does not import
+// `@rvs/change-workbench`'s `OverlayEntityProvenance` and still never reads
+// this constant itself -- it exists here, not in proposal-provenance.ts, so
+// that its four canonical truth-basis sentences have exactly one source of
+// truth for both consumers below. It freezes how the *distinct concern* of
+// per-entity rendering must interpret each `ChangeOverlay` provenance value,
+// so that decision does not get re-litigated, or litigated differently by
+// different call sites. The string-literal keys echo `OverlayEntityProvenance`'s
+// four values verbatim.
 //
 // DECISIVE: this mapping is NOT topology-disclosure authority and must never
-// be read to derive `topology_disclosure_status`. It concerns a separate,
-// still-deferred concern -- per-entity visual provenance (badges/markers on
-// individual confirmed/proposed/modified/removed entities) -- not the
-// artifact-level topology disclosure this package's `ProposalTruthDisclosure`
-// actually carries. See `ProposalTopologyDisclosureStatus`'s own doc comment
-// in contracts.ts for the full list of things `OverlayEntityProvenance`
-// (and everything derived from it, including this mapping) must never be
-// used to infer. Milestone 11.3.1 will introduce two independent future
-// mappings, not one: (a) `ChangeAdvisory.topology.status ->
-// topology_disclosure_status` (artifact-level, authoritative for this
-// contract), and (b) `OverlayEntityProvenance -> per-entity visual
-// provenance` (this mapping, a separate rendering concern).
+// be read to derive `topology_disclosure_status`. It concerns a separate
+// concern -- per-entity visual provenance (badges/markers on individual
+// confirmed/proposed/modified/removed entities) -- not the artifact-level
+// topology disclosure this package's `ProposalTruthDisclosure` actually
+// carries. See `ProposalTopologyDisclosureStatus`'s own doc comment in
+// contracts.ts for the full list of things `OverlayEntityProvenance` (and
+// everything derived from it, including this mapping) must never be used to
+// infer. Milestone 11.3.1 implemented mapping (a) --
+// `ChangeAdvisory.topology.status -> topology_disclosure_status`
+// (artifact-level, authoritative for this contract, via
+// `reduceTopologyDisclosureStatus` below). Milestone 11.3.2 implements
+// mapping (b) -- `OverlayEntityProvenance -> per-entity visual provenance` --
+// as `./proposal-provenance.ts`'s `ProposalEntityProvenance` vocabulary and
+// `resolveProposalEntityProvenance()`, which reuse this constant's text
+// verbatim rather than restating it; `@rvs/proposal-review`'s grammar mapper
+// is the one place that actually knows about `OverlayEntityProvenance` and
+// maps its values onto `ProposalEntityProvenance` by matching literal.
 // ---------------------------------------------------------------------------
 
 export const OVERLAY_PROVENANCE_TRUTH_BASIS_MAPPING: Readonly<Record<"confirmed" | "proposed" | "modified" | "removed", string>> = {

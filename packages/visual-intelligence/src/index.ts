@@ -26,3 +26,4 @@ export * from "./visual-state.js";
 export * from "./accessibility.js";
 export * from "./motion.js";
 export * from "./proposal-truth.js";
+export * from "./proposal-provenance.js";

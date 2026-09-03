@@ -12,12 +12,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildProposalReviewVisualInput as pkgBuildProposalReviewVisualInput, buildProposalReviewVisualInputId as pkgBuildProposalReviewVisualInputId } from "../index.js";
+import {
+  buildProposalReviewVisualInput as pkgBuildProposalReviewVisualInput,
+  buildProposalReviewVisualInputId as pkgBuildProposalReviewVisualInputId,
+  buildProposalVisualGrammar as pkgBuildProposalVisualGrammar,
+} from "../index.js";
 
 import { buildProposalReviewVisualInput as srcBuildProposalReviewVisualInput } from "../adapter.js";
 import { buildProposalReviewVisualInputId as srcBuildProposalReviewVisualInputId } from "../ids.js";
+import { buildProposalVisualGrammar as srcBuildProposalVisualGrammar } from "../grammar.js";
 
-import { BASE_SNAPSHOT_DIGEST, compatibleObservedBaseline, validEvaluation } from "./fixtures.js";
+import { BASE_SNAPSHOT_DIGEST, compatibleObservedBaseline, mixedProvenanceEvaluation, validEvaluation } from "./fixtures.js";
 
 describe("public-entry-point equivalence: src/index.ts barrel vs direct submodule imports", () => {
   it("buildProposalReviewVisualInput produces a byte-identical result via the barrel and via adapter.ts directly", () => {
@@ -57,5 +62,18 @@ describe("public-entry-point equivalence: src/index.ts barrel vs direct submodul
 
     expect(JSON.stringify(viaBarrel)).toBe(JSON.stringify(viaSubmodule));
     expect(viaBarrel.status).toBe("rejected");
+  });
+
+  it("buildProposalVisualGrammar produces a byte-identical result via the barrel and via grammar.ts directly", () => {
+    const evaluation = mixedProvenanceEvaluation();
+    const observedBaseline = compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST);
+    const bound = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, advisoryFreshness: "current" });
+    expect(bound.status).toBe("ok");
+    if (bound.status !== "ok") return;
+
+    const viaBarrel = pkgBuildProposalVisualGrammar(bound.input);
+    const viaSubmodule = srcBuildProposalVisualGrammar(bound.input);
+
+    expect(JSON.stringify(viaBarrel)).toBe(JSON.stringify(viaSubmodule));
   });
 });

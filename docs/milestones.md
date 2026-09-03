@@ -4243,5 +4243,144 @@ composition, change-review rendering, explorer, delivery, and CLI/deploy
 integration for proposal review remain unimplemented and unauthorized
 by this slice.
 
+## Milestone 11.3.2 — Proposal Visual Grammar
+
+Implementation-only slice adding the smallest semantic surface
+necessary to communicate proposal-review truth through RVS's existing,
+renderer-neutral visual grammar. It adds a thin mapper — one new file,
+`buildProposalVisualGrammar()` — inside `@rvs/proposal-review`, plus
+one new generic, `@rvs/change-workbench`/`@rvs/proposal-review`-unaware
+vocabulary file — `ProposalEntityProvenance` /
+`resolveProposalEntityProvenance()` — inside `@rvs/visual-intelligence`.
+No new workspace package was created and no new workspace dependency
+was introduced: the mapper's only runtime imports are
+`@rvs/visual-intelligence` (an existing `@rvs/proposal-review`
+dependency) and `import type` from `@rvs/change-workbench` (already a
+dependency, and still never a value import). `package.json` and
+`pnpm-lock.yaml` are unchanged by this slice.
+
+### What changed
+
+- **New `packages/visual-intelligence/src/proposal-provenance.ts`**:
+  `ProposalEntityProvenance` (`"confirmed"|"proposed"|"modified"|"removed"`,
+  echoing `OverlayEntityProvenance`'s four values by spelling, never by
+  import) and `resolveProposalEntityProvenance()`, a pure lookup pairing
+  each value with a lifecycle-layer `VisualState` a future composition
+  step may combine in (`added`/`changed`/`removed`; empty for
+  `confirmed`), a `badge` qualifier claiming the channel the lifecycle
+  layer never uses (`visual-state.ts`'s `marker`/`badge` split), an
+  `accessible_term`, and a `truth_basis` reused verbatim — not
+  restated — from the existing `OVERLAY_PROVENANCE_TRUTH_BASIS_MAPPING`
+  constant (`proposal-truth.ts`), which this slice puts to its first
+  real use. `visual-state.ts` itself is unmodified.
+- **New `packages/proposal-review/src/grammar.ts`**:
+  `buildProposalVisualGrammar()` maps one `ProposalReviewVisualInput`
+  onto a `ProposalVisualGrammarModel` — `truth_disclosure` passed
+  through byte-identical (no second topology/freshness reduction
+  anywhere in this file); per-entity/relation provenance mapped, by
+  matching literal only and failing closed on an unrecognized value,
+  from `OverlayEntityProvenance` onto `ProposalEntityProvenance` via
+  `resolveProposalEntityProvenance()`; `governance`/`decisions`/`impact`
+  passed through unmodified, each wrapped with an explicit, literal
+  `basis: "proposal"` marker; no `VisualDecisionStatus` or
+  `VisualConfidence` value anywhere in the output (both are collision
+  risks the mapper's own regression tests assert against directly).
+  "No projected architecture to draw" is checked as
+  `projection.status !== "built" || projection.result.overlay ===
+  undefined` — a `"built"` projection whose own `result.status` is
+  `"unresolved"`/`"invalid"` still has `result.overlay === undefined`
+  and is mapped to the same `not_built`-shaped grammar output as a
+  literal `"not_built"` projection, each carrying its own distinct
+  `reason`. A `"not_built"`-shaped result carries literally no
+  `entities`/`relations` fields.
+- Removed-entity provenance is read from `overlay.node_provenance`/
+  `overlay.edge_provenance`'s own keys, never from `overlay.nodes`/
+  `overlay.edges` — a removed entity's presentation is included in the
+  grammar's provenance manifest precisely because it is structurally
+  absent from the overlay's node/edge lists, and the manifest itself
+  carries no node/edge connectivity, so a removed entity can never be
+  inserted into projected topology by this mapper.
+- Entity-group topology (`advisory.topology[].entity_refs`) is
+  deliberately not implemented in this slice. Stand-in (collapsed-group)
+  presentation is likewise not implemented — nothing in this slice
+  touches `VisualPlaceholder` or any stand-in reduction.
+- Both packages' barrels (`@rvs/visual-intelligence/src/index.ts`,
+  `@rvs/proposal-review/src/index.ts`) export the new public surface.
+  `proposal-truth.ts`'s header comment is updated to record that
+  `OVERLAY_PROVENANCE_TRUTH_BASIS_MAPPING` now has a real reader (this
+  slice's `proposal-provenance.ts`) and that the mapping it forward-referenced
+  as "(b)" is what this milestone implements; the constant's own four
+  canonical sentences are unchanged.
+
+This slice implements no geometry, no renderer, no Current/Delta/Projected
+composition, no `@rvs/visual-change-review`/explorer/delivery/CLI wiring,
+and no export/PDF/SVG work. PROPOSAL TRUTH EXPORT SURVIVABILITY BEYOND
+THE CURRENT INSPECTED HTML PATH: NOT YET CERTIFIED.
+
+### Coverage
+
+`packages/proposal-review/src/__tests__/grammar.test.ts` (25 tests):
+determinism; exhaustive per-entity/relation provenance mapping for a
+mixed proposal (`confirmed`/`proposed`/`modified`/`removed`, each
+checked against `resolveProposalEntityProvenance()`'s own output, plus
+the removed-entity/projected-topology distinction and deterministic
+id-sort independent of source record key order); projection
+availability (`not_built`, and a synthetic `"built"`-with-no-overlay
+fixture proving both collapse to the same shape); a topology-status
+passthrough matrix (`explicit`/`not_supplied`/`partial`/`unresolved`)
+and a freshness passthrough matrix (`current`/`stale_equivalent`/
+`unknown`), both proving byte-identical `truth_disclosure` passthrough
+rather than re-deriving either value; governance/decision/impact basis
+wrapping, plus an explicit regression proving the serialized output
+never contains a `decision_status` field; a static, comment-stripped
+source audit proving `grammar.ts`'s code never references
+`VisualDecisionStatus` or `VisualConfidence`; color-independence
+(`validateColorIndependence`, reused from `@rvs/visual-intelligence`'s
+`accessibility.ts`, against each non-`confirmed` presentation's
+`non_color_channels`); a narrow reduced-motion proof (no
+presentation carries any motion/timing-shaped field); a narrow
+adaptive-detail proof (a projection entry carries exactly
+`{id, presentation}`); and a forbidden-wording regression sweep
+(`FORBIDDEN_PROPOSAL_TRUTH_WORDING`) over the full serialized output
+across every evaluation/freshness fixture.
+`forbidden-evaluator-call.test.ts` (generic, file-scanning) now covers
+`grammar.ts` automatically and continues to pass.
+`package-entry-point-equivalence.test.ts` was extended with a case
+proving `buildProposalVisualGrammar` agrees byte-for-byte via the
+barrel and via `grammar.ts` directly. `package-dag.test.ts` is
+unmodified and continues to pass unchanged, since this slice added no
+workspace dependency: `@rvs/proposal-review` still sits strictly
+between `@rvs/change-workbench` and `@rvs/visual-intelligence`, and
+neither of those two packages gained a dependency on the other or on
+`@rvs/proposal-review`.
+
+Verification: the focused `@rvs/proposal-review`/`@rvs/visual-intelligence`
+suites (20 files / 358 tests, 0 failures), `pnpm -r --if-present run
+typecheck` (30 of 31 workspace packages, all passing), the full
+source-mode repository suite (271 files / 4418 tests passed, 2 files /
+26 tests pre-existing skips, no unexpected change in skip count or any
+golden/snapshot output), and the full package-mode repository suite
+(`RVS_TEST_PACKAGE=1 pnpm test`: 273 files / 4444 tests passed, run and
+reported as its own evidence class, separate from source-mode) all
+pass. A manual static sweep of both new non-test source files
+(`grammar.ts`, `proposal-provenance.ts`) found no `child_process`, no
+network call (`fetch`/`http`/`https`/`net`), no filesystem read/write,
+no `eval`/`Function(`, no `git`/shell exec, and no LLM/MCP call.
+
+`@rvs/proposal-review` and `@rvs/visual-intelligence` are both
+`"private": true` with `"main": "src/index.ts"`, no `"exports"` field,
+and no build script. PROPOSAL REVIEW VISUAL GRAMMAR INSTALLED-PACKAGE
+EQUIVALENCE: NOT INDEPENDENTLY PROVEN. CANONICAL WORKBENCH EVALUATION
+INSTALLED-PACKAGE EQUIVALENCE: NOT INDEPENDENTLY PROVEN — this slice's
+package-mode run exercises `@rvs/cli`'s own installed-tarball surface,
+not a standalone installed build of `@rvs/proposal-review` or
+`@rvs/visual-intelligence` against a consumer of the new grammar
+surface, which does not yet exist.
+
+This slice does not complete Milestone 11.3 overall — Current/Delta/
+Projected composition, change-review rendering, explorer, delivery,
+and CLI/deploy integration for the proposal visual grammar remain
+unimplemented and unauthorized by this slice.
+
 Nothing from this milestone has been committed, pushed, merged, or
 opened as a pull request.
