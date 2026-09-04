@@ -65,7 +65,10 @@ export function evaluateProposedChange(params: EvaluateProposedChangeParams): Ch
   return {
     schema_version: CHANGE_WORKBENCH_SCHEMA_VERSION,
     repository_id: changeSet.repository_id,
-    proposal_id: changeSet.id,
+    // Read back off the advisory (already canonicalized from repository_id + operations) rather
+    // than changeSet.id directly, so this envelope's proposal_id can never disagree with
+    // advisory.proposal_id even under a forged or stale changeSet.id.
+    proposal_id: advisory.proposal_id,
     base_snapshot_digest: baseSnapshotDigest,
     proposal_validation: proposalValidation,
     projection,
