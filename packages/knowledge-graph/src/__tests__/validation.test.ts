@@ -23,6 +23,7 @@ function makeResult(overrides: Partial<KnowledgeGraphBuildResult> = {}): Knowled
       node_count: 0,
       edge_count: 0,
       digest: "0".repeat(64),
+      content_digest: "0".repeat(64),
     },
     ...overrides,
   };

@@ -11,7 +11,7 @@
 import type { ChangeWorkbenchEvaluation, ConfirmedEntityRef, ProposalOperation, ProposedEntityRef } from "@rvs/change-workbench";
 import { composeProposedChangeSet, evaluateProposedChange, mutateExistingEntityRef, proposeEntityRef, tryConfirmEntityRef } from "@rvs/change-workbench";
 import type { GraphSnapshot, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
-import { KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
+import { buildGraphContentDigest, KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
 
 export const REPOSITORY_ID = "fixture-repo";
 
@@ -57,8 +57,18 @@ export function confirmedRef(id: string, nodes: readonly KnowledgeNode[]): Confi
   return ref;
 }
 
-/** A `GraphSnapshot` whose repository_id/digest are exactly what the fixture graph's evaluation was checked against -- i.e. compatible with `baseSnapshotDigest()`'s evaluations by construction. */
+/**
+ * A `GraphSnapshot` whose repository_id/digest are exactly what the fixture
+ * graph's evaluation was checked against -- i.e. compatible with
+ * `baseSnapshotDigest()`'s evaluations by construction. `digest` stays a
+ * caller-supplied parameter (deliberately mismatched by some callers to
+ * exercise digest-inconsistency detection); `content_digest` is the genuine
+ * KG-owned content digest of `baseFixtureGraph()`'s own nodes/edges,
+ * computed via the canonical `buildGraphContentDigest()` primitive rather
+ * than an arbitrary placeholder.
+ */
 export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSnapshot {
+  const { nodes, edges } = baseFixtureGraph();
   return {
     id: `fixture-snapshot:${REPOSITORY_ID}:${baseSnapshotDigest}`,
     schema_version: KNOWLEDGE_GRAPH_SCHEMA_VERSION,
@@ -67,6 +77,7 @@ export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSna
     node_count: 3,
     edge_count: 2,
     digest: baseSnapshotDigest,
+    content_digest: buildGraphContentDigest(nodes, edges),
   };
 }
 
