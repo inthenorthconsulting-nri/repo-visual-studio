@@ -245,6 +245,44 @@ export interface GraphSnapshot {
   node_count: number;
   edge_count: number;
   digest: string;
+  /**
+   * KG-owned deterministic content identity (Milestone 11.3.3A-K1) --
+   * distinct from `id` (observation/provenance) and `digest` (node/edge-id
+   * membership). Repository-independent: two graphs with identical
+   * architecture-semantic node/edge content share the same content_digest
+   * even under different repository_id or upstream_artifacts. See
+   * buildGraphContentDigest() in snapshot.ts for the exact field
+   * projection.
+   */
+  content_digest: string;
+}
+
+/**
+ * A GraphSnapshot-shaped input accepted by verifyGraphContentDigest() for
+ * graphs that predate content_digest (e.g. a legacy cache read). Canonical
+ * snapshots built by buildGraphSnapshot() always populate content_digest;
+ * only verification inputs may omit it.
+ */
+export type GraphContentAttestationInput = Omit<GraphSnapshot, "content_digest"> & {
+  content_digest?: string;
+};
+
+/**
+ * "missing": the input carried no content_digest at all (a pre-K1/legacy
+ * snapshot) -- never upgraded to "attested" by recomputing one, since that
+ * would forge a historical attestation that was never actually made.
+ * "mismatch": a content_digest is present (including an explicitly malformed
+ * one, e.g. "") but does not equal the recomputed digest.
+ * "attested": a content_digest is present and equals the recomputed digest.
+ */
+export type ContentAttestationStatus = "attested" | "missing" | "mismatch";
+
+export interface ContentDigestVerification {
+  status: ContentAttestationStatus;
+  /** The persisted content_digest, when the input carried one (absent only for "missing"). */
+  expected?: string;
+  /** The freshly recomputed digest from the supplied nodes/edges -- always present. */
+  actual: string;
 }
 
 export type CompatibilityStatus =
