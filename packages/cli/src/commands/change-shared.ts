@@ -12,7 +12,7 @@ import { buildChangeAdvisory } from "@rvs/change-workbench";
 import { decodeProposalFile } from "./change-decode.js";
 import { resolveChangeWorkbenchBaseline } from "./change-baseline.js";
 import { readGraphCachedJsonOptional } from "../graph-cache.js";
-import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
+import type { ContentDigestVerification, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 
 export type ChangeWorkbenchValidationOutcome =
   | { outcome: "rejected"; path: string; issues: ProposalValidationIssue[] }
@@ -41,7 +41,8 @@ export function runChangeWorkbenchValidation(repoRoot: string, filePath: string)
 
 export type ChangeWorkbenchEvaluationOutcome =
   | { outcome: "rejected"; path: string; issues: ProposalValidationIssue[] }
-  | { outcome: "evaluated"; path: string; advisory: ChangeAdvisory };
+  | { outcome: "blocked"; path: string; contentAttestation: ContentDigestVerification }
+  | { outcome: "evaluated"; path: string; advisory: ChangeAdvisory; contentAttestation: ContentDigestVerification };
 
 /**
  * `rvs change evaluate`'s shared execution: decode, resolve the confirmed
@@ -49,6 +50,15 @@ export type ChangeWorkbenchEvaluationOutcome =
  * auto-built), and run the one canonical buildChangeAdvisory(). No
  * governance policy input is wired in Milestone 11.2 -- buildGovernanceAdvisory
  * honestly reports `not_evaluated` rather than fabricating a policy result.
+ *
+ * Milestone 11.3.3A-K2/B: a `contentAttestation.status === "mismatch"`
+ * baseline returns `"blocked"` here, before `buildChangeAdvisory()` is ever
+ * called -- the persisted graph content cannot be trusted to evaluate a
+ * proposal against, so no evaluation is attempted at all. `"missing"` (a
+ * legacy, pre-K1 baseline) is not blocked: it has a known, non-destructive
+ * remedy (rebuild the graph) and evaluating against it is exactly today's
+ * pre-K2/B behavior, so evaluation proceeds with the state disclosed
+ * upstream by the caller.
  */
 export function runChangeWorkbenchEvaluation(repoRoot: string, filePath: string): ChangeWorkbenchEvaluationOutcome {
   const decoded = decodeProposalFile(repoRoot, filePath);
@@ -57,6 +67,10 @@ export function runChangeWorkbenchEvaluation(repoRoot: string, filePath: string)
   }
 
   const baseline = resolveChangeWorkbenchBaseline(repoRoot);
+  if (baseline.contentAttestation.status === "mismatch") {
+    return { outcome: "blocked", path: decoded.path, contentAttestation: baseline.contentAttestation };
+  }
+
   const advisory = buildChangeAdvisory({
     changeSet: decoded.changeSet,
     confirmedNodes: baseline.nodes,
@@ -65,5 +79,5 @@ export function runChangeWorkbenchEvaluation(repoRoot: string, filePath: string)
     decisionStateLookup: baseline.decisionStateLookup,
   });
 
-  return { outcome: "evaluated", path: decoded.path, advisory };
+  return { outcome: "evaluated", path: decoded.path, advisory, contentAttestation: baseline.contentAttestation };
 }
