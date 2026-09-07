@@ -20,6 +20,7 @@ import {
   buildChangeAdvisory,
   CHANGE_WORKBENCH_ADVISORIES_DIR,
   decodeProposedChangeSet,
+  evaluateProposedChange,
   MAX_OBJECT_KEYS,
   MAX_OPERATION_COUNT,
   MAX_SERIALIZED_BYTES,
@@ -443,7 +444,7 @@ describe("runChangeEvaluateCommand", () => {
       // Re-run evaluate (side-effect-free) to recover the advisory id deterministically.
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
       expect(outcome.outcome).toBe("evaluated");
-      const advisoryId = outcome.outcome === "evaluated" ? outcome.advisory.id : "";
+      const advisoryId = outcome.outcome === "evaluated" ? outcome.evaluation.advisory.id : "";
       expect(advisoryIdMatch).toBeDefined();
 
       const explainLogger = makeLogger();
@@ -502,7 +503,7 @@ describe("determinism", () => {
       for (let i = 0; i < 5; i++) {
         const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
         expect(outcome.outcome).toBe("evaluated");
-        outputs.push(JSON.stringify(outcome.outcome === "evaluated" ? outcome.advisory : null, null, 2));
+        outputs.push(JSON.stringify(outcome.outcome === "evaluated" ? outcome.evaluation.advisory : null, null, 2));
       }
       for (const output of outputs) expect(output).toBe(outputs[0]);
     } finally {
@@ -539,7 +540,7 @@ describe("determinism", () => {
         writeProposalFile(repoRoot, fileName, validProposal({ operations: shuffled(baseOperations, seed) }));
         const outcome = runChangeWorkbenchEvaluation(repoRoot, fileName);
         expect(outcome.outcome).toBe("evaluated");
-        outputs.push(JSON.stringify(outcome.outcome === "evaluated" ? outcome.advisory : null, null, 2));
+        outputs.push(JSON.stringify(outcome.outcome === "evaluated" ? outcome.evaluation.advisory : null, null, 2));
       }
       for (const output of outputs) expect(output).toBe(outputs[0]);
     } finally {
@@ -551,10 +552,12 @@ describe("determinism", () => {
 // ---------------------------------------------------------------------------
 // Agent parity (§29): the reusable decode/evaluation boundary
 // (@rvs/change-workbench's own decodeProposedChangeSet/
-// validateProposedChangeSet/buildChangeAdvisory) must produce the identical
-// result for a directly-parsed in-memory object -- no Commander, no file,
-// no CLI wiring at all -- as the CLI's `runChangeWorkbenchEvaluation` path
-// produces for the same logical proposal read from a file.
+// validateProposedChangeSet/buildChangeAdvisory, and -- since Milestone
+// 11.3.3A-WB routed the CLI through it -- the canonical
+// evaluateProposedChange() envelope) must produce the identical result for a
+// directly-parsed in-memory object -- no Commander, no file, no CLI wiring
+// at all -- as the CLI's `runChangeWorkbenchEvaluation` path produces for
+// the same logical proposal read from a file.
 // ---------------------------------------------------------------------------
 
 describe("agent parity", () => {
@@ -567,7 +570,7 @@ describe("agent parity", () => {
 
       const cliOutcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
       expect(cliOutcome.outcome).toBe("evaluated");
-      const cliAdvisory = cliOutcome.outcome === "evaluated" ? cliOutcome.advisory : undefined;
+      const cliAdvisory = cliOutcome.outcome === "evaluated" ? cliOutcome.evaluation.advisory : undefined;
 
       // Simulates a future MCP/agent/CI caller: no file I/O, no Commander --
       // a plain in-memory `unknown` value (as if already JSON.parse()d by
@@ -587,6 +590,23 @@ describe("agent parity", () => {
           : undefined;
 
       expect(JSON.stringify(directAdvisory, null, 2)).toBe(JSON.stringify(cliAdvisory, null, 2));
+
+      // Milestone 11.3.3A-WB: the CLI's production path IS the canonical
+      // evaluateProposedChange() envelope now -- a direct library caller of
+      // that same entry point (with or without an attestation claim) gets the
+      // byte-identical advisory, and buildChangeAdvisory() above still agrees.
+      const directEvaluation =
+        decoded.status === "ok"
+          ? evaluateProposedChange({
+              changeSet: decoded.changeSet,
+              confirmedNodes: baseline.nodes,
+              confirmedEdges: baseline.edges,
+              baseSnapshotDigest: baseline.baseSnapshotDigest,
+              decisionStateLookup: baseline.decisionStateLookup,
+              baselineContentAttestation: baseline.contentAttestation,
+            })
+          : undefined;
+      expect(JSON.stringify(directEvaluation?.advisory, null, 2)).toBe(JSON.stringify(cliAdvisory, null, 2));
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
@@ -683,7 +703,7 @@ describe("runChangeExplainCommand", () => {
       const evalLogger = makeLogger();
       await runChangeEvaluateCommand(repoRoot, { file: "proposal.json", cache: true }, evalLogger);
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
-      const advisoryId = outcome.outcome === "evaluated" ? outcome.advisory.id : "";
+      const advisoryId = outcome.outcome === "evaluated" ? outcome.evaluation.advisory.id : "";
 
       const explainLogger = makeLogger();
       await runChangeExplainCommand(repoRoot, advisoryId, {}, explainLogger);
@@ -702,7 +722,7 @@ describe("runChangeExplainCommand", () => {
       const evalLogger = makeLogger();
       await runChangeEvaluateCommand(repoRoot, { file: "proposal.json", cache: true }, evalLogger);
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
-      const advisoryId = outcome.outcome === "evaluated" ? outcome.advisory.id : "";
+      const advisoryId = outcome.outcome === "evaluated" ? outcome.evaluation.advisory.id : "";
       const storedBefore = findStoredChangeAdvisoryById(repoRoot, advisoryId);
 
       // Observed baseline advances -- e.g. `rvs graph build` re-run after new evidence lands.
@@ -799,10 +819,10 @@ describe("security", () => {
       // canonical ProposedChangeSet.id and ChangeAdvisory.id. A caller cannot
       // choose proposal identity, collide identity intentionally, or change
       // advisory identity merely by varying the supplied `id`.
-      expect(outcomeSpoofed.advisory.proposal_id).toBe(outcomePlain.advisory.proposal_id);
-      expect(outcomeHostile.advisory.proposal_id).toBe(outcomePlain.advisory.proposal_id);
-      expect(outcomeSpoofed.advisory.id).toBe(outcomePlain.advisory.id);
-      expect(outcomeHostile.advisory.id).toBe(outcomePlain.advisory.id);
+      expect(outcomeSpoofed.evaluation.advisory.proposal_id).toBe(outcomePlain.evaluation.advisory.proposal_id);
+      expect(outcomeHostile.evaluation.advisory.proposal_id).toBe(outcomePlain.evaluation.advisory.proposal_id);
+      expect(outcomeSpoofed.evaluation.advisory.id).toBe(outcomePlain.evaluation.advisory.id);
+      expect(outcomeHostile.evaluation.advisory.id).toBe(outcomePlain.evaluation.advisory.id);
 
       // The hostile `id` string never leaks into the actual --cache path
       // written to disk -- cache path identity derives solely from the

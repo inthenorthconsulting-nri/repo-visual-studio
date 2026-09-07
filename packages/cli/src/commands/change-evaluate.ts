@@ -1,5 +1,5 @@
 // `rvs change evaluate --file <proposal.json>`: decode, resolve baseline,
-// and run the one canonical buildChangeAdvisory() via the shared
+// and run the one canonical evaluateProposedChange() via the shared
 // runChangeWorkbenchEvaluation() (§12). Terminal wording and exit codes
 // follow §19/§21 exactly: a successfully computed advisory is never a
 // process failure, even when its coverage is partial/unresolved -- only a
@@ -9,9 +9,15 @@
 // additive `baseline_content_attestation` sibling field (never nested inside
 // a CLI-invented wrapper) -- the tri-state result of verifying the persisted
 // snapshot's content_digest against the independently loaded nodes/edges.
-// A `mismatch` baseline is a distinct, blocking outcome: `buildChangeAdvisory`
+// A `mismatch` baseline is a distinct, blocking outcome: evaluateProposedChange()
 // is never reached for it (see change-shared.ts), so there is no advisory to
 // write here at all.
+//
+// Milestone 11.3.3A-WB: on the successful path the canonical
+// ChangeWorkbenchEvaluation envelope is the only source of both the advisory
+// and the attestation this command presents -- `evaluation.advisory` and
+// `evaluation.baseline_content_attestation`. The envelope itself is never
+// exposed as CLI output or persisted; only the advisory is.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -76,8 +82,9 @@ export async function runChangeEvaluateCommand(repoRoot: string, opts: ChangeEva
     return;
   }
 
-  const { advisory, contentAttestation } = outcome;
-  logBaselineContentAttestation(logger, contentAttestation);
+  const { evaluation } = outcome;
+  const advisory = evaluation.advisory;
+  logBaselineContentAttestation(logger, evaluation.baseline_content_attestation);
 
   if (advisory.proposal_validation.status === "invalid") {
     logger.error("INVALID PROPOSAL");
@@ -113,7 +120,7 @@ export async function runChangeEvaluateCommand(repoRoot: string, opts: ChangeEva
   if (opts.output) {
     const path = resolve(repoRoot, opts.output);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ ...advisory, baseline_content_attestation: contentAttestation }, null, 2));
+    writeFileSync(path, JSON.stringify({ ...advisory, baseline_content_attestation: evaluation.baseline_content_attestation }, null, 2));
   }
 
   // Opt-in only (§16) -- default `rvs change evaluate` never persists.

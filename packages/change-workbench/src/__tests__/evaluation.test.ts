@@ -5,10 +5,11 @@
 // contracts.ts's ChangeWorkbenchEvaluation header comment for the envelope
 // shape this proves.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ProposalOperation, ProposedChangeSet } from "../contracts.js";
+import type { ContentDigestVerification } from "@rvs/knowledge-graph";
+import type { ChangeWorkbenchEvaluation, ProposalOperation, ProposedChangeSet } from "../contracts.js";
 import { buildProposedChangeSetId } from "../ids.js";
 import { buildChangeAdvisory } from "../change-advisory.js";
 import { buildChangeOverlay } from "../overlay.js";
@@ -160,6 +161,149 @@ describe("evaluateProposedChange: determinism", () => {
     const evaluations = [0, 1, 2, 3, 4].map(() => evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest: BASE_SNAPSHOT_DIGEST }));
     const serialized = evaluations.map((e) => JSON.stringify(e));
     for (let i = 1; i < serialized.length; i++) expect(serialized[i]).toBe(serialized[0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Milestone 11.3.3A-WB: baseline content-attestation transport. The envelope
+// carries a caller-supplied @rvs/knowledge-graph ContentDigestVerification
+// verbatim; this package never verifies, defaults, branches on or enforces
+// it. Four states: key absent (no claim supplied) / attested / missing /
+// mismatch -- and absence is never collapsed into "missing".
+// ---------------------------------------------------------------------------
+
+describe("evaluateProposedChange: baseline content-attestation transport (Milestone 11.3.3A-WB)", () => {
+  const changeSet = changeSetOf([{ kind: "modify_attributes", ref: mutateExistingEntityRef(confirmedRef("comp-b", nodes)), attributes: { label: "Renamed B" } }]);
+  const baseParams = { changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest: BASE_SNAPSHOT_DIGEST };
+  const ATTESTED: ContentDigestVerification = { status: "attested", expected: "sha256-content-fixture-x", actual: "sha256-content-fixture-x" };
+  const MISSING: ContentDigestVerification = { status: "missing", actual: "sha256-content-fixture-x" };
+  const MISMATCH: ContentDigestVerification = { status: "mismatch", expected: "sha256-content-fixture-x", actual: "sha256-content-fixture-y" };
+
+  function envelopeWithoutAttestation(evaluation: ChangeWorkbenchEvaluation): Record<string, unknown> {
+    const copy: Record<string, unknown> = { ...evaluation };
+    delete copy.baseline_content_attestation;
+    return copy;
+  }
+
+  it("A. no attestation supplied -> the envelope key is absent (not present-with-undefined) and is never defaulted to a 'missing' claim the caller did not make", () => {
+    const evaluation = evaluateProposedChange(baseParams);
+    expect("baseline_content_attestation" in evaluation).toBe(false);
+    expect(Object.keys(evaluation)).toEqual(["schema_version", "repository_id", "proposal_id", "base_snapshot_digest", "proposal_validation", "projection", "advisory"]);
+    expect(JSON.stringify(evaluation)).not.toContain("baseline_content_attestation");
+  });
+
+  it("B. 'attested' is transported verbatim: identical values, and the very same object reference (pure pass-through, no copy, no projection)", () => {
+    const evaluation = evaluateProposedChange({ ...baseParams, baselineContentAttestation: ATTESTED });
+    expect(evaluation.baseline_content_attestation).toBe(ATTESTED);
+    expect(evaluation.baseline_content_attestation).toEqual({ status: "attested", expected: "sha256-content-fixture-x", actual: "sha256-content-fixture-x" });
+    expect(Object.keys(evaluation).at(-1)).toBe("baseline_content_attestation");
+  });
+
+  it("C. 'missing' is transported verbatim -- the caller's historical no-digest fact, untouched (never 'upgraded' by recomputing a digest here)", () => {
+    const evaluation = evaluateProposedChange({ ...baseParams, baselineContentAttestation: MISSING });
+    expect(evaluation.baseline_content_attestation).toBe(MISSING);
+    expect(evaluation.baseline_content_attestation).toEqual({ status: "missing", actual: "sha256-content-fixture-x" });
+    expect(evaluation.baseline_content_attestation && "expected" in evaluation.baseline_content_attestation).toBe(false);
+  });
+
+  it("D. 'mismatch' from a direct library caller still evaluates: no throw, no block, projection built, advisory built, payload preserved verbatim -- mismatch policy is caller-level (the CLI's pre-gate), never Workbench-level", () => {
+    const evaluation = evaluateProposedChange({ ...baseParams, baselineContentAttestation: MISMATCH });
+    expect(evaluation.baseline_content_attestation).toBe(MISMATCH);
+    expect(evaluation.baseline_content_attestation).toEqual({ status: "mismatch", expected: "sha256-content-fixture-x", actual: "sha256-content-fixture-y" });
+    expect(evaluation.proposal_validation.status).not.toBe("invalid");
+    expect(evaluation.projection.status).toBe("built");
+    expect(JSON.stringify(evaluation.advisory)).toBe(JSON.stringify(buildChangeAdvisory(baseParams)));
+  });
+
+  it("the attestation is transported for an invalid proposal too -- transport is independent of validation, projection and advisory outcomes", () => {
+    const invalidChangeSet = changeSetOf([
+      { kind: "add_relation", from_ref: confirmedRef("comp-a", nodes), to_ref: confirmedRef("comp-c", nodes), edge_type: "invokes" },
+      { kind: "remove_relation", from_ref: confirmedRef("comp-a", nodes), to_ref: confirmedRef("comp-c", nodes), edge_type: "invokes" },
+    ]);
+    const evaluation = evaluateProposedChange({ ...baseParams, changeSet: invalidChangeSet, baselineContentAttestation: ATTESTED });
+    expect(evaluation.proposal_validation.status).toBe("invalid");
+    expect(evaluation.projection.status).toBe("not_built");
+    expect(evaluation.baseline_content_attestation).toBe(ATTESTED);
+  });
+
+  it("advisory identity independence: no-attestation / attested / missing / mismatch yield byte-identical advisories, advisory ids and proposal ids -- the envelope's attestation field is the ONLY difference", () => {
+    const variants = [
+      evaluateProposedChange(baseParams),
+      evaluateProposedChange({ ...baseParams, baselineContentAttestation: ATTESTED }),
+      evaluateProposedChange({ ...baseParams, baselineContentAttestation: MISSING }),
+      evaluateProposedChange({ ...baseParams, baselineContentAttestation: MISMATCH }),
+    ];
+    const direct = buildChangeAdvisory(baseParams);
+    const reference = JSON.stringify(envelopeWithoutAttestation(variants[0]!));
+    for (const evaluation of variants) {
+      expect(evaluation.advisory.id).toBe(direct.id);
+      expect(evaluation.advisory.proposal_id).toBe(direct.proposal_id);
+      expect(evaluation.proposal_id).toBe(direct.proposal_id);
+      expect(JSON.stringify(evaluation.advisory)).toBe(JSON.stringify(direct));
+      expect(JSON.stringify(envelopeWithoutAttestation(evaluation))).toBe(reference);
+    }
+    expect(new Set(variants.map((e) => e.advisory.id)).size).toBe(1);
+  });
+
+  it("the advisory itself never carries the attestation -- it is envelope transport, not ChangeAdvisory content (so persisted advisories are unchanged)", () => {
+    const evaluation = evaluateProposedChange({ ...baseParams, baselineContentAttestation: ATTESTED });
+    expect("baseline_content_attestation" in evaluation.advisory).toBe(false);
+    expect(JSON.stringify(evaluation.advisory)).not.toContain("content_attestation");
+  });
+});
+
+// Static authority guard (Milestone 11.3.3A-WB §28): the Workbench is a
+// transport layer for baseline content attestation and nothing more. Scans
+// every production source file in this package (tests excluded) with
+// comments stripped, so prose can never trip or mask the audit.
+describe("Workbench content-attestation authority guard (Milestone 11.3.3A-WB): transport only, never verification or policy", () => {
+  const SRC_DIR = join(__dirname, "..");
+
+  function stripComments(source: string): string {
+    return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+  }
+
+  function productionSources(): Array<{ file: string; source: string }> {
+    return readdirSync(SRC_DIR)
+      .filter((entry) => entry.endsWith(".ts"))
+      .sort()
+      .map((file) => ({ file, source: stripComments(readFileSync(join(SRC_DIR, file), "utf8")) }));
+  }
+
+  it("scans a non-trivial set of production files, including the two that carry the transport contract", () => {
+    const files = productionSources().map((s) => s.file);
+    expect(files).toContain("contracts.ts");
+    expect(files).toContain("evaluation.ts");
+    expect(files.length).toBeGreaterThan(5);
+  });
+
+  it("no production file imports, calls or reimplements the canonical content-digest authority (verifyGraphContentDigest / buildGraphContentDigest)", () => {
+    for (const { file, source } of productionSources()) {
+      expect(source, `${file} must not reference verifyGraphContentDigest/buildGraphContentDigest`).not.toMatch(/verifyGraphContentDigest|buildGraphContentDigest/);
+      expect(source, `${file} must not touch the raw snapshot content-digest field or KG status enum`).not.toMatch(/content_digest|ContentAttestationStatus/);
+    }
+  });
+
+  it("no production file branches on an attestation status or reads into the transported payload -- policy stays with the caller", () => {
+    for (const { file, source } of productionSources()) {
+      expect(source, `${file} must not branch on an attestation status`).not.toMatch(/status\s*[!=]==?\s*["'](attested|missing|mismatch)["']/);
+      expect(source, `${file} must not read into the transported attestation`).not.toMatch(/baseline_content_attestation\s*\??\.\s*\w|baselineContentAttestation\s*\??\.\s*\w/);
+    }
+  });
+
+  it("ContentDigestVerification appears in production source only as a type-only import or as the transport field's own optional type annotation", () => {
+    let annotations = 0;
+    for (const { file, source } of productionSources()) {
+      for (const rawLine of source.split("\n")) {
+        if (!rawLine.includes("ContentDigestVerification")) continue;
+        const line = rawLine.trim();
+        if (/^import type\b/.test(line)) continue;
+        expect(line, `${file}: unexpected ContentDigestVerification usage`).toMatch(/^(baseline_content_attestation|baselineContentAttestation)\?: ContentDigestVerification;$/);
+        annotations += 1;
+      }
+    }
+    // Exactly the envelope field (contracts.ts) and the params field (evaluation.ts).
+    expect(annotations).toBe(2);
   });
 });
 
