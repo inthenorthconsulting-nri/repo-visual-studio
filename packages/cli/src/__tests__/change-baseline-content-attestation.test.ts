@@ -8,9 +8,18 @@
 // Kept in its own file (rather than folded into change-cli.test.ts)
 // because the mandatory Workbench-invocation-count-zero-on-mismatch proof
 // (§6/§9 of the governing milestone) requires a module-level vi.mock of
-// "@rvs/change-workbench" that wraps buildChangeAdvisory in a spy --
+// "@rvs/change-workbench" that wraps the Workbench evaluator in a spy --
 // scoping that mock to this file avoids any risk of altering
-// change-cli.test.ts's existing 918-line assertion surface.
+// change-cli.test.ts's existing assertion surface.
+//
+// Milestone 11.3.3A-WB: the CLI's successful path now runs through the
+// canonical evaluateProposedChange() envelope (exactly once) instead of a
+// direct buildChangeAdvisory() call, and the baseline's authoritative
+// attestation is transported inside that envelope. The spies therefore
+// cover evaluateProposedChange (the one production evaluator: 0 calls on
+// mismatch, 1 otherwise), buildChangeAdvisory (must now be 0 everywhere on
+// the CLI path) and @rvs/knowledge-graph's verifyGraphContentDigest (the
+// single digest authority: exactly 1 call per baseline resolution).
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,12 +30,23 @@ import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 import { buildGraphContentDigest } from "@rvs/knowledge-graph";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { buildChangeAdvisorySpy } = vi.hoisted(() => ({ buildChangeAdvisorySpy: vi.fn() }));
+const { buildChangeAdvisorySpy, evaluateProposedChangeSpy, verifyGraphContentDigestSpy } = vi.hoisted(() => ({
+  buildChangeAdvisorySpy: vi.fn(),
+  evaluateProposedChangeSpy: vi.fn(),
+  verifyGraphContentDigestSpy: vi.fn(),
+}));
 
 vi.mock("@rvs/change-workbench", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@rvs/change-workbench")>();
   buildChangeAdvisorySpy.mockImplementation(actual.buildChangeAdvisory);
-  return { ...actual, buildChangeAdvisory: buildChangeAdvisorySpy };
+  evaluateProposedChangeSpy.mockImplementation(actual.evaluateProposedChange);
+  return { ...actual, buildChangeAdvisory: buildChangeAdvisorySpy, evaluateProposedChange: evaluateProposedChangeSpy };
+});
+
+vi.mock("@rvs/knowledge-graph", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@rvs/knowledge-graph")>();
+  verifyGraphContentDigestSpy.mockImplementation(actual.verifyGraphContentDigest);
+  return { ...actual, verifyGraphContentDigest: verifyGraphContentDigestSpy };
 });
 
 import { resolveChangeWorkbenchBaseline } from "../commands/change-baseline.js";
@@ -129,6 +149,8 @@ function validProposal(overrides: Record<string, unknown> = {}): Record<string, 
 
 beforeEach(() => {
   buildChangeAdvisorySpy.mockClear();
+  evaluateProposedChangeSpy.mockClear();
+  verifyGraphContentDigestSpy.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -241,6 +263,7 @@ describe("same node ids, changed semantic content -> mismatch (closes the K1-mot
       writeProposalFile(repoRoot, "proposal.json", validProposal());
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
       expect(outcome.outcome).toBe("blocked");
+      expect(evaluateProposedChangeSpy).not.toHaveBeenCalled();
       expect(buildChangeAdvisorySpy).not.toHaveBeenCalled();
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
@@ -254,7 +277,7 @@ describe("same node ids, changed semantic content -> mismatch (closes the K1-mot
 // ---------------------------------------------------------------------------
 
 describe("Workbench invocation gate (§6/§9 -- mandatory)", () => {
-  it("never invokes buildChangeAdvisory() when the baseline's content attestation is 'mismatch' -- checked BEFORE evaluation, not inferred from output", () => {
+  it("never invokes evaluateProposedChange() (nor buildChangeAdvisory()) when the baseline's content attestation is 'mismatch' -- checked BEFORE evaluation, not inferred from output; the digest authority ran exactly once", () => {
     const repoRoot = tempRepo();
     try {
       writeAttestedGraphCache(repoRoot, { contentDigest: "sha256-deliberately-wrong-digest" });
@@ -263,13 +286,15 @@ describe("Workbench invocation gate (§6/§9 -- mandatory)", () => {
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
 
       expect(outcome.outcome).toBe("blocked");
+      expect(verifyGraphContentDigestSpy).toHaveBeenCalledTimes(1);
+      expect(evaluateProposedChangeSpy).toHaveBeenCalledTimes(0);
       expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(0);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
   });
 
-  it("invokes buildChangeAdvisory() exactly once for an 'attested' baseline -- proving the gate does not also suppress the normal path", () => {
+  it("invokes the canonical evaluateProposedChange() exactly once -- and buildChangeAdvisory() never -- for an 'attested' baseline, proving the gate does not also suppress the normal path", () => {
     const repoRoot = tempRepo();
     try {
       const contentDigest = buildGraphContentDigest([NODE_A, NODE_B], []);
@@ -279,13 +304,15 @@ describe("Workbench invocation gate (§6/§9 -- mandatory)", () => {
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
 
       expect(outcome.outcome).toBe("evaluated");
-      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(1);
+      expect(verifyGraphContentDigestSpy).toHaveBeenCalledTimes(1);
+      expect(evaluateProposedChangeSpy).toHaveBeenCalledTimes(1);
+      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(0);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
   });
 
-  it("invokes buildChangeAdvisory() exactly once for a 'missing' (legacy) baseline -- missing is non-blocking", () => {
+  it("invokes the canonical evaluateProposedChange() exactly once -- and buildChangeAdvisory() never -- for a 'missing' (legacy) baseline: missing is non-blocking", () => {
     const repoRoot = tempRepo();
     try {
       writeAttestedGraphCache(repoRoot, { contentDigest: "omit" });
@@ -294,7 +321,9 @@ describe("Workbench invocation gate (§6/§9 -- mandatory)", () => {
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
 
       expect(outcome.outcome).toBe("evaluated");
-      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(1);
+      expect(verifyGraphContentDigestSpy).toHaveBeenCalledTimes(1);
+      expect(evaluateProposedChangeSpy).toHaveBeenCalledTimes(1);
+      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(0);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
@@ -344,7 +373,9 @@ describe("runChangeEvaluateCommand -- content attestation disclosure/blocking", 
 
       expect(logger.errors).toEqual([]);
       expect(process.exitCode).not.toBe(1);
-      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(1);
+      expect(verifyGraphContentDigestSpy).toHaveBeenCalledTimes(1);
+      expect(evaluateProposedChangeSpy).toHaveBeenCalledTimes(1);
+      expect(buildChangeAdvisorySpy).toHaveBeenCalledTimes(0);
 
       const written = JSON.parse(readFileSync(resolve(repoRoot, "advisory.json"), "utf8")) as ChangeAdvisory & {
         baseline_content_attestation?: { status: string };
@@ -364,6 +395,8 @@ describe("runChangeEvaluateCommand -- content attestation disclosure/blocking", 
       process.exitCode = undefined;
       await runChangeEvaluateCommand(repoRoot, { file: "proposal.json", output: "advisory.json" }, logger);
 
+      expect(verifyGraphContentDigestSpy).toHaveBeenCalledTimes(1);
+      expect(evaluateProposedChangeSpy).not.toHaveBeenCalled();
       expect(buildChangeAdvisorySpy).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
       expect(logger.errors.some((m) => m.includes("Persisted graph content does not match the content digest declared by the graph snapshot"))).toBe(true);
@@ -405,10 +438,10 @@ describe("runChangeEvaluateCommand -- content attestation disclosure/blocking", 
 
       const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
       expect(outcome.outcome).toBe("evaluated");
-      const advisory = outcome.outcome === "evaluated" ? outcome.advisory : undefined;
+      const advisory = outcome.outcome === "evaluated" ? outcome.evaluation.advisory : undefined;
       expect(advisory?.proposal_validation.status).toBe("invalid");
       expect(advisory?.proposal_validation.issues.some((i) => i.code === "repository_id_mismatch")).toBe(true);
-      expect(outcome.outcome === "evaluated" ? outcome.contentAttestation.status : undefined).toBe("missing");
+      expect(outcome.outcome === "evaluated" ? outcome.evaluation.baseline_content_attestation.status : undefined).toBe("missing");
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }
@@ -520,11 +553,24 @@ describe("Milestone 11.3.3A-K2/B -- boundary audits", () => {
     expect(baselineSource).not.toMatch(/digestOf\(|canonicalize\(/);
   });
 
-  it("no production Workbench file (packages/change-workbench/src) references contentAttestation/content_digest -- K2/B adds no Workbench transport contract", () => {
+  it("Workbench production source (packages/change-workbench/src) holds no content-attestation authority: ContentDigestVerification appears only as a type-only transport reference, the canonical digest functions are never imported or called, and no attestation status is ever branched on", () => {
+    // Milestone 11.3.3A-WB re-scoped this audit. Pre-WB it forbade any
+    // ContentDigestVerification reference in Workbench source because K2/B
+    // added no Workbench transport contract; WB deliberately added exactly
+    // one -- ChangeWorkbenchEvaluation.baseline_content_attestation, typed
+    // by the canonical KG type via a type-only import. The stronger, final
+    // invariant is that the Workbench is a transport layer only: it never
+    // verifies, recomputes, reinterprets or enforces that attestation.
     const files = ["contracts.ts", "evaluation.ts", "change-advisory.ts", "impact-advisory.ts", "governance-advisory.ts", "decision-advisory.ts", "persistence.ts", "validation.ts", "overlay.ts"];
     for (const file of files) {
-      const source = readFileSync(fileUrlToLocalPath(`../../../change-workbench/src/${file}`), "utf8");
-      expect(source, `${file} unexpectedly references content attestation`).not.toMatch(/contentAttestation|content_digest|ContentDigestVerification|ContentAttestationStatus/);
+      const source = stripComments(readFileSync(fileUrlToLocalPath(`../../../change-workbench/src/${file}`), "utf8"));
+      expect(source, `${file} must not import, call or reimplement the canonical content-digest authority`).not.toMatch(/verifyGraphContentDigest|buildGraphContentDigest|content_digest|ContentAttestationStatus|contentAttestation\b/);
+      expect(source, `${file} must not branch on a transported attestation status`).not.toMatch(/status\s*[!=]==?\s*["'](attested|missing|mismatch)["']/);
+      expect(source, `${file} must not read into the transported attestation payload`).not.toMatch(/baseline_content_attestation\s*\??\.\s*\w|baselineContentAttestation\s*\??\.\s*\w/);
+      const nonTypeImportReferences = source.split("\n").filter((line) => line.includes("ContentDigestVerification") && !/^\s*import type\b/.test(line));
+      for (const line of nonTypeImportReferences) {
+        expect(line.trim(), `${file}: ContentDigestVerification may appear only as the optional transport field's own type annotation`).toMatch(/^(baseline_content_attestation|baselineContentAttestation)\?: ContentDigestVerification;$/);
+      }
     }
   });
 
@@ -540,6 +586,90 @@ describe("Milestone 11.3.3A-K2/B -- boundary audits", () => {
     expect(evaluateSource).not.toMatch(/knowledge-graph.*writeFile|writeGraphOutputs/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Milestone 11.3.3A-WB: the CLI's successful path has exactly one canonical
+// evaluator, and its evaluated outcome has exactly one source of truth for
+// both the advisory and the transported attestation.
+// ---------------------------------------------------------------------------
+
+describe("Milestone 11.3.3A-WB -- canonical CLI evaluation path", () => {
+  it("change-shared.ts calls evaluateProposedChange() exactly once and never calls buildChangeAdvisory(); change-evaluate.ts never calls either directly", () => {
+    const sharedSource = stripComments(readFileSync(fileUrlToLocalPath("../commands/change-shared.ts"), "utf8"));
+    expect((sharedSource.match(/\bevaluateProposedChange\(/g) ?? []).length).toBe(1);
+    expect(sharedSource).not.toMatch(/\bbuildChangeAdvisory\b/);
+    const evaluateSource = stripComments(readFileSync(fileUrlToLocalPath("../commands/change-evaluate.ts"), "utf8"));
+    expect(evaluateSource).not.toMatch(/\bbuildChangeAdvisory\b|\bevaluateProposedChange\b/);
+  });
+
+  it("the evaluated outcome carries the canonical envelope only -- no sibling `advisory`, no sibling `contentAttestation` -- and the envelope's attestation is the very object the CLI handed to evaluateProposedChange()", () => {
+    const repoRoot = tempRepo();
+    try {
+      const contentDigest = buildGraphContentDigest([NODE_A, NODE_B], []);
+      writeAttestedGraphCache(repoRoot, { contentDigest });
+      writeProposalFile(repoRoot, "proposal.json", validProposal());
+
+      const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
+      expect(outcome.outcome).toBe("evaluated");
+      if (outcome.outcome !== "evaluated") throw new Error("unreachable");
+
+      expect(Object.keys(outcome).sort()).toEqual(["evaluation", "outcome", "path"]);
+      expect("contentAttestation" in outcome).toBe(false);
+      expect("advisory" in outcome).toBe(false);
+
+      // Single source of truth on the successful path: the attestation the
+      // CLI resolved is the exact object transported back in the envelope,
+      // and the advisory is the envelope's own.
+      expect(evaluateProposedChangeSpy).toHaveBeenCalledTimes(1);
+      const params = evaluateProposedChangeSpy.mock.calls[0]?.[0] as { baselineContentAttestation?: unknown } | undefined;
+      expect(params?.baselineContentAttestation).toBeDefined();
+      expect(outcome.evaluation.baseline_content_attestation).toBe(params?.baselineContentAttestation);
+      expect(outcome.evaluation.baseline_content_attestation.status).toBe("attested");
+      expect(outcome.evaluation.baseline_content_attestation.expected).toBe(contentDigest);
+      expect(outcome.evaluation.baseline_content_attestation.actual).toBe(contentDigest);
+      expect(outcome.evaluation.advisory.proposal_id).toBe(outcome.evaluation.proposal_id);
+      expect(outcome.evaluation.schema_version).toBe(1);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("the transported attestation never leaks into the advisory that gets narrated, written or cached: --output is `{...advisory, baseline_content_attestation}` and the cached StoredChangeAdvisory carries no attestation, projection or proposal_validation envelope field", async () => {
+    const repoRoot = tempRepo();
+    try {
+      writeAttestedGraphCache(repoRoot, { contentDigest: "omit" });
+      writeProposalFile(repoRoot, "proposal.json", validProposal());
+      const logger = makeLogger();
+      process.exitCode = undefined;
+      await runChangeEvaluateCommand(repoRoot, { file: "proposal.json", output: "advisory.json", cache: true }, logger);
+      expect(logger.errors).toEqual([]);
+
+      const outcome = runChangeWorkbenchEvaluation(repoRoot, "proposal.json");
+      if (outcome.outcome !== "evaluated") throw new Error("unreachable");
+      const written = JSON.parse(readFileSync(resolve(repoRoot, "advisory.json"), "utf8")) as Record<string, unknown>;
+      expect(written).toEqual({ ...outcome.evaluation.advisory, baseline_content_attestation: outcome.evaluation.baseline_content_attestation });
+      expect(written).not.toHaveProperty("projection");
+      expect(written).not.toHaveProperty("proposal_validation.issues.length", undefined);
+      expect(Object.keys(written)).not.toContain("evaluation");
+
+      const cachedLine = logger.infos.find((m) => m.startsWith("Cached advisory at "));
+      expect(cachedLine).toBeDefined();
+      const cachedPath = (cachedLine ?? "").slice("Cached advisory at ".length);
+      const stored = JSON.parse(readFileSync(cachedPath, "utf8")) as Record<string, unknown>;
+      expect(Object.keys(stored).sort()).toEqual(["advisory", "base_snapshot_digest_at_store_time"]);
+      expect(JSON.stringify(stored.advisory)).toBe(JSON.stringify(outcome.evaluation.advisory));
+      expect(JSON.stringify(stored)).not.toContain("baseline_content_attestation");
+      expect(JSON.stringify(stored)).not.toContain("projection");
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Removes block and line comments so source audits match code, never prose. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+}
 
 function fileUrlToLocalPath(relativePath: string): string {
   return new URL(relativePath, import.meta.url).pathname;
