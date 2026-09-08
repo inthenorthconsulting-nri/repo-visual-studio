@@ -8,10 +8,10 @@
 // exercise the adapter against genuine Workbench output, not a shape that
 // could drift from what evaluateProposedChange() actually produces.
 
-import type { ChangeWorkbenchEvaluation, ConfirmedEntityRef, ProposalOperation, ProposedEntityRef } from "@rvs/change-workbench";
+import type { ChangeWorkbenchEvaluation, ConfirmedEntityRef, ProposalOperation, ProposedChangeSet, ProposedEntityRef } from "@rvs/change-workbench";
 import { composeProposedChangeSet, evaluateProposedChange, mutateExistingEntityRef, proposeEntityRef, tryConfirmEntityRef } from "@rvs/change-workbench";
 import type { GraphSnapshot, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
-import { KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
+import { buildGraphSnapshot, KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
 
 export const REPOSITORY_ID = "fixture-repo";
 
@@ -57,7 +57,21 @@ export function confirmedRef(id: string, nodes: readonly KnowledgeNode[]): Confi
   return ref;
 }
 
-/** A `GraphSnapshot` whose repository_id/digest are exactly what the fixture graph's evaluation was checked against -- i.e. compatible with `baseSnapshotDigest()`'s evaluations by construction. */
+/**
+ * A `GraphSnapshot` whose repository_id/digest are exactly what the fixture
+ * graph's evaluation was checked against -- i.e. compatible with
+ * `baseSnapshotDigest()`'s evaluations by construction. `node_count`/
+ * `edge_count` are hand-pinned to `baseFixtureGraph()`'s actual shape (3
+ * nodes, 2 edges) -- if that fixture graph's shape ever changes, these
+ * must change with it (a Milestone 11.3.3A adapter-level test guards this:
+ * a caller-supplied digest that does not match `buildGraphSnapshot()`'s
+ * own recomputation over the paired `baseFixtureGraph()` is a hard
+ * failure, so a drifted count/digest here would surface as a test failure
+ * in `buildProposalReviewVisualInput`'s own suite, not silently pass).
+ * `baseSnapshotDigest` is caller-supplied rather than always
+ * `BASE_SNAPSHOT_DIGEST` so mismatch tests can pass a deliberately wrong
+ * digest.
+ */
 export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSnapshot {
   return {
     id: `fixture-snapshot:${REPOSITORY_ID}:${baseSnapshotDigest}`,
@@ -70,17 +84,39 @@ export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSna
   };
 }
 
-export const BASE_SNAPSHOT_DIGEST = "fixture-base-snapshot-digest-0001";
+/**
+ * The REAL `buildGraphSnapshot()` digest of `baseFixtureGraph()`'s own
+ * node/edge content -- not an arbitrary literal. Milestone 11.3.3A added a
+ * recomputed-digest hard-failure check to `buildProposalReviewVisualInput`
+ * (`PROPOSAL_REVIEW_BASELINE_GRAPH_DIGEST_MISMATCH`), which requires this
+ * fixture's "compatible" digest to be genuinely, not just nominally,
+ * derived from `baseFixtureGraph()` -- a hand-picked string here (as
+ * before Milestone 11.3.3A) would make every "ok"-path test using
+ * `compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST)` paired with
+ * `baseFixtureGraph()` fail that new check.
+ */
+export const BASE_SNAPSHOT_DIGEST: string = buildGraphSnapshot({
+  repositoryId: REPOSITORY_ID,
+  upstreamArtifacts: [],
+  nodes: baseFixtureGraph().nodes,
+  edges: baseFixtureGraph().edges,
+}).digest;
 
-/** A valid, sufficient proposal: adds one entity related to comp-a. Produces a "built" projection with a non-empty overlay and "valid_sufficient"/"valid_partial" validation. */
-export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+/** The exact `ProposedChangeSet` `validEvaluation()` computes from -- a single source of truth for that fixture's operations, so `evaluation.proposal_id` and a caller-supplied `proposal` in a test always agree. */
+export function validProposal(): ProposedChangeSet {
+  const { nodes } = baseFixtureGraph();
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "new-1");
   const operations: ProposalOperation[] = [
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "new-1", label: "New Component", repository_id: REPOSITORY_ID },
     { kind: "add_relation", from_ref: newRef, to_ref: confirmedRef("comp-a", nodes), edge_type: "depends_on" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+/** A valid, sufficient proposal: adds one entity related to comp-a. Produces a "built" projection with a non-empty overlay and "valid_sufficient"/"valid_partial" validation. */
+export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = validProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
 }
 
@@ -95,19 +131,23 @@ export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGES
  * unconfirmed ref, which validation.ts treats as `blocking: false`) --
  * this fixture exists specifically to exercise the `not_built` path.
  */
-export function invalidEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+export function invalidProposal(): ProposedChangeSet {
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "invalid-1");
   const operations: ProposalOperation[] = [
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "invalid-1", label: "Invalid", repository_id: "wrong-repo-id" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+export function invalidEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = invalidProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
 }
 
 /** A proposal touching a removal, a modification, and an addition -- exercises "removed"/"modified"/"proposed"/"confirmed" overlay provenance all at once. */
-export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+export function mixedProvenanceProposal(): ProposedChangeSet {
+  const { nodes } = baseFixtureGraph();
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "new-mixed");
   const operations: ProposalOperation[] = [
     { kind: "remove_entity", ref: mutateExistingEntityRef(confirmedRef("comp-c", nodes)) },
@@ -115,6 +155,11 @@ export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAP
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "new-mixed", label: "New Mixed", repository_id: REPOSITORY_ID },
     { kind: "add_relation", from_ref: newRef, to_ref: confirmedRef("comp-a", nodes), edge_type: "depends_on" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = mixedProvenanceProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
 }

@@ -4384,3 +4384,174 @@ unimplemented and unauthorized by this slice.
 
 Nothing from this milestone has been committed, pushed, merged, or
 opened as a pull request.
+
+## Milestone 11.3.3A — Proposal Architecture Review Composition Input Contract
+
+Pre-implementation contract-gate task, scoped to determining whether
+raw `ProposedChangeSet.operations` (caller-authored proposal intent)
+survive downstream into `ProposalReviewVisualInput`/
+`ProposalVisualGrammarModel`, and — if not — defining and implementing
+the smallest authoritative input-contract extension needed. No
+Milestone 11.3.3 composer, layout, rendering, explorer, delivery, CLI,
+or export work was in scope or was implemented; no new composer
+package was created; `@rvs/change-workbench` was not modified.
+
+Direct source-code evidence established that raw operations are lost
+at the exact point `evaluateProposedChange()` returns in
+`packages/change-workbench/src/evaluation.ts` — `changeSet` is a
+received parameter but has no field on the returned
+`ChangeWorkbenchEvaluation`, and this loss propagates unchanged through
+`ProposalReviewVisualInput` and `ProposalVisualGrammarModel`, both of
+which are built without ever seeing the original `changeSet`. A
+second, independent gap was identified: no existing input carries the
+observed baseline's own node/edge content (`GraphSnapshot` is metadata/
+identity only — no nodes/edges), which a future composer needs for
+Current/Delta/Projected reconstruction alongside proposal intent.
+
+### What changed
+
+- **`packages/proposal-review/src/contracts.ts`**: added
+  `ProposalReviewObservedBaselineGraph` (`{nodes, edges}`, structural
+  content only — no redundant identity, since
+  `observed_baseline_snapshot_id`/`base_snapshot_digest` already exist
+  as siblings) and two new required fields on `ProposalReviewVisualInput`:
+  `observed_baseline_graph: ProposalReviewObservedBaselineGraph` and
+  `proposal: ProposedChangeSet`.
+- **`packages/proposal-review/src/adapter.ts`**: `buildProposalReviewVisualInput()`
+  gained two new caller-supplied parameters, `observedBaselineGraph`
+  and `proposal`, each bound by its own hard-failure consistency check
+  rather than trusted blindly — `proposal.id`/`proposal.repository_id`
+  against `evaluation.proposal_id`/`evaluation.repository_id`, and
+  `observedBaselineGraph.nodes.length`/`.edges.length` against
+  `observedBaseline.node_count`/`.edge_count`. Both values are already
+  in the caller's own hands before calling this function, exactly like
+  `observedBaseline` already was — this is a sibling-parameter
+  extension (Option A), not a reopening of `@rvs/change-workbench`'s
+  public contract, and `@rvs/change-workbench` itself gained no new
+  export, field, or call site.
+- Fixtures, `adapter.test.ts`, `grammar.test.ts`, and
+  `package-entry-point-equivalence.test.ts` were updated to supply the
+  two new required parameters at every call site, plus new tests for
+  each of the four new hard-failure codes
+  (`PROPOSAL_REVIEW_PROPOSAL_ID_MISMATCH`,
+  `PROPOSAL_REVIEW_PROPOSAL_REPOSITORY_MISMATCH`,
+  `PROPOSAL_REVIEW_BASELINE_GRAPH_NODE_COUNT_MISMATCH`,
+  `PROPOSAL_REVIEW_BASELINE_GRAPH_EDGE_COUNT_MISMATCH`) and a
+  passthrough-fidelity test proving `proposal`/`observed_baseline_graph`
+  survive `buildProposalReviewVisualInput()` byte-identical.
+
+No change was made to `grammar.ts`, `ids.ts`, or
+`packages/proposal-review/package.json` — none required a change for
+this contract extension. `grep`-based confirmation found zero
+consumers of `ProposalReviewVisualInput`/`buildProposalReviewVisualInput`
+outside `packages/proposal-review/**`, so the change is fully contained
+to its authorized scope.
+
+### Coverage (as of the original contract-gate pass)
+
+`packages/proposal-review`'s own suite (5 files, 67 tests) passes in
+full. `pnpm -r --if-present run typecheck` (all 30 workspace packages)
+and the full repository-wide `pnpm test` (271 files / 4423 tests
+passed, 2 files / 26 tests pre-existing skips) both pass with no
+regressions anywhere in the workspace.
+
+### Input integrity closure (remediation)
+
+Correction: the wording above — "each bound by its own hard-failure
+consistency check rather than trusted blindly" — is accurate as far as
+it goes but understates what that first pass actually proved.
+`proposal.id`/`proposal.repository_id` string equality and
+`observedBaselineGraph` node/edge **count** equality confirm a
+caller-supplied value is *present and superficially consistent* with
+its sibling fields; neither proves the supplied `proposal.operations`
+or `observedBaselineGraph.nodes`/`.edges` are the exact **content**
+those sibling fields' identities represent. Both `ProposedChangeSet`
+and `GraphSnapshot` are plain, unbranded TypeScript interfaces with no
+runtime enforcement, so a caller (hostile or merely buggy) could
+previously hand-construct a `proposal` whose `id` matched but whose
+`operations` had been altered, or an `observedBaselineGraph` whose
+node/edge counts matched but whose actual node/edge identities had
+been swapped — and this package would have silently accepted either.
+
+Closed by adding two cryptographic content-binding hard failures to
+`buildProposalReviewVisualInput()`, alongside (not replacing) the
+existing string/count checks:
+
+- `PROPOSAL_REVIEW_PROPOSAL_OPERATIONS_CONTENT_MISMATCH`: recomputes
+  the expected proposal id from `proposal.operations` via
+  `@rvs/change-workbench`'s own exported
+  `buildProposedChangeSetId(proposal.repository_id, proposal.operations)`
+  and compares it against `proposal.id`.
+- `PROPOSAL_REVIEW_BASELINE_GRAPH_DIGEST_MISMATCH`: recomputes the
+  expected baseline digest from `observedBaselineGraph.nodes`/`.edges`
+  via `@rvs/knowledge-graph`'s own exported `buildGraphSnapshot()` and
+  compares it against `observedBaseline.digest`.
+
+Both reuse each owning package's own already-exported identity
+function — no canonicalization/hashing algorithm was reimplemented in
+`packages/proposal-review`, and neither `@rvs/change-workbench` nor
+`@rvs/knowledge-graph` was modified. `forbidden-evaluator-call.test.ts`
+now statically enforces that `buildProposedChangeSetId` and
+`buildGraphSnapshot` are the *only* value-imports this package takes
+from those two packages (every other import must stay `import type`),
+that neither is locally redefined, and that both are actually called.
+
+What this closure proves, precisely, and what it still does not:
+`proposal.id === buildProposedChangeSetId(proposal.repository_id, proposal.operations)`
+is, up to SHA-256 preimage resistance, proof that `proposal.operations`
+are exactly the operations `proposal.id` (and therefore, combined with
+the pre-existing id-equality check, `evaluation.proposal_id`)
+represents — but it does NOT prove `evaluateProposedChange()` itself
+was called honestly, since that function trusts its own
+`changeSet.id` verbatim (`packages/change-workbench/src/evaluation.ts`)
+and this package has no visibility into that call; closing that
+residual gap would require a `@rvs/change-workbench`-owned change,
+out of this task's authorized scope. Symmetrically,
+`buildGraphSnapshot(...).digest === observedBaseline.digest` proves
+`observedBaselineGraph.nodes`/`.edges` are exactly the node/edge
+*identity* set (`KnowledgeNode.id`/`KnowledgeEdge.id`, order-independent
+since `buildGraphSnapshot()` sorts before digesting) that
+`observedBaseline.digest` represents — it does NOT cover node/edge
+attribute content (label, node_type, evidence_refs, etc.), since
+`GraphSnapshot.digest` itself does not cover those either; this
+package does not invent a stricter structural-identity notion than the
+one `@rvs/knowledge-graph` itself owns.
+
+A pre-existing fixture defect was found and fixed in the same pass:
+`packages/proposal-review/src/__tests__/fixtures.ts`'s
+`BASE_SNAPSHOT_DIGEST` was a hand-picked literal, never actually the
+`buildGraphSnapshot()` digest of `baseFixtureGraph()`'s own content —
+harmless before this remediation (nothing recomputed it), but it made
+every "ok"-path test fail once the new digest check existed. Fixed by
+deriving `BASE_SNAPSHOT_DIGEST` from a real `buildGraphSnapshot()` call
+over `baseFixtureGraph()`.
+
+New adversarial tests were added to `adapter.test.ts` proving each new
+check catches what the pre-existing checks alone would have missed,
+each asserting the weaker check does NOT also fire (proving the new
+check is doing genuinely new work): a same-id/altered-operations
+proposal, a same-node-count/different-node-identity baseline graph, and
+a same-edge-count/different-edge-identity baseline graph. Two
+companion tests confirm neither check produces a false positive on
+mere array-order shuffling (both underlying identity functions sort
+before hashing).
+
+`packages/proposal-review`'s own suite now passes in full (5 files, 83
+tests). `pnpm -r --if-present run typecheck` (all 30 workspace
+packages) and the full repository-wide `pnpm test` (271 files / 4439
+tests passed, 2 files / 26 tests pre-existing skips) both pass with no
+regressions anywhere in the workspace.
+
+No `packages/change-workbench/**` or `packages/knowledge-graph/**`
+file was modified. The M11.3.3 composer was not implemented. Per this
+task's own authorization, no commit, push, or PR was made — a
+separate M11.3.3A commit-and-certification authorization is required
+before this work may be committed.
+
+This slice implements no Milestone 11.3.3 composer, layout, rendering,
+explorer, delivery, CLI, or export work — that implementation remains a
+separately-authorized future task. The work was performed on branch
+`feature/proposal-review-observed-baseline-contract`, branched from
+`origin/main`; per this task's own authorization, nothing from this
+milestone has been committed, pushed, merged, or opened as a pull
+request.

@@ -11,24 +11,40 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ChangeWorkbenchProjectionOutcome } from "@rvs/change-workbench";
+import type { ChangeWorkbenchProjectionOutcome, ProposedChangeSet } from "@rvs/change-workbench";
 import { FORBIDDEN_PROPOSAL_TRUTH_WORDING, buildProposalTruthDisclosure, resolveProposalEntityProvenance, validateColorIndependence } from "@rvs/visual-intelligence";
 import type { ProposalAdvisoryFreshness, ProposalTopologyDisclosureStatus, ProposalTruthDisclosure } from "@rvs/visual-intelligence";
 
 import { buildProposalReviewVisualInput } from "../adapter.js";
 import { buildProposalVisualGrammar } from "../grammar.js";
 import type { ProposalReviewVisualInput } from "../contracts.js";
-import { BASE_SNAPSHOT_DIGEST, compatibleObservedBaseline, invalidEvaluation, mixedProvenanceEvaluation, validEvaluation } from "./fixtures.js";
+import {
+  BASE_SNAPSHOT_DIGEST,
+  baseFixtureGraph,
+  compatibleObservedBaseline,
+  invalidEvaluation,
+  invalidProposal,
+  mixedProvenanceEvaluation,
+  mixedProvenanceProposal,
+  validEvaluation,
+  validProposal,
+} from "./fixtures.js";
 
-function okInput(evaluation: ReturnType<typeof validEvaluation>, freshness: ProposalAdvisoryFreshness = "current"): ProposalReviewVisualInput {
-  const result = buildProposalReviewVisualInput({ evaluation, observedBaseline: compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST), advisoryFreshness: freshness });
+function okInput(evaluation: ReturnType<typeof validEvaluation>, proposal: ProposedChangeSet, freshness: ProposalAdvisoryFreshness = "current"): ProposalReviewVisualInput {
+  const result = buildProposalReviewVisualInput({
+    evaluation,
+    observedBaseline: compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST),
+    observedBaselineGraph: baseFixtureGraph(),
+    advisoryFreshness: freshness,
+    proposal,
+  });
   if (result.status !== "ok") throw new Error("fixture setup error: expected buildProposalReviewVisualInput to succeed");
   return result.input;
 }
 
 describe("buildProposalVisualGrammar: determinism", () => {
   it("the same input produces a byte-identical result across repeated calls", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const first = buildProposalVisualGrammar(input);
     const second = buildProposalVisualGrammar(input);
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
@@ -37,7 +53,7 @@ describe("buildProposalVisualGrammar: determinism", () => {
 
 describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", () => {
   it("maps all four OverlayEntityProvenance values from a mixed proposal onto resolveProposalEntityProvenance's presentations", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
 
     expect(grammar.projection.status).toBe("built");
@@ -56,7 +72,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
   });
 
   it("a proposed (added) entity carries visual_state ['added'] and a 'not observed' badge, never a fabricated diff", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.projection.status).toBe("built");
     if (grammar.projection.status !== "built") return;
@@ -69,7 +85,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
   });
 
   it("a modified entity carries visual_state ['changed'] and a 'not observed' badge -- observed identity retained, proposed change layered on top", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.projection.status).toBe("built");
     if (grammar.projection.status !== "built") return;
@@ -81,7 +97,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
   });
 
   it("a removed entity carries visual_state ['removed'] and a 'not observed' badge, and is absent from overlay.nodes while present in the grammar's provenance manifest -- the removal marker never becomes projected topology", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     expect(input.projection.status).toBe("built");
     if (input.projection.status !== "built") return;
     const overlay = input.projection.result.overlay!;
@@ -102,7 +118,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
   });
 
   it("a confirmed entity is unmarked -- empty visual_state, no badge -- unchanged entities are not decorated", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.projection.status).toBe("built");
     if (grammar.projection.status !== "built") return;
@@ -114,7 +130,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
   });
 
   it("entities and relations are sorted by id, independent of the source record's own key order", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.projection.status).toBe("built");
     if (grammar.projection.status !== "built") return;
@@ -128,7 +144,7 @@ describe("buildProposalVisualGrammar: per-entity/relation provenance mapping", (
 
 describe("buildProposalVisualGrammar: projection availability", () => {
   it("projection.status === 'not_built' produces literally no entities/relations fields, only a reason", () => {
-    const input = okInput(invalidEvaluation());
+    const input = okInput(invalidEvaluation(), invalidProposal());
     expect(input.projection.status).toBe("not_built");
 
     const grammar = buildProposalVisualGrammar(input);
@@ -142,7 +158,7 @@ describe("buildProposalVisualGrammar: projection availability", () => {
   });
 
   it("projection.status === 'built' with no overlay (an unresolved/invalid build attempt) is treated identically to not_built, with its own distinct reason", () => {
-    const input = okInput(validEvaluation());
+    const input = okInput(validEvaluation(), validProposal());
     const tamperedProjection: ChangeWorkbenchProjectionOutcome = {
       status: "built",
       result: { status: "unresolved", overlay: undefined, issues: [{ code: "FIXTURE_SYNTHETIC_UNRESOLVED", detail: "synthetic fixture: build attempted but produced no overlay", blocking: false }] },
@@ -158,7 +174,7 @@ describe("buildProposalVisualGrammar: projection availability", () => {
   });
 
   it("emits no projected architecture for either not_built shape -- neither ever fabricates an empty 'built' overlay", () => {
-    const notBuilt = buildProposalVisualGrammar(okInput(invalidEvaluation()));
+    const notBuilt = buildProposalVisualGrammar(okInput(invalidEvaluation(), invalidProposal()));
     expect(notBuilt.projection.status).not.toBe("built");
   });
 });
@@ -167,7 +183,7 @@ describe("buildProposalVisualGrammar: truth_disclosure passthrough (topology-sta
   const STATUSES: ProposalTopologyDisclosureStatus[] = ["explicit", "not_supplied", "partial", "unresolved"];
 
   it.each(STATUSES)("passes topology_disclosure_status %s through byte-identical, never re-reducing it", (status) => {
-    const base = okInput(validEvaluation());
+    const base = okInput(validEvaluation(), validProposal(), "current");
     const truthDisclosure: ProposalTruthDisclosure = buildProposalTruthDisclosure({
       repository_id: base.repository_id,
       base_snapshot_digest: base.base_snapshot_digest,
@@ -188,7 +204,7 @@ describe("buildProposalVisualGrammar: truth_disclosure passthrough (freshness ma
   const FRESHNESS_STATES: ProposalAdvisoryFreshness[] = ["current", "stale_equivalent", "unknown"];
 
   it.each(FRESHNESS_STATES)("passes advisory_freshness %s through byte-identical, never re-deriving it", (freshness) => {
-    const input = okInput(validEvaluation(), freshness);
+    const input = okInput(validEvaluation(), validProposal(), freshness);
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.truth_disclosure).toEqual(input.truth_disclosure);
     expect(grammar.truth_disclosure.advisory_freshness).toBe(freshness);
@@ -197,7 +213,7 @@ describe("buildProposalVisualGrammar: truth_disclosure passthrough (freshness ma
 
 describe("buildProposalVisualGrammar: governance/decision/impact advisory basis", () => {
   it("wraps governance/decisions/impact with an explicit basis: 'proposal' marker, passing the advisory's own findings through unmodified", () => {
-    const input = okInput(validEvaluation());
+    const input = okInput(validEvaluation(), validProposal());
     const grammar = buildProposalVisualGrammar(input);
 
     expect(grammar.governance.basis).toBe("proposal");
@@ -209,7 +225,7 @@ describe("buildProposalVisualGrammar: governance/decision/impact advisory basis"
   });
 
   it("never introduces a 'decision_status' field, and in particular never sets one to 'proposed' -- decision lifecycle and proposal-review basis are independent axes", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     const serialized = JSON.stringify(grammar);
     expect(serialized.includes('"decision_status"')).toBe(false);
@@ -260,7 +276,7 @@ describe("buildProposalVisualGrammar: reduced-motion (narrow proof)", () => {
 
 describe("buildProposalVisualGrammar: adaptive-detail (narrow proof)", () => {
   it("a projected entity/relation entry carries exactly {id, presentation} -- no detail-level/emphasis/resolution field, this slice does not expand into full composition", () => {
-    const input = okInput(mixedProvenanceEvaluation());
+    const input = okInput(mixedProvenanceEvaluation(), mixedProvenanceProposal());
     const grammar = buildProposalVisualGrammar(input);
     expect(grammar.projection.status).toBe("built");
     if (grammar.projection.status !== "built") return;
@@ -272,12 +288,16 @@ describe("buildProposalVisualGrammar: adaptive-detail (narrow proof)", () => {
 
 describe("buildProposalVisualGrammar: forbidden-wording regression sweep", () => {
   it("the full serialized output never contains any FORBIDDEN_PROPOSAL_TRUTH_WORDING phrase, for every evaluation/freshness fixture", () => {
-    const evaluations = [validEvaluation(), invalidEvaluation(), mixedProvenanceEvaluation()];
+    const cases = [
+      { evaluation: validEvaluation(), proposal: validProposal() },
+      { evaluation: invalidEvaluation(), proposal: invalidProposal() },
+      { evaluation: mixedProvenanceEvaluation(), proposal: mixedProvenanceProposal() },
+    ];
     const freshnessStates: ProposalAdvisoryFreshness[] = ["current", "stale_equivalent", "unknown"];
 
-    for (const evaluation of evaluations) {
+    for (const { evaluation, proposal } of cases) {
       for (const freshness of freshnessStates) {
-        const input = okInput(evaluation, freshness);
+        const input = okInput(evaluation, proposal, freshness);
         const grammar = buildProposalVisualGrammar(input);
         const serialized = JSON.stringify(grammar).toLowerCase();
         for (const phrase of FORBIDDEN_PROPOSAL_TRUTH_WORDING) {
