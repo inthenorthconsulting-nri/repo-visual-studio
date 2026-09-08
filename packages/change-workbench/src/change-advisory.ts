@@ -92,14 +92,18 @@ export function buildChangeAdvisoryFromEvaluationInputs(params: BuildChangeAdvis
   const { changeSet, baseSnapshotDigest, proposalValidation, overlayResult, maxImpactDepth, decisionStateLookup, governanceEvaluationInput } = params;
 
   const topology = buildTopologyDisclosure(changeSet);
-  const id = buildChangeAdvisoryId(changeSet.id, baseSnapshotDigest);
+  // Recomputed from repository_id + operations, never trusted off changeSet.id directly: a
+  // direct-library caller who bypasses composeProposedChangeSet()/decodeProposedChangeSet()
+  // could otherwise stamp an arbitrary or another proposal's id onto this advisory.
+  const canonicalProposalId = buildProposedChangeSetId(changeSet.repository_id, changeSet.operations);
+  const id = buildChangeAdvisoryId(canonicalProposalId, baseSnapshotDigest);
   const governance = buildGovernanceAdvisory({ evaluationInput: governanceEvaluationInput });
 
   if (proposalValidation.status === "invalid") {
     return {
       schema_version: CHANGE_WORKBENCH_SCHEMA_VERSION,
       id,
-      proposal_id: changeSet.id,
+      proposal_id: canonicalProposalId,
       repository_id: changeSet.repository_id,
       base_snapshot_digest: baseSnapshotDigest,
       proposal_validation: proposalValidation,
@@ -132,7 +136,7 @@ export function buildChangeAdvisoryFromEvaluationInputs(params: BuildChangeAdvis
   return {
     schema_version: CHANGE_WORKBENCH_SCHEMA_VERSION,
     id,
-    proposal_id: changeSet.id,
+    proposal_id: canonicalProposalId,
     repository_id: changeSet.repository_id,
     base_snapshot_digest: baseSnapshotDigest,
     proposal_validation: proposalValidation,

@@ -19,7 +19,7 @@
 // truth; nothing in this package writes to knowledge-graph's own cache
 // files or mutates a KnowledgeNode/KnowledgeEdge in place.
 
-import type { EvidenceRef, KnowledgeEdge, KnowledgeEdgeType, KnowledgeNode, KnowledgeNodeType, UpstreamSourceArtifact } from "@rvs/knowledge-graph";
+import type { ContentDigestVerification, EvidenceRef, KnowledgeEdge, KnowledgeEdgeType, KnowledgeNode, KnowledgeNodeType, UpstreamSourceArtifact } from "@rvs/knowledge-graph";
 
 export type { EvidenceRef };
 
@@ -357,6 +357,32 @@ export interface ChangeWorkbenchEvaluation {
   proposal_validation: ProposalValidationResult;
   projection: ChangeWorkbenchProjectionOutcome;
   advisory: ChangeAdvisory;
+  /**
+   * Caller-supplied authoritative baseline content-attestation result
+   * (Milestone 11.3.3A-WB), reusing @rvs/knowledge-graph's canonical
+   * ContentDigestVerification type verbatim -- this package never defines
+   * a second attestation type, status enum, or digest field of its own.
+   *
+   * Transport only: evaluateProposedChange() carries whatever the caller
+   * supplied, unchanged. This package never verifies a baseline digest
+   * itself, never branches on the transported status, and never blocks an
+   * evaluation because of it -- the CLI's pre-evaluation mismatch gate
+   * (packages/cli/src/commands/change-shared.ts) is the sole policy point,
+   * and it runs before this envelope is ever constructed.
+   *
+   * Absence (key not present) means no authoritative persisted-baseline
+   * attestation claim was supplied to this evaluation at all. Absence is
+   * NOT equivalent to `{ status: "missing" }`, which means the persisted
+   * baseline WAS checked but its historical snapshot carried no recorded
+   * digest. Never defaulted from one to the other in either direction.
+   *
+   * Deliberately not part of ChangeAdvisory (which stays a derived
+   * assessment of the proposal and is what gets persisted): attestation is
+   * a fact about the observed baseline the evaluation ran against, not
+   * about the proposal, and it never contributes to proposal_id or
+   * advisory.id.
+   */
+  baseline_content_attestation?: ContentDigestVerification;
 }
 
 // ---------------------------------------------------------------------------

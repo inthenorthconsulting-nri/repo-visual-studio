@@ -115,6 +115,7 @@ describe("assessSnapshotPairCompatibility", () => {
     node_count: 2,
     edge_count: 1,
     digest: "abc",
+    content_digest: "content-digest-fixture",
     ...over,
   });
 
@@ -196,6 +197,7 @@ describe("uncomparableDomains", () => {
     node_count: 0,
     edge_count: 0,
     digest: "abc",
+    content_digest: "content-digest-fixture",
   });
 
   it("names a domain nobody read on either side, because that is not 'no change'", () => {

@@ -12,8 +12,19 @@
 // and advisory generation to reconstruct the same result; this package
 // remains visual-agnostic and imports nothing from any visual-* package to
 // say so.
+//
+// Milestone 11.3.3A-WB: the envelope additionally transports a
+// caller-supplied baseline content attestation (the CLI's authoritative
+// ContentDigestVerification from resolveChangeWorkbenchBaseline()) verbatim.
+// Transport is all this module does with it: no digest is verified or
+// recomputed here (that authority stays solely in @rvs/knowledge-graph, and
+// this module imports only its type), no status is inspected, nothing is
+// blocked, and the supplied object never influences validation, projection
+// or the advisory. When the caller supplies nothing, the envelope key is
+// left absent -- never emitted as `undefined`, never defaulted to a
+// `"missing"` claim the caller did not make.
 
-import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
+import type { ContentDigestVerification, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 import type { DecisionStateLookup } from "@rvs/knowledge-graph";
 import type { EvaluatePolicyInput } from "@rvs/governance-intelligence";
 import type { ChangeWorkbenchEvaluation, ChangeWorkbenchProjectionOutcome, ProposedChangeSet } from "./contracts.js";
@@ -30,6 +41,14 @@ export interface EvaluateProposedChangeParams {
   maxImpactDepth?: number;
   decisionStateLookup?: DecisionStateLookup;
   governanceEvaluationInput?: EvaluatePolicyInput;
+  /**
+   * Authoritative baseline content-attestation result, as produced by the
+   * caller's own @rvs/knowledge-graph verification of the persisted
+   * baseline. Transported verbatim into
+   * ChangeWorkbenchEvaluation.baseline_content_attestation; omit it to leave
+   * that envelope key absent. See contracts.ts for the four-state contract.
+   */
+  baselineContentAttestation?: ContentDigestVerification;
 }
 
 /**
@@ -40,7 +59,7 @@ export interface EvaluateProposedChangeParams {
  * verbatim) and the ChangeAdvisory it returns alongside them.
  */
 export function evaluateProposedChange(params: EvaluateProposedChangeParams): ChangeWorkbenchEvaluation {
-  const { changeSet, confirmedNodes, confirmedEdges, baseSnapshotDigest, maxImpactDepth, decisionStateLookup, governanceEvaluationInput } = params;
+  const { changeSet, confirmedNodes, confirmedEdges, baseSnapshotDigest, maxImpactDepth, decisionStateLookup, governanceEvaluationInput, baselineContentAttestation } = params;
 
   const proposalValidation = validateProposedChangeSet(changeSet, { confirmedNodes, confirmedEdges });
 
@@ -65,10 +84,16 @@ export function evaluateProposedChange(params: EvaluateProposedChangeParams): Ch
   return {
     schema_version: CHANGE_WORKBENCH_SCHEMA_VERSION,
     repository_id: changeSet.repository_id,
-    proposal_id: changeSet.id,
+    // Read back off the advisory (already canonicalized from repository_id + operations) rather
+    // than changeSet.id directly, so this envelope's proposal_id can never disagree with
+    // advisory.proposal_id even under a forged or stale changeSet.id.
+    proposal_id: advisory.proposal_id,
     base_snapshot_digest: baseSnapshotDigest,
     proposal_validation: proposalValidation,
     projection,
     advisory,
+    // Verbatim pass-through of the caller's object; the key is absent (not
+    // `undefined`) when no attestation claim was supplied.
+    ...(baselineContentAttestation !== undefined ? { baseline_content_attestation: baselineContentAttestation } : {}),
   };
 }
