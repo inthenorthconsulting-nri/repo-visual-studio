@@ -7,17 +7,24 @@
 // Milestone 11.3.3A narrowed the previously-absolute "every
 // @rvs/change-workbench/@rvs/knowledge-graph import is `import type`" rule
 // by exactly one named value-import per package: `buildProposedChangeSetId`
-// (@rvs/change-workbench) and `buildGraphSnapshot` (@rvs/knowledge-graph).
-// Both are pure, deterministic identity/canonicalization utilities -- not
-// evaluators, not builders of new domain content -- reused so
-// adapter.ts's Milestone 11.3.3A integrity checks recompute expected
-// identity from caller-supplied content using each package's own
-// authoritative algorithm, rather than reimplementing SHA-256
-// canonicalization locally (which would create a second, driftable
-// identity authority). This file enforces that the exception stays
-// exactly that narrow: no other value import, from either package, is
-// permitted; both allowlisted functions must actually be called; and
-// adapter.ts must not locally define its own canonicalize/digest/hash
+// (@rvs/change-workbench) and, as of Milestone 11.3.3A-P,
+// `buildGraphContentDigest` (@rvs/knowledge-graph) -- superseding the prior
+// `buildGraphSnapshot`-based membership-digest check, which has been fully
+// retired from this package's production code. Both allowlisted functions
+// are pure, deterministic identity/canonicalization utilities -- not
+// evaluators, not builders of new domain content -- reused so adapter.ts's
+// integrity checks recompute expected identity from caller-supplied
+// content using each package's own authoritative algorithm, rather than
+// reimplementing SHA-256 canonicalization locally (which would create a
+// second, driftable identity authority). This file enforces that the
+// exception stays exactly that narrow: no other value import, from either
+// package, is permitted; both allowlisted functions must actually be
+// called; `buildGraphSnapshot` and `verifyGraphContentDigest` are
+// explicitly forbidden call-sites in this package's production code (the
+// former re-mints a membership digest this package must never recompute as
+// a second baseline identity; the latter is @rvs/knowledge-graph's own
+// attestation-verification authority, never proposal-review's to invoke);
+// and adapter.ts must not locally define its own canonicalize/digest/hash
 // logic that could quietly duplicate what the allowlisted functions
 // already do.
 //
@@ -43,12 +50,15 @@ const FORBIDDEN_EVALUATOR_CALLS = [
   "buildGovernanceAdvisory",
   "buildDecisionAdvisory",
   "composeProposedChangeSet",
+  "computeDecisionImpact",
+  "buildGraphSnapshot",
+  "verifyGraphContentDigest",
 ];
 
 /** The ONLY name each package may be value-imported for -- an identity/canonicalization utility, never an evaluator/builder of new domain content. */
 const ALLOWED_VALUE_IMPORTS: Record<string, string> = {
   "@rvs/change-workbench": "buildProposedChangeSetId",
-  "@rvs/knowledge-graph": "buildGraphSnapshot",
+  "@rvs/knowledge-graph": "buildGraphContentDigest",
 };
 
 function stripComments(source: string): string {
@@ -117,6 +127,6 @@ describe("static audit: @rvs/proposal-review non-test source never calls a @rvs/
   it("adapter.ts actually calls both allowlisted identity-verification functions (the exception is used, not just permitted)", () => {
     const adapterSource = stripComments(readFileSync(join(SRC_DIR, "adapter.ts"), "utf8"));
     expect(/\bbuildProposedChangeSetId\s*\(/.test(adapterSource)).toBe(true);
-    expect(/\bbuildGraphSnapshot\s*\(/.test(adapterSource)).toBe(true);
+    expect(/\bbuildGraphContentDigest\s*\(/.test(adapterSource)).toBe(true);
   });
 });

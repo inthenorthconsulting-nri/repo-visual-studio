@@ -4555,3 +4555,227 @@ separately-authorized future task. The work was performed on branch
 `origin/main`; per this task's own authorization, nothing from this
 milestone has been committed, pushed, merged, or opened as a pull
 request.
+
+### Milestone 11.3.3A-P — Attestation Binding / Semantic Implementation
+
+The two passes above shipped a *structural* input-contract extension
+(sibling `proposal`/`observed_baseline_graph` parameters, then
+caller-vs-caller content-binding checks over them). This pass corrects
+two claims from that work that were stated too strongly, and replaces
+one of the two content-binding checks with a strictly stronger one
+anchored to upstream authority rather than to the caller's own values.
+
+**Corrections to the record.** The Input integrity closure section
+above states, correctly at the time, two facts that this pass changes:
+
+- It says closing the residual gap in
+  `PROPOSAL_REVIEW_PROPOSAL_OPERATIONS_CONTENT_MISMATCH` — that
+  `evaluateProposedChange()` "trusts its own `changeSet.id` verbatim" —
+  "would require a `@rvs/change-workbench`-owned change, out of this
+  task's authorized scope." That turned out not to be necessary:
+  `evaluateProposedChange()` (`packages/change-workbench/src/evaluation.ts`)
+  never actually sets `proposal_id` from `changeSet.id` — it sets
+  `proposal_id: advisory.proposal_id`, a canonical read-back from
+  `buildChangeAdvisoryFromEvaluationInputs()`, itself derived from
+  `changeSet.repository_id`/`changeSet.operations`. `evaluation.proposal_id`
+  was *already* a value Workbench computed from operations content, not
+  a pass-through of a caller-supplied id — this package simply was not
+  comparing against it. No `@rvs/change-workbench` change was needed or
+  made.
+- It describes the (now-retired) baseline check as proving
+  `observedBaselineGraph.nodes`/`.edges` match `observedBaseline.digest`'s
+  node/edge *identity* set, explicitly not attribute content. That
+  check, and the `PROPOSAL_REVIEW_BASELINE_GRAPH_DIGEST_MISMATCH` code
+  it produced, are removed in this pass (see below) — the identity-only
+  guarantee it made is not preserved, and is not needed, since the
+  binding this pass adds proves an architecture-semantic content
+  correspondence instead.
+
+**Proposal operations binding, re-anchored (no new issue code).**
+`PROPOSAL_REVIEW_PROPOSAL_OPERATIONS_CONTENT_MISMATCH` is retained, but
+its comparison is re-anchored from a caller-vs-caller check —
+`proposal.id === buildProposedChangeSetId(proposal.repository_id, proposal.operations)`,
+which any internally self-consistent object trivially satisfies,
+including a hostile substitute proposal that is not the one the
+evaluation was actually computed from — to an evaluation-vs-caller
+check:
+
+```
+buildProposedChangeSetId(evaluation.repository_id, proposal.operations) === evaluation.proposal_id
+```
+
+`evaluation.repository_id`/`evaluation.proposal_id` are Workbench's own
+canonical values, not values the caller controls in the object under
+test. The pre-existing `proposal.id === evaluation.proposal_id` fast-fail
+(`PROPOSAL_REVIEW_PROPOSAL_ID_MISMATCH`) is unchanged and stays
+diagnostic-only — a quick, cheap signal, never the binding authority,
+and never used to short-circuit the recomputed check. A mandatory
+attack test proves the old comparison's weakness directly: a canonical
+evaluation built from proposal A, presented alongside a completely
+different, internally self-consistent proposal B, is rejected with
+`PROPOSAL_REVIEW_PROPOSAL_OPERATIONS_CONTENT_MISMATCH`; a second test
+forges `proposal.id` to equal `evaluation.proposal_id` while keeping
+tampered operations, proving the diagnostic fast-fail no longer
+launders a content mismatch. Reorder invariance is preserved
+(`buildProposedChangeSetId()` sorts internally); benign reordering
+still succeeds.
+
+**Baseline content binding, replacing the membership-digest check.**
+`buildGraphSnapshot()` and `candidateBaselineSnapshot` are removed from
+`packages/proposal-review/src/adapter.ts` entirely, and
+`PROPOSAL_REVIEW_BASELINE_GRAPH_DIGEST_MISMATCH` is retired with them —
+that check recomputed only a node/edge *id-membership* digest, which
+(by construction) does not change when a node or edge's content
+attributes are altered but its id is not, and is superseded by a
+strictly more useful architecture-semantic content digest. In its
+place, adapter.ts now computes, exactly once per invocation,
+`@rvs/knowledge-graph`'s own `buildGraphContentDigest(observedBaselineGraph.nodes, observedBaselineGraph.edges)`
+— never a locally reimplemented digest — and binds it against one of
+two authorities depending on what Workbench transported:
+
+- When `evaluation.baseline_content_attestation` is present, the
+  recomputed digest is checked against its own `.actual` field (the
+  upstream, Workbench-transported recomputation) —
+  `PROPOSAL_REVIEW_BASELINE_GRAPH_CONTENT_MISMATCH` on disagreement.
+  `evaluation.baseline_content_attestation.status === "mismatch"` is a
+  hard failure on its own —
+  `PROPOSAL_REVIEW_BASELINE_CONTENT_ATTESTATION_MISMATCH` — decisive
+  regardless of whether the caller-supplied graph happens to agree with
+  `.actual`; the content-mismatch check is never attempted once the
+  transported attestation itself already reports corruption (Option A:
+  the mismatch code is reported alone, not accumulated alongside a
+  content-mismatch code).
+- When the key is entirely absent, only self-consistency against the
+  caller's own `observedBaseline.content_digest` is possible —
+  `PROPOSAL_REVIEW_BASELINE_GRAPH_SELF_INCONSISTENT` on disagreement.
+
+`@rvs/knowledge-graph`'s own `verifyGraphContentDigest()` is never
+called by this package — proposal-review reimplements only the
+equality-comparison half, using its own already-computed digest against
+a value Workbench transported, never asking `@rvs/knowledge-graph` to
+verify on its behalf (which would require handing it a
+`GraphContentAttestationInput`-shaped snapshot this package does not
+own the construction of). `buildProposedChangeSetId()` — the other
+allowlisted value import — is used strictly as a comparison primitive
+too: its output is compared against `evaluation.proposal_id`, never
+written into `ProposalReviewVisualInput` as a new identity, and never
+substituted for `evaluation.proposal_id` anywhere downstream.
+
+**Four-state attestation semantics, preserved verbatim.** This package
+reads `evaluation.baseline_content_attestation` as one of four distinct
+states — `undefined` (key absent, from this package's own perspective;
+`@rvs/change-workbench`'s own `ContentAttestationStatus` type is only
+three-valued, `"attested" | "missing" | "mismatch"`, so `"undefined"` is
+this package's own addition marking "no attestation object was supplied
+at all") — never defaulted or coalesced into one another (no `?? "missing"`
+anywhere):
+
+| Transport state | Check performed | Success `baseline_binding` | Failure |
+| --- | --- | --- | --- |
+| `undefined` (key absent) | recomputed digest vs. `observedBaseline.content_digest` | `{binding_status: "unbound", attestation_state: "undefined"}` | `PROPOSAL_REVIEW_BASELINE_GRAPH_SELF_INCONSISTENT` |
+| `"missing"` | recomputed digest vs. `attestation.actual` | `{binding_status: "bound", attestation_state: "missing"}` | `PROPOSAL_REVIEW_BASELINE_GRAPH_CONTENT_MISMATCH` |
+| `"attested"` | recomputed digest vs. `attestation.actual` | `{binding_status: "bound", attestation_state: "attested"}` | `PROPOSAL_REVIEW_BASELINE_GRAPH_CONTENT_MISMATCH` |
+| `"mismatch"` | none — decisive on its own | never succeeds | `PROPOSAL_REVIEW_BASELINE_CONTENT_ATTESTATION_MISMATCH` |
+
+`"missing"` and `"undefined"` are deliberately distinct rows: `"missing"`
+means Workbench asked `@rvs/knowledge-graph` to verify and got a
+genuine (if attestation-less) transported recomputation back, and is
+still `"bound"`; `"undefined"` means no verification was even
+attempted, and stays `"unbound"`. Every successful `baseline_binding`
+also publishes `observed_baseline_content_digest` — this package's own
+recomputation, never a second identity authority, only the value the
+binding actually compared. New contract types added to
+`packages/proposal-review/src/contracts.ts`:
+`ProposalReviewBaselineBindingStatus`, `ProposalReviewBaselineAttestationState`,
+and `ProposalReviewBaselineBinding` (a required
+`baseline_binding` field on `ProposalReviewVisualInput`, alongside —
+never in place of — `proposal` and `observed_baseline_graph`; it does
+not duplicate the full `ContentDigestVerification` shape). `binding_status`/
+`attestation_state` are machine-readable facts only in this slice — no
+visual rendering of them was added to `grammar.ts`, which required no
+change at all, since it never reads `observed_baseline_graph` or
+`baseline_binding`.
+
+**Static authority guard, strengthened.**
+`forbidden-evaluator-call.test.ts`'s allowlist for
+`@rvs/knowledge-graph` value imports moved from `buildGraphSnapshot` to
+`buildGraphContentDigest`, and its forbidden-call list now explicitly
+names `buildGraphSnapshot`, `verifyGraphContentDigest`, and
+`computeDecisionImpact` alongside the pre-existing evaluator/advisory
+names — none of which appear in this package's production source
+(confirmed by the suite's own static scan, which passes). The
+private-hash reimplementation guards (`createHash(`, `canonicalize(`,
+`digestOf(`) are unchanged, and both remaining allowlisted functions
+(`buildProposedChangeSetId`, `buildGraphContentDigest`) are confirmed
+actually called, not just permitted.
+
+**Fixtures.** `packages/proposal-review/src/__tests__/fixtures.ts`
+keeps `buildGraphSnapshot` — but now solely for `BASE_SNAPSHOT_DIGEST`,
+the `baseSnapshotDigest` parameter `evaluateProposedChange()` itself
+still requires (an id-membership digest that is `@rvs/change-workbench`'s
+own concept, unrelated to this package's now-retired candidate-baseline
+check). `compatibleObservedBaseline()`'s `content_digest` was already
+genuinely derived via `buildGraphContentDigest()` from the real fixture
+graph. New fixture helpers
+(`validEvaluationWithAttestation`, `attestedBaselineContentAttestation`,
+`missingBaselineContentAttestation`, `mismatchBaselineContentAttestation`)
+build evaluations carrying each of the three transportable
+`ContentDigestVerification` states via `evaluateProposedChange()`'s own
+`baselineContentAttestation` parameter.
+
+**`ProposalTruthDisclosure`** (`packages/visual-intelligence/**`) was
+not touched — no new qualification code, no attestation-truth code, no
+change to id/topology/freshness handling.
+
+**Verification.** `packages/proposal-review`'s own suite now passes in
+full: 5 files, 94 tests (up from 83; the two obsolete same-count/
+different-id "attack" tests from the prior pass — which no longer
+defeat `buildGraphContentDigest`, since that digest deliberately
+excludes `id` from its content projection — were replaced with attacks
+that mutate genuine content fields while holding ids/counts fixed).
+`pnpm -r typecheck` passes across all 30 workspace packages with zero
+errors. The full repository-wide source-mode suite passes with no
+regressions: 273 files / 4528 tests passed, 2 files / 26 tests
+pre-existing skips (up from the prior pass's 271 files / 4439 tests —
+the delta is this package's own net-new tests; no other package's test
+count changed). Package-mode verification was not run in this pass (no
+new command was introduced beyond what the prior passes already
+established as limited by the environment's Playwright/installed-
+tarball constraints). The package DAG is unchanged — no dependency was
+added or removed, `package.json` and `pnpm-lock.yaml` were not
+modified, and `packages/proposal-review/src/__tests__/package-dag.test.ts`
+continues to pass.
+
+No `packages/change-workbench/**` or `packages/knowledge-graph/**` file
+was modified. `ProposalTruthDisclosure` was not modified. The M11.3.3
+composer, `ProposalArchitectureReviewModel`, and the Observed Baseline/
+Proposed Delta/Projected State composer were not implemented. Per this
+task's own authorization, no commit, push, or PR was made — a separate
+Git delivery authorization is required before this work may be
+committed.
+
+Remaining limitations carried forward, unchanged by this pass except
+where noted: an `"undefined"` attestation state remains `"unbound"` by
+design — a caller who never asks Workbench to verify gets only
+self-consistency, never authoritative binding; a direct-library caller
+(bypassing whatever future orchestration layer would normally source
+`baseline_content_attestation` from a real upstream verification) can
+still supply an unrelated, self-consistent `ContentDigestVerification`
+object, since `evaluateProposedChange()` transports it without
+verifying it and this package correspondingly trusts Workbench's
+transport, not the attestation's own provenance; `base_snapshot_digest`
+remains an id-membership digest, not independently reverified content,
+distinct from the new content-digest binding this pass adds;
+`@rvs/knowledge-graph`'s persisted-snapshot cache remains non-atomic;
+`ProposalTruthDisclosure` has no baseline-attestation axis of its own;
+`baseline_binding` is machine-readable but not yet visually rendered;
+export survivability of the new field is not yet certified; the
+M11.3.3 composer is not implemented; adaptive stand-ins do not surface
+binding semantics; package-mode certification may remain limited by
+environment constraints; this slice does not make proposed state
+observed. This slice implements no Milestone 11.3.3 composer, layout,
+rendering, explorer, delivery, CLI, or export work — that remains a
+separately-authorized future task. The work was performed on branch
+`feature/proposal-review-observed-baseline-contract`; per this task's
+own authorization, nothing from this milestone has been committed,
+pushed, merged, or opened as a pull request.
