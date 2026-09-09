@@ -22,15 +22,15 @@ import { buildProposalReviewVisualInput as srcBuildProposalReviewVisualInput } f
 import { buildProposalReviewVisualInputId as srcBuildProposalReviewVisualInputId } from "../ids.js";
 import { buildProposalVisualGrammar as srcBuildProposalVisualGrammar } from "../grammar.js";
 
-import { BASE_SNAPSHOT_DIGEST, compatibleObservedBaseline, mixedProvenanceEvaluation, validEvaluation } from "./fixtures.js";
+import { BASE_SNAPSHOT_DIGEST, baseFixtureGraph, compatibleObservedBaseline, mixedProvenanceEvaluation, mixedProvenanceProposal, validEvaluation, validProposal } from "./fixtures.js";
 
 describe("public-entry-point equivalence: src/index.ts barrel vs direct submodule imports", () => {
   it("buildProposalReviewVisualInput produces a byte-identical result via the barrel and via adapter.ts directly", () => {
     const evaluation = validEvaluation();
     const observedBaseline = compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST);
 
-    const viaBarrel = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, advisoryFreshness: "current" });
-    const viaSubmodule = srcBuildProposalReviewVisualInput({ evaluation, observedBaseline, advisoryFreshness: "current" });
+    const viaBarrel = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: validProposal() });
+    const viaSubmodule = srcBuildProposalReviewVisualInput({ evaluation, observedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: validProposal() });
 
     expect(JSON.stringify(viaBarrel)).toBe(JSON.stringify(viaSubmodule));
     expect(viaBarrel.status).toBe("ok");
@@ -42,7 +42,7 @@ describe("public-entry-point equivalence: src/index.ts barrel vs direct submodul
   it("buildProposalReviewVisualInputId agrees via the barrel and via ids.ts directly", () => {
     const evaluation = validEvaluation();
     const observedBaseline = compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST);
-    const result = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, advisoryFreshness: "current" });
+    const result = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: validProposal() });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
 
@@ -57,8 +57,8 @@ describe("public-entry-point equivalence: src/index.ts barrel vs direct submodul
     const evaluation = validEvaluation();
     const mismatchedBaseline = compatibleObservedBaseline("a-different-digest-entirely");
 
-    const viaBarrel = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline: mismatchedBaseline, advisoryFreshness: "current" });
-    const viaSubmodule = srcBuildProposalReviewVisualInput({ evaluation, observedBaseline: mismatchedBaseline, advisoryFreshness: "current" });
+    const viaBarrel = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline: mismatchedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: validProposal() });
+    const viaSubmodule = srcBuildProposalReviewVisualInput({ evaluation, observedBaseline: mismatchedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: validProposal() });
 
     expect(JSON.stringify(viaBarrel)).toBe(JSON.stringify(viaSubmodule));
     expect(viaBarrel.status).toBe("rejected");
@@ -67,7 +67,7 @@ describe("public-entry-point equivalence: src/index.ts barrel vs direct submodul
   it("buildProposalVisualGrammar produces a byte-identical result via the barrel and via grammar.ts directly", () => {
     const evaluation = mixedProvenanceEvaluation();
     const observedBaseline = compatibleObservedBaseline(BASE_SNAPSHOT_DIGEST);
-    const bound = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, advisoryFreshness: "current" });
+    const bound = pkgBuildProposalReviewVisualInput({ evaluation, observedBaseline, observedBaselineGraph: baseFixtureGraph(), advisoryFreshness: "current", proposal: mixedProvenanceProposal() });
     expect(bound.status).toBe("ok");
     if (bound.status !== "ok") return;
 

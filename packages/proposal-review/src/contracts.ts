@@ -20,8 +20,80 @@
 // implied; `ProposalReviewVisualInput` is data that a future renderer
 // consumes, not a claim that rendering already happened.
 
-import type { ChangeAdvisory, ChangeWorkbenchProjectionOutcome, ProposalValidationResult } from "@rvs/change-workbench";
+import type { ChangeAdvisory, ChangeWorkbenchProjectionOutcome, ProposalValidationResult, ProposedChangeSet } from "@rvs/change-workbench";
+import type { KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
 import type { ProposalTruthDisclosure } from "@rvs/visual-intelligence";
+
+/**
+ * The observed baseline's own structural content -- the `GraphSnapshot`
+ * (`observed_baseline_snapshot_id`/`base_snapshot_digest` above) already
+ * carries that snapshot's identity and compatibility digest; this type adds
+ * no second identity, only the node/edge content a composition stage needs
+ * for the "before" state of a modified/removed entity or relation, which
+ * `proposal_validation`, `projection`, and `advisory` do not carry (a
+ * `ChangeOverlay`'s `nodes`/`edges` reflect only the post-proposal state; a
+ * `"removed"` id is structurally absent from them; a `"modified"` id's
+ * pre-proposal value is unrecoverable from them). See adapter.ts for the
+ * node/edge-count sanity checks AND the architecture-semantic content
+ * binding (via `@rvs/knowledge-graph`'s `buildGraphContentDigest()`,
+ * compared against either `observedBaseline.content_digest` -- when no
+ * authoritative transported attestation exists -- or
+ * `evaluation.baseline_content_attestation.actual` -- when one does) that
+ * this same `GraphSnapshot` is checked against; see `ProposalReviewBaselineBinding`
+ * for that check's published result.
+ */
+export interface ProposalReviewObservedBaselineGraph {
+  nodes: readonly KnowledgeNode[];
+  edges: readonly KnowledgeEdge[];
+}
+
+/**
+ * Whether this binding's caller-supplied `observed_baseline_graph` content
+ * digest was checked against an authoritative, Workbench-transported
+ * upstream recomputation (`"bound"`) or only against the caller's own
+ * `GraphSnapshot.content_digest` (`"unbound"`) -- see
+ * `ProposalReviewBaselineAttestationState` for exactly which transport
+ * state produces which binding status.
+ */
+export type ProposalReviewBaselineBindingStatus = "bound" | "unbound";
+
+/**
+ * The four-state transport-attestation semantics this package reads off
+ * `evaluation.baseline_content_attestation`, preserved verbatim -- never
+ * defaulted or coalesced into one another:
+ *
+ * - `"undefined"`: the envelope key itself was absent -- no authoritative
+ *   persisted-content attestation claim was supplied to Workbench at all.
+ *   Structural binding to evaluated content is impossible; only
+ *   self-consistency against the caller's own `GraphSnapshot.content_digest`
+ *   is checked.
+ * - `"missing"`: upstream verification ran, but the persisted `GraphSnapshot`
+ *   had no recorded content digest to check against. Distinct from
+ *   `"undefined"` -- verification was attempted -- and still `"bound"`,
+ *   since `attestation.actual` is a genuine transported recomputation.
+ * - `"attested"`: upstream verification ran and the persisted content
+ *   digest matched.
+ * - `"mismatch"`: upstream verification already established the persisted
+ *   baseline content does not match its recorded identity -- a hard
+ *   failure; no `ProposalReviewVisualInput` may be produced.
+ */
+export type ProposalReviewBaselineAttestationState = "undefined" | "missing" | "attested" | "mismatch";
+
+/**
+ * This package's own derived boundary fact about the observed baseline
+ * graph's content binding -- published alongside, never in place of,
+ * `evaluation.baseline_content_attestation` (which this type deliberately
+ * does not duplicate: the upstream `ContentDigestVerification` is consumed
+ * during binding, not re-carried here). `observed_baseline_content_digest`
+ * is this package's own recomputation (via `buildGraphContentDigest()`)
+ * over the caller-supplied `observed_baseline_graph` -- never a second
+ * identity authority, only the value this binding actually compared.
+ */
+export interface ProposalReviewBaselineBinding {
+  binding_status: ProposalReviewBaselineBindingStatus;
+  attestation_state: ProposalReviewBaselineAttestationState;
+  observed_baseline_content_digest: string;
+}
 
 export const PROPOSAL_REVIEW_SCHEMA_VERSION = 1;
 
@@ -56,11 +128,38 @@ export interface ProposalReviewVisualInput {
   base_snapshot_digest: string;
   /** The `GraphSnapshot.id` of the observed baseline this binding was checked against -- see adapter.ts's hard-failure compatibility check. */
   observed_baseline_snapshot_id: string;
+  /** The observed baseline's own node/edge content. See `ProposalReviewObservedBaselineGraph`'s own doc comment for why this carries no separate identity. */
+  observed_baseline_graph: ProposalReviewObservedBaselineGraph;
+  /**
+   * This binding's own derived boundary fact about `observed_baseline_graph`'s
+   * content-digest correspondence to the evaluated baseline -- see
+   * `ProposalReviewBaselineBinding`'s own doc comment for the four
+   * transport-attestation states and what each does and does not prove.
+   */
+  baseline_binding: ProposalReviewBaselineBinding;
   proposal_validation: ProposalValidationResult;
   projection: ChangeWorkbenchProjectionOutcome;
   advisory: ChangeAdvisory;
   /** Built by `@rvs/visual-intelligence`'s `buildProposalTruthDisclosure()` -- reused, never reimplemented. */
   truth_disclosure: ProposalTruthDisclosure;
+  /**
+   * The exact caller-authored proposal this evaluation was computed from,
+   * consumed verbatim -- never recomputed, never re-derived from
+   * `proposal_validation`/`projection`/`advisory`. Bound to
+   * `evaluation.proposal_id`/`evaluation.repository_id` by a hard-failure
+   * consistency check AND, cryptographically, to `evaluation.proposal_id`
+   * by a recomputed-id check via
+   * `buildProposedChangeSetId(evaluation.repository_id, proposal.operations)`
+   * (see adapter.ts's header comment for exactly what this proves and does
+   * not prove -- and why it is anchored to `evaluation.repository_id`, not
+   * `proposal.repository_id`). A future composition stage reads
+   * `proposal.operations` for exact operation-level facts (kind,
+   * per-operation `evidence_refs`, `detail` text) that provenance alone
+   * cannot reconstruct -- e.g. `proposal_validation`/`projection`/`advisory`
+   * can say an entity is `"modified"` but not which attributes the caller
+   * explicitly changed; `ModifyAttributesOperation.attributes` can.
+   */
+  proposal: ProposedChangeSet;
 }
 
 /**

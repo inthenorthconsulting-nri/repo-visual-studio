@@ -8,10 +8,10 @@
 // exercise the adapter against genuine Workbench output, not a shape that
 // could drift from what evaluateProposedChange() actually produces.
 
-import type { ChangeWorkbenchEvaluation, ConfirmedEntityRef, ProposalOperation, ProposedEntityRef } from "@rvs/change-workbench";
+import type { ChangeWorkbenchEvaluation, ConfirmedEntityRef, ProposalOperation, ProposedChangeSet, ProposedEntityRef } from "@rvs/change-workbench";
 import { composeProposedChangeSet, evaluateProposedChange, mutateExistingEntityRef, proposeEntityRef, tryConfirmEntityRef } from "@rvs/change-workbench";
-import type { GraphSnapshot, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
-import { buildGraphContentDigest, KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
+import type { ContentDigestVerification, GraphSnapshot, KnowledgeEdge, KnowledgeNode } from "@rvs/knowledge-graph";
+import { buildGraphContentDigest, buildGraphSnapshot, KNOWLEDGE_GRAPH_SCHEMA_VERSION } from "@rvs/knowledge-graph";
 
 export const REPOSITORY_ID = "fixture-repo";
 
@@ -62,10 +62,19 @@ export function confirmedRef(id: string, nodes: readonly KnowledgeNode[]): Confi
  * graph's evaluation was checked against -- i.e. compatible with
  * `baseSnapshotDigest()`'s evaluations by construction. `digest` stays a
  * caller-supplied parameter (deliberately mismatched by some callers to
- * exercise digest-inconsistency detection); `content_digest` is the genuine
- * KG-owned content digest of `baseFixtureGraph()`'s own nodes/edges,
- * computed via the canonical `buildGraphContentDigest()` primitive rather
- * than an arbitrary placeholder.
+ * exercise `PROPOSAL_REVIEW_BASELINE_DIGEST_MISMATCH` detection);
+ * `content_digest` is the genuine KG-owned content digest of
+ * `baseFixtureGraph()`'s own nodes/edges, computed via the canonical
+ * `buildGraphContentDigest()` primitive rather than an arbitrary
+ * placeholder -- Milestone 11.3.3A-P's own self-consistency and
+ * transported-attestation content-binding checks (see adapter.ts) require
+ * this to be genuine, not nominal, or every "ok"-path test pairing this
+ * fixture with an unmodified `baseFixtureGraph()` would fail those checks.
+ * `node_count`/`edge_count` are hand-pinned to `baseFixtureGraph()`'s
+ * actual shape (3 nodes, 2 edges) -- if that fixture graph's shape ever
+ * changes, these must change with it, or the adapter's node/edge-count
+ * checks (`PROPOSAL_REVIEW_BASELINE_GRAPH_NODE_COUNT_MISMATCH`/
+ * `_EDGE_COUNT_MISMATCH`) will surface the drift as a test failure.
  */
 export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSnapshot {
   const { nodes, edges } = baseFixtureGraph();
@@ -81,18 +90,74 @@ export function compatibleObservedBaseline(baseSnapshotDigest: string): GraphSna
   };
 }
 
-export const BASE_SNAPSHOT_DIGEST = "fixture-base-snapshot-digest-0001";
+/**
+ * The REAL `buildGraphSnapshot()` membership digest of `baseFixtureGraph()`'s
+ * own node/edge id sets -- not an arbitrary literal. This is @rvs/change-workbench's
+ * `baseSnapshotDigest` parameter to `evaluateProposedChange()` (a distinct,
+ * still-required Workbench-owned concept: the id-membership digest Workbench
+ * checks a proposal's confirmed-entity refs against), separate from and
+ * unrelated to Milestone 11.3.3A-P's own `buildGraphContentDigest()`-based
+ * baseline content binding inside this package's adapter.ts -- retiring the
+ * latter's now-removed candidate-baseline membership check does not change
+ * what Workbench itself still requires here.
+ */
+export const BASE_SNAPSHOT_DIGEST: string = buildGraphSnapshot({
+  repositoryId: REPOSITORY_ID,
+  upstreamArtifacts: [],
+  nodes: baseFixtureGraph().nodes,
+  edges: baseFixtureGraph().edges,
+}).digest;
 
-/** A valid, sufficient proposal: adds one entity related to comp-a. Produces a "built" projection with a non-empty overlay and "valid_sufficient"/"valid_partial" validation. */
-export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+/** The exact `ProposedChangeSet` `validEvaluation()` computes from -- a single source of truth for that fixture's operations, so `evaluation.proposal_id` and a caller-supplied `proposal` in a test always agree. */
+export function validProposal(): ProposedChangeSet {
+  const { nodes } = baseFixtureGraph();
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "new-1");
   const operations: ProposalOperation[] = [
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "new-1", label: "New Component", repository_id: REPOSITORY_ID },
     { kind: "add_relation", from_ref: newRef, to_ref: confirmedRef("comp-a", nodes), edge_type: "depends_on" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+/** A valid, sufficient proposal: adds one entity related to comp-a. Produces a "built" projection with a non-empty overlay and "valid_sufficient"/"valid_partial" validation. */
+export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = validProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
+}
+
+/**
+ * Like `validEvaluation()`, but additionally transports a caller-computed
+ * `baselineContentAttestation` onto `evaluation.baseline_content_attestation`
+ * -- exercising Milestone 11.3.3A-P's four-state baseline content-binding
+ * contract. Passing `undefined` leaves the envelope key entirely absent
+ * (the `"undefined"` transport state), exactly like `validEvaluation()`
+ * itself -- `evaluateProposedChange()` only sets the key when its own
+ * `baselineContentAttestation` parameter is not `undefined`.
+ */
+export function validEvaluationWithAttestation(attestation: ContentDigestVerification | undefined, baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = validProposal();
+  return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest, baselineContentAttestation: attestation });
+}
+
+/** A genuine `"attested"` `ContentDigestVerification` for `baseFixtureGraph()`'s own content -- `expected`/`actual` both equal the real `buildGraphContentDigest()` recomputation, so this attestation is self-consistent by construction. */
+export function attestedBaselineContentAttestation(): ContentDigestVerification {
+  const { nodes, edges } = baseFixtureGraph();
+  const digest = buildGraphContentDigest(nodes, edges);
+  return { status: "attested", expected: digest, actual: digest };
+}
+
+/** A genuine `"missing"` `ContentDigestVerification` for `baseFixtureGraph()`'s own content -- the persisted snapshot had no recorded content digest, so only `actual` (the real recomputation) is present. */
+export function missingBaselineContentAttestation(): ContentDigestVerification {
+  const { nodes, edges } = baseFixtureGraph();
+  return { status: "missing", actual: buildGraphContentDigest(nodes, edges) };
+}
+
+/** A genuine `"mismatch"` `ContentDigestVerification` for `baseFixtureGraph()`'s own content -- `actual` is the real recomputation, but `expected` is a different, hand-picked persisted digest, so upstream verification already found the persisted baseline corrupt. */
+export function mismatchBaselineContentAttestation(): ContentDigestVerification {
+  const { nodes, edges } = baseFixtureGraph();
+  return { status: "mismatch", expected: "persisted-digest-that-does-not-match", actual: buildGraphContentDigest(nodes, edges) };
 }
 
 /**
@@ -106,19 +171,23 @@ export function validEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGES
  * unconfirmed ref, which validation.ts treats as `blocking: false`) --
  * this fixture exists specifically to exercise the `not_built` path.
  */
-export function invalidEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+export function invalidProposal(): ProposedChangeSet {
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "invalid-1");
   const operations: ProposalOperation[] = [
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "invalid-1", label: "Invalid", repository_id: "wrong-repo-id" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+export function invalidEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = invalidProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
 }
 
 /** A proposal touching a removal, a modification, and an addition -- exercises "removed"/"modified"/"proposed"/"confirmed" overlay provenance all at once. */
-export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
-  const { nodes, edges } = baseFixtureGraph();
+export function mixedProvenanceProposal(): ProposedChangeSet {
+  const { nodes } = baseFixtureGraph();
   const newRef: ProposedEntityRef = proposeEntityRef("proposal-review-fixture", "new-mixed");
   const operations: ProposalOperation[] = [
     { kind: "remove_entity", ref: mutateExistingEntityRef(confirmedRef("comp-c", nodes)) },
@@ -126,6 +195,11 @@ export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAP
     { kind: "add_entity", ref: newRef, node_type: "component", source_artifact: "architecture", proposed_source_entity_id: "new-mixed", label: "New Mixed", repository_id: REPOSITORY_ID },
     { kind: "add_relation", from_ref: newRef, to_ref: confirmedRef("comp-a", nodes), edge_type: "depends_on" },
   ];
-  const changeSet = composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+  return composeProposedChangeSet({ repositoryId: REPOSITORY_ID, operations });
+}
+
+export function mixedProvenanceEvaluation(baseSnapshotDigest: string = BASE_SNAPSHOT_DIGEST): ChangeWorkbenchEvaluation {
+  const { nodes, edges } = baseFixtureGraph();
+  const changeSet = mixedProvenanceProposal();
   return evaluateProposedChange({ changeSet, confirmedNodes: nodes, confirmedEdges: edges, baseSnapshotDigest });
 }
