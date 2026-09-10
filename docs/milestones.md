@@ -4913,3 +4913,203 @@ surfaces are ever rendered. The work was performed on branch
 `feature/proposal-architecture-review-composition`; per this task's own
 authorization, nothing from this milestone has been committed, pushed,
 merged, or opened as a pull request.
+
+## Milestone 11.3.3.2A — Generic Semantic Marker Survivability
+
+Precursor implementation slice, opened by the M11.3.3.2 architecture
+review. That review found that a caller has no way to attach semantic
+qualification to a `VisualNode` or `VisualEdge` at all: `channels.marker`
+and `channels.badge` are produced solely by `resolveVisualState()` from a
+closed vocabulary the model cannot reach, `model.annotations` is read by
+no renderer, and `render.ts` discarded every edge change — so an edge had
+no qualification channel in any grammar. Adaptive reduction made this
+worse: `collapseInto()` aggregated only resolution and confidence, so a
+stand-in silently dropped whatever qualified the entities behind it.
+
+This slice adds the smallest generic mechanism that closes that gap. It
+adds no proposal, review, workbench, or knowledge-graph concept to M10:
+these two packages transport and draw semantic qualification without
+knowing why any marker exists.
+
+### The contract
+
+`packages/visual-intelligence/src/semantic-markers.ts` defines one
+interface:
+
+```ts
+interface VisualSemanticMarker {
+  key: string;     // token identity; sanitized through ids.ts
+  label: string;   // human text: the visible tag AND the accessible name
+  count?: number;  // multiplicity; absent means one
+}
+```
+
+Two required fields, not three. The investigative sketch proposed
+`{ key, label, accessible_term }`; a separate accessible term would let
+the printed tag and the announced term diverge, and would double the
+escaping surface for no gain, so one `label` serves both and is
+structurally unable to disagree with itself. `key` cannot be folded into
+`label` in the other direction: `data-rvs-*` values are space-separated
+tokens, so a token-safe identity is structurally required.
+
+Key space is **open** — caller-defined keys with controlled
+presentation. A closed generic vocabulary would have to enumerate the
+caller's provenance values inside M10, which is exactly the coupling
+this precursor exists to avoid. Control comes from existing authorities
+rather than new ones: keys pass through `sanitize()` from `ids.ts` (no
+second id algorithm), and all visible and accessible text passes through
+the existing `escapeText`/`escapeAttribute` path.
+
+`normalizeSemanticMarkers()` is the single canonical form: keys
+sanitized, labels whitespace-collapsed, empty markers dropped, duplicate
+keys merged with their counts summed and their label resolved by
+canonical authority (lexicographically smallest — never by input order),
+sorted by key, `count` omitted when it is 1 so the function is
+idempotent. `aggregateSemanticMarkers()` is the same normalization over
+concatenated groups, which makes aggregation order-independent,
+duplicate-free, and non-lossy by marker kind. It never selects a winner.
+
+### Where it survives
+
+`VisualNode` and `VisualEdge` each carry an optional
+`semantic_markers`. `normalizeVisualGraphModel()` canonicalizes both,
+and drops the field entirely when normalization yields nothing — so an
+unmarked model serializes exactly as it did before the channel existed.
+
+Every reduction path in `degradation.ts` handles the channel explicitly
+rather than relying on object spreading:
+
+- `subsetModel()` carries whole node and edge objects across, so markers
+  survive a split by construction (documented and tested, not assumed).
+- `collapseInto()` aggregates the markers of every member into the
+  stand-in. Given members marked `{m1}`, `{m2}` and `{m1, m3}`, the
+  stand-in carries `{m1, m2, m3}` with `m1` counted twice — not one
+  winner, and not one severity-like maximum.
+- `withPlaceholders()` aggregates the markers of *every* source edge
+  that folds into a connector. A first-wins connector would have let
+  reduction erase edge qualification.
+
+Counts are part of the contract rather than presentation-only, because
+without them nine A-marked members plus one B-marked member and one A
+plus nine B collapse to the same stand-in — a distinction the reader
+would lose with no receipt recording the loss.
+
+A marker never changes *which* entities survive. It is not an input to
+any degradation rank, to `isProtected`/`isRelocatable`, to the anchor
+floor, or to `equivalenceSignature`; its job is to survive with its node
+or that node's stand-in, not to disable adaptation. Nothing invents a
+marker for an entity absent from the rendered view.
+
+### How it is drawn
+
+The channel is rendered independently of `VisualState`, not folded into
+it. `VISUAL_STATES` is a closed 16-value tuple with fixed per-layer
+ranks and its own colour-independence matrix; admitting caller-defined
+keys would either break that closure or overload a layer's meaning.
+
+For a node: a visible marker row inside the box (`Alpha x3 · Beta`, in
+`style.ink.secondary`, floored at the legible minimum type size and
+reserved by `sizeNode()` regardless of detail mode, since a marker is
+qualification that exists nowhere else in the drawing rather than a
+restatement); a `data-rvs-markers` token list; the phrase
+`marked Alpha (3), Beta` appended to the accessible **name** in
+`<title>` via `nameFromState()`, and to the `<desc>`. For an edge: the
+same visible row at the edge's label anchor or geometric midpoint, the
+same data attribute, and the same phrase in the edge's `<title>`. Edge
+markers render independently of `resolution`, `emphasis` and `in_cycle`,
+and do not travel through `model.changes`, which remains an
+observed-diff contract. With every `fill` and `stroke` stripped, a
+marked node or edge still differs from an unmarked one.
+
+The stand-in's accessible short-circuit was extended generically: a
+placeholder announces `stands in for N entities shown elsewhere, marked
+…`. `placeholder_for` semantics are unchanged and no stand-in is turned
+into a source entity.
+
+Nothing was added to `FidelityReceipt` or `EntityCoverage`, no existing
+truth field (`resolution`, `confidence`, `severity`, `decision_status`,
+`emphasis`, `kind`) was repurposed, and no new emphasis mapping was
+introduced. `node.id` NCName hardening was deliberately **not** done:
+markers travel through existing `<title>`/`<desc>` content, introducing
+no new `aria-labelledby`/`aria-describedby` reference, so the
+pre-existing limitation is left untouched rather than fixed opportunistically.
+
+### Static guard and dependency shape
+
+`packages/visual-intelligence/src/__tests__/generic-marker-boundary.test.ts`
+source-scans both guarded packages' production files and fails on any
+import of `@rvs/proposal-review`, `@rvs/proposal-architecture-review`,
+`@rvs/change-workbench`, `@rvs/knowledge-graph`,
+`@rvs/governance-intelligence` or `@rvs/decision-intelligence` (in
+source or `package.json`); on any caller-domain concept token appearing
+in newly-added code, with an explicit allowlist for the files that
+already legitimately carry such wording (`proposal-truth.ts`,
+`proposal-provenance.ts`, `contracts.ts`, `ids.ts`, `index.ts`) and an
+exact-token excuse for `data-model.ts`'s pre-existing `"proposed"`
+decision-status value — an excuse that itself fails if the token it
+excuses disappears. It also pins `semantic-markers.ts` to importing
+exactly `["./ids.js"]`, proves it is pure (no clock, randomness,
+filesystem, process, or network), and forbids authority words
+(verified / certified / approved / safe / observed) in its literals.
+
+The slice adds **zero** new workspace dependency edges:
+`@rvs/visual-intelligence` still declares no workspace dependencies and
+`@rvs/visual-grammar` still declares only `@rvs/visual-intelligence`,
+asserted from the real `package.json` files alongside a whole-workspace
+acyclicity proof.
+
+### Backward byte-compatibility
+
+Verified by measurement, not by inspection. The certified base tree
+(`2e178620e4cf1b4d1052006f29d621058ea23537`) was extracted and rendered
+side by side with the branch over 320 cases: all 15 grammars rendered
+interactively and non-interactively plus a scoped-id run (SVG bytes and
+layout geometry digested separately), model normalization,
+`adaptVisualModel()` across every grammar × detail mode (adapted model,
+splits, receipt, stand-in wording, and the adapted model re-rendered),
+and spec building across every audience × detail mode. All 320 digests
+match. Unmarked output — SVG, accessible text, data attributes, element
+ids, layout, placeholder wording, fidelity receipts — is byte-identical.
+
+### Coverage
+
+`@rvs/visual-intelligence`: 18 files / 390 tests (15 pre-existing files / 296
+tests unchanged; 3 new files / 94 tests). `@rvs/visual-grammar`: 8 files / 169
+tests (1 new file / 27 tests). The new tests cover the node and edge
+carriers, canonical form and idempotence, key sanitization and
+sanitize-collision determinism, duplicate resolution by canonical
+authority, the mixed-marker stand-in union, the nine-A/one-B versus
+one-A/nine-B asymmetry, stand-ins of stand-ins, order independence under
+repeated shuffles, marker-does-not-rescue-a-node across all three detail
+modes, receipt and coverage non-contamination, connector aggregation,
+hidden-entity non-invention, accessible name and description placement,
+colour-stripped distinguishability, escaping of `<script>`, quotes,
+ampersands and `javascript:` in both attribute and text position, and
+marker survival across all 15 grammars, all detail modes and all
+audiences. Downstream suites pass with no production change under any of
+them: `@rvs/visual-composition` 4 files / 31 tests,
+`@rvs/visual-explorer` 6 files / 90 tests, `@rvs/visual-change-review` 8
+files / 146 tests. `pnpm -r typecheck` passes across all 31 workspace
+packages. The full repository-wide source-mode suite passes: 280 files /
+4698 tests passed, 2 files / 26 tests skipped — the same two pre-existing
+package-mode skips (`packages/cli/src/__tests__/package-smoke.test.ts`
+and `source-vs-package-equivalence.test.ts`), unchanged in count.
+
+### Remaining limitations
+
+Nothing populates the channel. `@rvs/proposal-review` and
+`@rvs/proposal-architecture-review` were not wired to it; mapping
+provenance onto markers is M11.3.3.2B. Two grammars, `matrix` and
+`metric_row`, draw no edges at all, so there is no source edge in them
+to carry an edge marker; `fishbone` synthesizes its own rib edges rather
+than drawing the model's, so a model edge's marker has no rib to land
+on. Inventing an edge in any of those cases would be fabrication, so
+none is invented. Package-mode (installed-tarball) verification remains
+uncertified, consistent with prior passes. The `node.id` NCName
+limitation is unchanged and unaddressed by design. Visible marker rows
+truncate to the node's inner width like every other text row; a long
+label is elided visually while remaining complete in the accessible
+name. The work was performed on branch
+`feature/generic-semantic-marker-survivability`; per this task's own
+authorization, nothing has been committed, pushed, merged, or opened as
+a pull request.

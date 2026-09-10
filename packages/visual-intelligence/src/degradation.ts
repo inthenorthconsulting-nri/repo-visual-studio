@@ -16,6 +16,7 @@ import {
 } from "./data-model.js";
 import { buildFidelityReceipt } from "./fidelity.js";
 import { buildCollapsedGroupId, buildSplitViewId, buildVisualEdgeId, normalizeIds } from "./ids.js";
+import { aggregateSemanticMarkers, type VisualSemanticMarker } from "./semantic-markers.js";
 
 // The central degradation policy.
 //
@@ -298,6 +299,20 @@ function pluralLabel(count: number, kind: string, container: string | undefined)
  * page of signposts can answer; and merging stand-ins finds the room that
  * costs by coarsening the signposts instead of spending an entity.
  */
+/**
+ * Spreads an aggregated marker set onto a synthetic entity, or contributes
+ * nothing at all when there is none.
+ *
+ * The "nothing at all" branch is the point: a stand-in built from unmarked
+ * members must carry no `semantic_markers` key, so every view produced before
+ * this channel existed keeps its exact shape and its exact bytes.
+ */
+function markersOf(
+  markers: readonly VisualSemanticMarker[] | undefined,
+): { semantic_markers?: readonly VisualSemanticMarker[] } {
+  return markers === undefined ? {} : { semantic_markers: markers };
+}
+
 export function adaptVisualModel(input: AdaptationInput): AdaptationResult {
   const model = normalizeVisualGraphModel(input.model);
   const budget = budgetFor(input.grammar, input.detail_mode);
@@ -379,6 +394,14 @@ export function adaptVisualModel(input: AdaptationInput): AdaptationResult {
           : members.some((m) => m.confidence === "qualified")
             ? "qualified"
             : "confirmed",
+        // Semantic qualification is unioned, not reduced to a winner. The two
+        // fields above legitimately collapse to a single worst-case value
+        // because they are ordered scales; a marker set is not a scale, and
+        // picking one member's marker would delete qualification the reader
+        // has no way to know was ever attached. Aggregation also carries
+        // multiplicity, so nine-of-one-and-one-of-another cannot draw the
+        // same as one-of-one-and-nine-of-another.
+        ...markersOf(aggregateSemanticMarkers(members.map((m) => m.semantic_markers))),
         placeholder_for: placeholder,
         evidence_refs: [],
       },
@@ -820,6 +843,11 @@ function withPlaceholders(
   const drawn = new Set(primary.nodes.map((n) => n.id));
 
   const connectors = new Map<string, VisualEdge>();
+  // Every source edge that folds into the same connector contributes its
+  // qualification. A connector stands in for those edges, so reporting only
+  // the first one's markers would let reduction erase edge qualification the
+  // same way a single-winner stand-in would erase node qualification.
+  const connectorMarkers = new Map<string, Array<readonly VisualSemanticMarker[] | undefined>>();
   for (const edge of model.edges) {
     const from = drawn.has(edge.from_id) ? edge.from_id : ownerOf.get(edge.from_id);
     const to = drawn.has(edge.to_id) ? edge.to_id : ownerOf.get(edge.to_id);
@@ -829,6 +857,7 @@ function withPlaceholders(
     if (from === undefined || to === undefined || from === to) continue;
     if (drawn.has(edge.from_id) && drawn.has(edge.to_id)) continue;
     const id = buildVisualEdgeId(edge.kind, from, to);
+    connectorMarkers.set(id, [...(connectorMarkers.get(id) ?? []), edge.semantic_markers]);
     if (connectors.has(id)) continue;
     connectors.set(id, {
       id,
@@ -840,6 +869,11 @@ function withPlaceholders(
       in_cycle: false,
       evidence_refs: [],
     });
+  }
+
+  for (const [id, connector] of connectors) {
+    const markers = aggregateSemanticMarkers(connectorMarkers.get(id) ?? []);
+    if (markers !== undefined) connectors.set(id, { ...connector, semantic_markers: markers });
   }
 
   const placeholderNodes = placeholders.map((p) => p.node);
@@ -893,6 +927,11 @@ function mergePlaceholderGroups(
  * cannot support.
  */
 export function subsetModel(model: VisualGraphModel, keep: (node: VisualNode) => boolean): VisualGraphModel {
+  // Nodes and edges are carried across whole rather than rebuilt field by
+  // field, which is what makes the marker channel survive a split view: a
+  // subset is a smaller view of the same entities, so an entity that arrives
+  // marked leaves marked. Anything that starts reconstructing these objects
+  // has to carry `semantic_markers` deliberately.
   const nodes = model.nodes.filter(keep);
   const nodeIds = new Set(nodes.map((n) => n.id));
   const edges = model.edges.filter((e) => nodeIds.has(e.from_id) && nodeIds.has(e.to_id));

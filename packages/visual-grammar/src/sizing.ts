@@ -1,4 +1,8 @@
-import type { VisualNode } from "@rvs/visual-intelligence";
+import {
+  MINIMUM_TEXT_SIZE_PX,
+  semanticMarkerTagText,
+  type VisualNode,
+} from "@rvs/visual-intelligence";
 import type { GrammarStyle } from "./style.js";
 import { measureText, truncateToWidth, wrapToLines } from "./text.js";
 
@@ -27,17 +31,43 @@ export function lineHeight(fontSize: number): number {
 }
 
 /**
+ * The type size of the visible marker row.
+ *
+ * Floored at the legible minimum for the same reason the state badge is: a
+ * qualification rendered at four pixels is a qualification only the DOM can
+ * read. Exported so sizing and rendering read one value.
+ */
+export function markerTagFontSize(style: GrammarStyle): number {
+  return Math.max(style.font_size.annotation, MINIMUM_TEXT_SIZE_PX);
+}
+
+/**
  * Sizes a node's box from its label and optional secondary line.
  *
  * The returned `lines` are what will actually be drawn -- already wrapped and
  * truncated -- so the renderer never re-measures and cannot disagree with the
  * box the layout reserved.
+ *
+ * A marker row is reserved rather than returned. Two grammars (`matrix` and
+ * `metric_row`) size their cards geometrically instead of calling this
+ * function, so a fitted string handed down from here would simply be absent
+ * for them; the renderer fits the row to the rect it is actually drawing,
+ * which is the same inner width this function clamped to for every grammar
+ * that does call it.
  */
 export function sizeNode(node: VisualNode, style: GrammarStyle, showSecondary: boolean): SizedLabel {
   const secondary = showSecondary ? secondaryLine(node) : undefined;
+  // The marker row is NOT gated on `showSecondary`. The secondary line is a
+  // restatement of a fact the box already carries, so a terse detail mode can
+  // drop it without losing anything; a marker is qualification that exists
+  // nowhere else in the drawing, and a mode that dropped it would let detail
+  // reduction erase meaning rather than repetition.
+  const markerTag = semanticMarkerTagText(node.semantic_markers);
+  const markerSize = markerTagFontSize(style);
   const natural = Math.max(
     measureText(node.label, style.font_size.label),
     secondary === undefined ? 0 : measureText(secondary, style.font_size.secondary),
+    markerTag === undefined ? 0 : measureText(markerTag, markerSize),
   );
   const width = clamp(natural + style.spacing.md * 2, MIN_NODE_WIDTH, MAX_NODE_WIDTH);
   const inner = width - style.spacing.md * 2;
@@ -46,7 +76,8 @@ export function sizeNode(node: VisualNode, style: GrammarStyle, showSecondary: b
     secondary === undefined ? undefined : truncateToWidth(secondary, inner, style.font_size.secondary);
   const textHeight =
     lines.length * lineHeight(style.font_size.label) +
-    (secondaryFitted === undefined ? 0 : lineHeight(style.font_size.secondary));
+    (secondaryFitted === undefined ? 0 : lineHeight(style.font_size.secondary)) +
+    (markerTag === undefined ? 0 : lineHeight(markerSize));
   return {
     width,
     height: Math.max(48, Math.round(textHeight + style.spacing.md * 2)),

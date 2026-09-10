@@ -1,4 +1,5 @@
 import type { VisualEvidenceRef } from "./contracts.js";
+import { normalizeSemanticMarkers, type VisualSemanticMarker } from "./semantic-markers.js";
 
 // The renderer-neutral presentation model.
 //
@@ -67,6 +68,12 @@ export interface VisualNode {
   order?: number;
   /** Set only on a synthetic stand-in for entities that left the primary view. Never a source entity. */
   placeholder_for?: VisualPlaceholder;
+  /**
+   * Caller-supplied semantic qualification this layer transports but never
+   * interprets. Absent on every model that does not use the channel, so an
+   * unmarked model is byte-identical to one authored before it existed.
+   */
+  semantic_markers?: readonly VisualSemanticMarker[];
   evidence_refs: VisualEvidenceRef[];
 }
 
@@ -106,6 +113,12 @@ export interface VisualEdge {
   resolution: VisualResolution;
   /** True when upstream established this edge participates in a cycle. Never inferred here. */
   in_cycle: boolean;
+  /**
+   * Caller-supplied semantic qualification this layer transports but never
+   * interprets. Absent on every model that does not use the channel, so an
+   * unmarked model is byte-identical to one authored before it existed.
+   */
+  semantic_markers?: readonly VisualSemanticMarker[];
   evidence_refs: VisualEvidenceRef[];
 }
 
@@ -247,6 +260,28 @@ export function emptyVisualGraphModel(): VisualGraphModel {
 }
 
 /**
+ * Puts an entity's marker channel into canonical form during normalization,
+ * and removes the field entirely when there is nothing to carry.
+ *
+ * The removal matters more than it looks: an unmarked node or edge must come
+ * out of normalization with exactly the key set it had before this channel
+ * existed, so that every id digest, every fidelity receipt and every rendered
+ * byte of a model that never used markers is unchanged.
+ */
+function withNormalizedMarkers<T extends { semantic_markers?: readonly VisualSemanticMarker[] }>(
+  subject: T,
+): T {
+  const normalized = normalizeSemanticMarkers(subject.semantic_markers);
+  if (normalized === undefined) {
+    if (subject.semantic_markers === undefined) return subject;
+    const rest: Record<string, unknown> = { ...subject };
+    delete rest.semantic_markers;
+    return rest as T;
+  }
+  return { ...subject, semantic_markers: normalized };
+}
+
+/**
  * Sorts every collection into canonical order.
  *
  * Determinism gate: adaptation, grammar selection, layout, and digesting all
@@ -260,13 +295,15 @@ export function normalizeVisualGraphModel(model: VisualGraphModel): VisualGraphM
   const byOrderThenId = (a: { id: string; order: number }, b: { id: string; order: number }) =>
     a.order !== b.order ? a.order - b.order : byId(a, b);
   return {
-    nodes: [...model.nodes].sort(byId).map((n) => ({ ...n, evidence_refs: [...n.evidence_refs] })),
+    nodes: [...model.nodes]
+      .sort(byId)
+      .map((n) => withNormalizedMarkers({ ...n, evidence_refs: [...n.evidence_refs] })),
     edges: [...model.edges].sort((a, b) => {
       if (a.from_id !== b.from_id) return a.from_id < b.from_id ? -1 : 1;
       if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
       if (a.to_id !== b.to_id) return a.to_id < b.to_id ? -1 : 1;
       return byId(a, b);
-    }),
+    }).map(withNormalizedMarkers),
     groups: [...model.groups].sort(byId).map((g) => ({ ...g, member_ids: [...g.member_ids].sort() })),
     lanes: [...model.lanes].sort(byOrderThenId),
     stages: [...model.stages].sort(byOrderThenId),
