@@ -121,12 +121,13 @@ describe("package DAG: @rvs/proposal-review's declared placement", () => {
     expect(visualIntelligenceDeps.has("@rvs/change-workbench")).toBe(false);
   });
 
-  it("no workspace package other than @rvs/proposal-review itself depends on @rvs/proposal-review (no reverse edge yet -- this slice adds no consumer)", () => {
+  it("@rvs/proposal-architecture-review (Milestone 11.3.3.1) is the only workspace package depending on @rvs/proposal-review", () => {
     const graph = loadWorkspaceDependencyGraph();
     for (const [name, deps] of graph.entries()) {
-      if (name === "@rvs/proposal-review") continue;
+      if (name === "@rvs/proposal-review" || name === "@rvs/proposal-architecture-review") continue;
       expect(deps.includes("@rvs/proposal-review")).toBe(false);
     }
+    expect(graph.get("@rvs/proposal-architecture-review")?.includes("@rvs/proposal-review")).toBe(true);
   });
 
   it("@rvs/proposal-review is not itself @rvs/change-workbench, @rvs/visual-intelligence, or @rvs/cli (must not live inside any of those)", () => {

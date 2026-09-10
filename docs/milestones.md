@@ -4779,3 +4779,137 @@ separately-authorized future task. The work was performed on branch
 `feature/proposal-review-observed-baseline-contract`; per this task's
 own authorization, nothing from this milestone has been committed,
 pushed, merged, or opened as a pull request.
+
+## Milestone 11.3.3.1 — Proposal Architecture Review Composition
+
+Bounded implementation slice: the pure semantic composer the prior
+M11.3.3A-P passes explicitly deferred. A new sibling package,
+`@rvs/proposal-architecture-review`, composes `ProposalReviewVisualInput`
+into a `ProposalArchitectureReviewModel` that keeps three surfaces —
+Observed Baseline, Proposed Delta, Projected State — semantically
+distinct, without reusing Milestone 10's `ChangeReviewModel` before/after
+truth and without giving Projected State observed-snapshot semantics
+merely because it is now composed into a review model. No HTML shell,
+layout, adaptive collapse, CLI, export, delivery, or explorer work is in
+scope; that remains for a later slice.
+
+### What the package owns
+
+`packages/proposal-architecture-review/src/compose.ts` exposes one
+function, `composeProposalArchitectureReviewModel(input)`, that is a
+pure, verbatim pass-through by reference:
+
+- **Observed Baseline** is `input.observed_baseline_graph`, unmodified —
+  no re-observation, no proposal-added entities folded in.
+- **Proposed Delta** is `{ operations: input.proposal.operations }` —
+  kept operation-shaped (the same six `ProposalOperation` primitives:
+  `add_entity`, `remove_entity`, `modify_attributes`, `add_relation`,
+  `remove_relation`, `modify_relation`), never forced into a
+  `VisualGraphModel`, never reordered, never enriched with inferred
+  renames or unchanged attributes.
+- **Projected State** is `input.projection`, unmodified — the existing
+  `built`/`not_built` discriminant is preserved verbatim, never rebuilt,
+  never re-evaluated, never converted into a `GraphSnapshot`. A
+  built-but-empty overlay stays structurally distinct from `not_built`
+  (proven with a fixture whose confirmed graph is itself empty, since
+  `buildChangeOverlay()` always seeds its `nodes`/`edges` from the full
+  confirmed set — zero operations alone does not produce an empty
+  overlay).
+
+`truth_disclosure`, `baseline_binding`, and `advisory` are carried
+through by the same object reference, kept as separate axes (no merged
+"confidence"/"trust" field). The model's identity,
+`buildProposalArchitectureReviewModelId()` in `src/ids.ts`, is a
+deterministic string composite of the five canonical identifiers the
+task specification named as the minimum: the source
+`ProposalReviewVisualInput.id`, `repository_id`, `proposal_id`,
+`base_snapshot_digest`, and `observed_baseline_snapshot_id` — no clock,
+random, filesystem, or environment dependency anywhere in the package.
+
+There is no rename primitive and no heuristic rename detection: a
+same-label remove-then-add is proven (by test) to stay two independent
+operations, never coalesced into one conceptual "moved" entity. Removed
+entities/relations are absent from Projected State's node/edge arrays
+(no tombstone reinsertion), present in Observed Baseline, and referenced
+only via the remove operation in Proposed Delta.
+
+### Dependency boundary
+
+The package's sole *production* dependency is `@rvs/proposal-review`.
+`@rvs/change-workbench`, `@rvs/knowledge-graph`, and
+`@rvs/visual-intelligence` appear only as `devDependencies`, used
+exclusively by the test suite: to build genuine (not hand-rolled)
+`ProposalReviewVisualInput` fixtures via the real upstream APIs, and to
+reuse `@rvs/visual-intelligence`'s own `FORBIDDEN_PROPOSAL_TRUTH_WORDING`
+authority rather than duplicating it. `contracts.ts` needs types like
+"what shape is an observed baseline graph" without a second type
+authority for them; it gets these via TypeScript indexed-access aliases
+into `ProposalReviewVisualInput` itself (e.g.
+`type ObservedBaselineGraph = ProposalReviewVisualInput["observed_baseline_graph"]`)
+rather than importing `KnowledgeNode`/`ChangeAdvisory` from their owning
+packages as production dependencies. The package does not depend,
+directly or transitively, on `@rvs/visual-grammar`, `@rvs/visual-composition`,
+or `@rvs/visual-delivery`. `packages/proposal-review/src/__tests__/package-dag.test.ts`
+gained one updated assertion naming `@rvs/proposal-architecture-review`
+as proposal-review's sole authorized consumer, replacing a stale
+"no consumer yet" placeholder from the prior pass — no other change was
+made to `packages/proposal-review/**`.
+
+### Static authority guards
+
+`src/__tests__/forbidden-authority-calls.test.ts` source-scans every
+non-test file in the package (mirroring `@rvs/proposal-review`'s own
+`forbidden-evaluator-call.test.ts` method) and fails if it finds: any
+call to `evaluateProposedChange`, `buildChangeOverlay`,
+`buildChangeAdvisory`, `computeDecisionImpact`, `verifyGraphContentDigest`,
+`buildGraphSnapshot`, `buildProposedChangeSetId`, `buildGraphContentDigest`,
+`buildReviewAssembly`, or related evaluator/builder names; any reference
+to `ChangeReviewModel`/`ReviewSnapshot`; a `from_snapshot_id`/
+`to_snapshot_id` field; a value (non-type-only) import from
+`@rvs/change-workbench`/`@rvs/knowledge-graph`; `Date.now()`,
+`Math.random()`, `crypto.randomUUID()`, `fetch(`, `fs.`, `child_process`,
+or `process.cwd()`; or any generated string literal containing a
+`FORBIDDEN_PROPOSAL_TRUTH_WORDING` entry or Projected-State-inflating
+wording ("After", "Target State", "Final Architecture", and similar).
+
+### Coverage
+
+`packages/proposal-architecture-review`: 3 test files, 49 tests —
+covering Observed Baseline reference-identity and exclusion of
+proposal-added entities; Proposed Delta shape/order preservation across
+all six operation primitives; Projected State's `not_built`/
+built-empty/built-non-empty distinction; added/removed/modified entity
+and relation semantics; the no-rename identity test; `truth_disclosure`/
+`baseline_binding`/`advisory` reference pass-through; non-mutation of a
+deep-frozen input; determinism (byte-identical repeated output, stable
+id for structurally-identical inputs); the static authority guard; and
+the package-DAG placement proof. `pnpm -r typecheck` passes across all
+31 workspace packages. `@rvs/proposal-review`'s own suite (5 files, 94
+tests, including the updated DAG assertion) and `@rvs/visual-change-review`'s
+suite (8 files, 146 tests) both pass with zero production change under
+either package. The full repository-wide source-mode suite passes with
+no regressions: 276 files / 4577 tests passed, 2 files / 26 tests
+pre-existing skips (the same package-mode/tarball-equivalence files
+skipped before this slice — `packages/cli/src/__tests__/package-smoke.test.ts`
+and `source-vs-package-equivalence.test.ts`). Package-mode
+(installed-tarball) verification remains uncertified, consistent with
+the environment limitation already documented in prior passes.
+
+### Remaining limitations
+
+No HTML/SVG artifact shell, layout, or adaptive collapse renders this
+model. No CLI command, export, PDF, or delivery path exists for it. The
+adaptive-placeholder provenance-collapse gap identified during the
+M11.3.3 investigation is untouched — `visual-composition/**` and
+`visual-intelligence/src/degradation.ts` were not modified. The
+Milestone 10 `ChangeReviewModel` explorer/screenshot path is unrelated
+and unmodified. Projected State's provenance vocabulary
+(`confirmed`/`proposed`/`modified`/`removed`) is preserved but not yet
+collapsed or simplified for adaptive display. Export survivability of
+this new model is not yet certified. Package-mode certification remains
+limited by the same environment constraints as prior passes. This slice
+composes the model; it does not decide how, or whether, any of its three
+surfaces are ever rendered. The work was performed on branch
+`feature/proposal-architecture-review-composition`; per this task's own
+authorization, nothing from this milestone has been committed, pushed,
+merged, or opened as a pull request.
