@@ -25,7 +25,12 @@ import type {
   VisualState,
   VisualTypeRole,
 } from "@rvs/visual-intelligence";
-import { MINIMUM_TEXT_SIZE_PX, resolveVisualState } from "@rvs/visual-intelligence";
+import {
+  MINIMUM_TEXT_SIZE_PX,
+  describeSemanticMarkers,
+  resolveVisualState,
+  type VisualSemanticMarker,
+} from "@rvs/visual-intelligence";
 
 /** Every primitive kind §13-§20 asks for. */
 export type VisualPrimitiveKind =
@@ -272,9 +277,29 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Compose an accessible name from a label and the state terms already resolved. §28. */
-export function nameFromState(kindWord: string, label: string, state: ResolvedVisualState): string {
-  return [`${kindWord} ${label}`, ...state.accessible_terms].join(", ");
+/**
+ * Compose an accessible name from a label and the state terms already
+ * resolved. §28.
+ *
+ * Semantic markers are spoken last, after the state terms, for the same
+ * reason the state terms come in a fixed order: a reader tabbing through
+ * forty boxes learns the shape of the sentence once. They belong in the name
+ * rather than only in the description because a description is an optional
+ * secondary channel a reader may never reach, and a qualification nobody
+ * hears is a qualification that did not survive.
+ */
+export function nameFromState(
+  kindWord: string,
+  label: string,
+  state: ResolvedVisualState,
+  markers?: readonly VisualSemanticMarker[],
+): string {
+  const markerPhrase = describeSemanticMarkers(markers);
+  return [
+    `${kindWord} ${label}`,
+    ...state.accessible_terms,
+    ...(markerPhrase === undefined ? [] : [markerPhrase]),
+  ].join(", ");
 }
 
 function baseAccessibility(

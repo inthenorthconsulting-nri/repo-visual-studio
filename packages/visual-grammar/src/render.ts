@@ -1,9 +1,12 @@
 import {
   CANONICAL_COORDINATE_SYSTEM,
   MINIMUM_TEXT_SIZE_PX,
+  describeSemanticMarkers,
   normalizeVisualGraphModel,
   resolveVisualState,
   sceneContentBox,
+  semanticMarkerTagText,
+  semanticMarkerTokens,
   type ResolvedVisualState,
   type VisualChangeKind,
   type VisualColorRole,
@@ -14,9 +17,10 @@ import {
   type VisualState,
 } from "@rvs/visual-intelligence";
 import { nameFromState } from "./primitives.js";
-import { fitTransform, type Rect } from "./geometry.js";
+import { fitTransform, type Point, type Rect } from "./geometry.js";
 import { desc, element, escapeText, formatNumber, polylinePath, title } from "./svg.js";
-import { lineHeight } from "./sizing.js";
+import { truncateToWidth } from "./text.js";
+import { lineHeight, markerTagFontSize } from "./sizing.js";
 import { type GrammarStyle } from "./style.js";
 import { grammarStyleFromTokens } from "./tokens-bridge.js";
 import { deltaLayout } from "./layout/delta.js";
@@ -454,6 +458,35 @@ function renderEdge(laid: LaidOutEdge, style: GrammarStyle, prefix: string): str
           ],
           escapeText(edge.label),
         );
+
+  // A marked edge must be distinguishable from an unmarked one with every
+  // colour in the drawing removed, and an edge has no interior to put a badge
+  // in. So the qualification is spelled beside the line, at the anchor the
+  // grammar already chose for an edge label -- or, when the grammar draws no
+  // labels, at the polyline's own midpoint, computed the same way every
+  // layout engine computes an anchor.
+  const markerSize = markerTagFontSize(style);
+  const markerTagText = semanticMarkerTagText(edge.semantic_markers);
+  const markerAnchor = laid.label_anchor ?? midpointOf(laid.points);
+  const markerRow =
+    markerTagText === undefined || markerAnchor === undefined
+      ? ""
+      : element(
+          "text",
+          [
+            ["x", markerAnchor.x],
+            ["y", markerAnchor.y + (label === "" ? 0 : lineHeight(markerSize))],
+            ["text-anchor", "middle"],
+            ["font-family", style.font_family],
+            ["font-size", markerSize],
+            ["fill", style.ink.secondary],
+            ["data-rvs-marker-row", "1"],
+          ],
+          escapeText(markerTagText),
+        );
+
+  const markerPhrase = describeSemanticMarkers(edge.semantic_markers);
+  const relationship = `${edge.from_id} ${edge.kind.replace(/_/g, " ")} ${edge.to_id}`;
   return element(
     "g",
     [
@@ -463,9 +496,25 @@ function renderEdge(laid: LaidOutEdge, style: GrammarStyle, prefix: string): str
       ["data-rvs-edge-kind", edge.kind],
       ["data-rvs-resolution", edge.resolution],
       ["data-rvs-in-cycle", edge.in_cycle ? "1" : "0"],
+      ["data-rvs-markers", semanticMarkerTokens(edge.semantic_markers)],
     ],
-    `${title(`${edge.from_id} ${edge.kind.replace(/_/g, " ")} ${edge.to_id}`)}${path}${label}`,
+    `${title(markerPhrase === undefined ? relationship : `${relationship}, ${markerPhrase}`)}${path}${label}${markerRow}`,
   );
+}
+
+/**
+ * The midpoint of a drawn polyline.
+ *
+ * Matches the anchor rule the layout engines already use (`points[floor(n/2)]`
+ * for an odd count) and averages the two middle points for an even one, so
+ * the row lands on the line rather than at one of its ends.
+ */
+function midpointOf(points: readonly Point[]): Point | undefined {
+  if (points.length === 0) return undefined;
+  if (points.length % 2 === 1) return points[(points.length - 1) / 2];
+  const before = points[points.length / 2 - 1];
+  const after = points[points.length / 2];
+  return { x: (before.x + after.x) / 2, y: (before.y + after.y) / 2 };
 }
 
 /**
@@ -689,9 +738,20 @@ function renderNode(
     ["stroke-dasharray", node.placeholder_for !== undefined ? "5 3" : STROKE_DASH_ARRAY[resolved.channels.stroke_pattern]],
   ]);
 
+  // The visible marker row is fitted to the box the layout actually drew,
+  // never to a remembered width, so a grammar that sizes its cards
+  // geometrically gets a correctly-clipped row rather than none at all.
+  const markerSize = markerTagFontSize(style);
+  const markerTagText = semanticMarkerTagText(node.semantic_markers);
+  const markerText =
+    markerTagText === undefined
+      ? undefined
+      : truncateToWidth(markerTagText, Math.max(0, rect.width - style.spacing.md * 2), markerSize);
+
   const labelHeight = laid.lines.length * lineHeight(style.font_size.label);
   const secondaryHeight = laid.secondary === undefined ? 0 : lineHeight(style.font_size.secondary);
-  let cursor = rect.y + (rect.height - labelHeight - secondaryHeight) / 2 + style.font_size.label;
+  const markerHeight = markerText === undefined ? 0 : lineHeight(markerSize);
+  let cursor = rect.y + (rect.height - labelHeight - secondaryHeight - markerHeight) / 2 + style.font_size.label;
   const lines = laid.lines
     .map((line) => {
       const text = element(
@@ -726,13 +786,35 @@ function renderNode(
           escapeText(laid.secondary),
         );
 
+  // Semantic qualification, spelled out. A word is the one channel that
+  // works for a reader who cannot distinguish the accent colour, cannot see
+  // the drawing at all, or is looking at a black-and-white print of it -- so
+  // the marker is a row of text inside the box rather than a tint or a
+  // second border treatment.
+  const markerRow =
+    markerText === undefined
+      ? ""
+      : element(
+          "text",
+          [
+            ["x", rect.x + rect.width / 2],
+            ["y", cursor + secondaryHeight],
+            ["text-anchor", "middle"],
+            ["font-family", style.font_family],
+            ["font-size", markerSize],
+            ["fill", node.emphasis === "muted" ? style.ink.muted : style.ink.secondary],
+            ["data-rvs-marker-row", "1"],
+          ],
+          escapeText(markerText),
+        );
+
   // The full label always ships inside `<title>`, so a box whose text had to
   // be abbreviated still tells a reader -- and a screen reader -- the whole
   // name. §28 wants that name to carry the state too: "Component packages/cli,
   // changed, governance review required", not a bare label and certainly not
   // an id. The terms come from the resolved state, so they are the same terms
   // the explorer announces for the same entity.
-  const accessible = `${title(nameFromState(kindWord(node), node.label, resolved))}${desc(describeNode(node, change))}`;
+  const accessible = `${title(nameFromState(kindWord(node), node.label, resolved, node.semantic_markers))}${desc(describeNode(node, change))}`;
   const elementId = laid.instance === undefined ? `${prefix}-n-${node.id}` : `${prefix}-n-${node.id}@${laid.instance}`;
 
   return element(
@@ -765,6 +847,11 @@ function renderNode(
       // validator can confirm the badge channel survived without scraping
       // `<text>` content or guessing at `text-anchor`.
       ["data-rvs-badge", resolved.channels.badge],
+      // Caller-supplied qualification keys, space-separated, in the same form
+      // as `data-rvs-state`. Keys only: a data attribute is a machine channel,
+      // and putting the human label here would create a second text channel
+      // that no escaping decision governs.
+      ["data-rvs-markers", semanticMarkerTokens(node.semantic_markers)],
       ["data-rvs-instance", laid.instance],
       ["data-rvs-evidence-count", node.evidence_refs.length],
       // The destination travels with the drawing, so an interactive surface
@@ -775,7 +862,7 @@ function renderNode(
       ["data-rvs-collapsed-group", node.placeholder_for?.collapsed_group_id],
       ["data-rvs-split-view", node.placeholder_for?.split_view_id],
     ],
-    `${accessible}${box}${lines}${secondary}${changeMarker(resolved, rect, style, accent)}${renderStateBadge(resolved, rect, style, accent)}`,
+    `${accessible}${box}${lines}${secondary}${markerRow}${changeMarker(resolved, rect, style, accent)}${renderStateBadge(resolved, rect, style, accent)}`,
   );
 }
 
@@ -787,11 +874,20 @@ function renderNode(
  * leaving the interpretation where it belongs.
  */
 function describeNode(node: VisualNode, change: VisualChangeKind | undefined): string {
+  const markerPhrase = describeSemanticMarkers(node.semantic_markers);
   if (node.placeholder_for !== undefined) {
     const count = node.placeholder_for.entity_count;
     // Stated as a stand-in first, so a screen reader never presents it as a
     // component -- the one misreading that would make the count meaningless.
-    return `stands in for ${count} ${count === 1 ? "entity" : "entities"} shown elsewhere`;
+    //
+    // The short-circuit continues to withhold the members' own facts, which
+    // belong to entities drawn elsewhere -- but it does not withhold the
+    // aggregated qualification, because that qualification is now the only
+    // trace those members left in this view. The wording is generic: this
+    // renderer states that markers are attached and repeats the caller's own
+    // terms, and knows nothing about what any of them mean.
+    const stands = `stands in for ${count} ${count === 1 ? "entity" : "entities"} shown elsewhere`;
+    return markerPhrase === undefined ? stands : `${stands}, ${markerPhrase}`;
   }
   const parts = [node.kind.replace(/_/g, " ")];
   if (node.severity !== undefined) parts.push(`severity ${node.severity.replace(/_/g, " ")}`);
@@ -800,5 +896,6 @@ function describeNode(node: VisualNode, change: VisualChangeKind | undefined): s
   if (node.confidence !== "confirmed") parts.push(node.confidence);
   if (change !== undefined) parts.push(change);
   if (node.evidence_refs.length > 0) parts.push(`${node.evidence_refs.length} evidence reference(s)`);
+  if (markerPhrase !== undefined) parts.push(markerPhrase);
   return parts.join(", ");
 }
