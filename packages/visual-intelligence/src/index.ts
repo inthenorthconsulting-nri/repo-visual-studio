@@ -13,6 +13,7 @@ export * from "./coordinate-system.js";
 export * from "./budgets.js";
 export * from "./audience.js";
 export * from "./data-model.js";
+export * from "./semantic-markers.js";
 export * from "./grammar-selection.js";
 export * from "./fidelity.js";
 export * from "./degradation.js";
