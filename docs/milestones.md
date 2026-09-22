@@ -5113,3 +5113,151 @@ name. The work was performed on branch
 `feature/generic-semantic-marker-survivability`; per this task's own
 authorization, nothing has been committed, pushed, merged, or opened as
 a pull request.
+
+## Milestone 11.3.3.2B — Proposal Architecture Review Visual Integration
+
+New package `@rvs/proposal-architecture-review-visual`, the consumer
+M11.3.3.2A's generic semantic-marker channel and M11.3.3.1's
+`ProposalArchitectureReviewModel` were both built to serve. It adapts a
+`ProposalArchitectureReviewModel` into three independently-shaped visual
+surfaces and maps upstream provenance onto the generic marker channel,
+without adding any new concept to M10 and without widening its own
+dependency boundary beyond the four packages this slice authorizes:
+`@rvs/proposal-architecture-review`, `@rvs/visual-intelligence`,
+`@rvs/visual-grammar`, `@rvs/visual-composition`. It never depends, as a
+production dependency, on `@rvs/change-workbench`,
+`@rvs/knowledge-graph`, `@rvs/governance-intelligence`,
+`@rvs/decision-intelligence`, or `@rvs/proposal-review` — no M10 package
+learns of this new consumer either.
+
+### Three surfaces
+
+- **Observed Baseline** (`adapt-baseline.ts`) is graph-shaped and carries
+  no per-entity semantic markers: it adapts `ObservedBaselineGraph`
+  one-to-one via the shared `kg-adapt.ts` node/edge adapters, inventing
+  no entity the input graph does not already contain.
+- **Proposed Delta** (`delta.ts`) is never graph-shaped: it is an ordered
+  array of operation cards, one per `ProposalOperation`, in the caller's
+  original order. All six operation kinds (`add_entity`, `remove_entity`,
+  `modify_attributes`, `add_relation`, `remove_relation`,
+  `modify_relation`) get their own card shape. Every endpoint/subject ref
+  is resolved against the confirmed baseline or this proposal's own
+  `add_entity` set and disclosed as `resolved_baseline`,
+  `resolved_proposed`, or explicitly `unresolved` — never guessed.
+  Attribute/relation-identity key classification (supported vs.
+  unresolved, before/after recovery) is intentionally reimplemented
+  locally rather than imported from `@rvs/change-workbench`'s
+  `attribute-support.ts`, the price of this package's dependency
+  boundary; a comment at the reimplementation flags it for manual sync if
+  upstream ever changes.
+- **Projected State** (`adapt-projected.ts`) is graph-shaped only when the
+  upstream `ChangeWorkbenchProjectionOutcome` is `{status: "built"}` with
+  a usable (`status: "ok"`) overlay; an attempted-but-invalid overlay
+  synthesizes the same `not_built` shape as an upstream `not_built`
+  outcome, never a fabricated empty graph. A built-but-empty overlay
+  (zero nodes/edges) is structurally distinct from `not_built`. Every
+  projected entity/edge carries exactly one explicit marker —
+  `confirmed`/`proposed`/`modified` from the overlay's own provenance
+  record, or the explicit `provenance-unresolved` marker when an
+  entity/edge is present in the overlay but absent from the provenance
+  record, never a silent `confirmed` default. `removed` entities are
+  absent from the projected graph by construction (they are deleted from
+  `overlay.nodes`/`overlay.edges` upstream), never present-but-marked.
+  Edge provenance is looked up by the overlay's own private
+  `${from_node_id}:${edge_type}:${to_node_id}` key triple, not `edge.id`,
+  matching `buildChangeOverlay()`'s own keying exactly.
+
+### Provenance -> semantic marker mapping
+
+`provenance-marker.ts` is the one new piece of authority this package
+adds: turning an `OverlayEntityProvenance` value already computed
+upstream into a `VisualSemanticMarker` for the generic M10 channel.
+Marker labels are the existing canonical `accessible_term` from
+`resolveProposalEntityProvenance()` (`@rvs/visual-intelligence`,
+Milestone 11.3.2) by reference, not a second hand-maintained copy; marker
+keys (`provenance-confirmed`, `provenance-proposed`, `provenance-modified`,
+`provenance-unresolved`) are this package's own stable,
+`sanitize()`-safe, caller-owned tokens. `removed` has no key: a removed
+entity is never present in Projected State to carry one. A real (not
+mocked) reduction-path suite (`stand-in-truth-matrix.test.ts`) drives
+these markers through `@rvs/visual-intelligence`'s actual
+`adaptVisualModel()` stand-in collapse and confirms a mixed-provenance
+hub's stand-in reports every provenance key its leaves actually carried,
+never a silently-collapsed single marker.
+
+### Composition
+
+`compose.ts` builds the top-level `ProposalArchitectureVisualReview` (the
+three surfaces plus `truth_disclosure`, `baseline_binding`, and
+`advisory`, all passed through unmodified by reference) and composes it
+with `@rvs/visual-composition` under `semantic_intent: "architecture"`.
+Ids are a pure function of content via the shared `sanitize()`-based
+`ids.ts`, so building the same model twice produces structurally
+identical output, including operation-card ids.
+
+### Dependency boundary proof
+
+`package-dag.test.ts` proves the real `package.json` files, not a
+stand-in graph: the package declares exactly the four authorized
+production dependencies, no cycle exists anywhere in the workspace, none
+of its own dependencies depend back on it, and no M10 package
+(`@rvs/visual-intelligence`, `@rvs/visual-grammar`,
+`@rvs/visual-composition`) depends on it directly or transitively. It
+does not assert that this package's one permitted dependency
+(`@rvs/proposal-architecture-review`) has an upstream chain free of
+`@rvs/governance-intelligence`/`@rvs/decision-intelligence` — that chain
+already exists upstream of the milestones this task builds on, and §8's
+boundary is about this package's own direct dependency declarations, not
+the full transitive closure of an already-permitted dependency.
+`forbidden-authority-calls.test.ts` proves non-test source never
+references `@rvs/change-workbench`, `@rvs/knowledge-graph`,
+`@rvs/proposal-review`, `@rvs/governance-intelligence`, or
+`@rvs/decision-intelligence` at all (value or type), never calls any
+upstream evaluator/builder function, and never emits any
+`FORBIDDEN_PROPOSAL_TRUTH_WORDING` term or proposal-truth-inflating
+Projected State wording. `@rvs/change-workbench` and
+`@rvs/knowledge-graph` are declared as `devDependencies` only, used
+solely by fixtures and tests, mirroring the exact precedent already
+established in `@rvs/proposal-architecture-review`'s own `package.json`.
+
+### Coverage
+
+`@rvs/proposal-architecture-review-visual`: 9 non-test source files / 724
+lines, 6 test files / 109 tests, all passing, none skipped —
+`package-dag.test.ts` (6), `stand-in-truth-matrix.test.ts` (3),
+`forbidden-authority-calls.test.ts` (57), `surfaces.test.ts` (20),
+`provenance-reduction-matrix.test.ts` (14), `hostile-text.test.ts` (9).
+`provenance-reduction-matrix.test.ts` builds Projected State through this
+package's real `adaptProjectedState()` and reduces it with M10's real
+`adaptVisualModel()`: the 10-confirmed, 10-proposed, 10-modified,
+9+1, 1+9 and 8+1+1 compositions keep exact per-marker multiplicity
+across drawn leaves plus stand-ins, the inverse 9 confirmed + 1 proposed
+and 1 confirmed + 9 proposed distributions stay distinct, and the same
+holds for real edge-connector aggregation (inverse and three-way).
+`hostile-text.test.ts` renders hostile labels and edge detail through the
+real composed render path for both graph surfaces and asserts inert
+markup; Proposed Delta is structured data with no renderer here, so its
+test asserts verbatim pass-through and HTML/export rendering of it stays
+deferred.
+`pnpm -r typecheck` passes across all 32 workspace packages. The full
+repository-wide source-mode suite passes: 286 files / 4807 tests passed,
+2 files / 26 tests skipped — the same two pre-existing package-mode
+skips, unchanged in count. `git status` shows exactly the new package
+directory plus a purely-additive `pnpm-lock.yaml` diff (31 inserted
+lines, no other package's lockfile entry touched); no file under any M10
+package or any other M11 package changed.
+
+### Remaining limitations
+
+Proposal Review's own dashboard, CLI/export/Visual Delivery integration,
+an HTML shell, and a spatial correspondence engine between the three
+surfaces are all explicitly out of scope for this slice and untouched.
+The Change Workbench and Proposal Review/Proposal Architecture Review
+packages themselves are unmodified — this is a pure downstream consumer.
+Attribute/relation-identity classification is a deliberate local
+restatement of `@rvs/change-workbench`'s `attribute-support.ts`, carrying
+a manual-sync maintenance cost as the price of the dependency boundary.
+The work was performed on branch
+`feature/proposal-architecture-review-visual`; per this task's own
+authorization, nothing has been committed, pushed, merged, or opened as
+a pull request.

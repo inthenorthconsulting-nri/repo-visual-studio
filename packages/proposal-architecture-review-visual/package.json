@@ -1,0 +1,24 @@
+{
+  "name": "@rvs/proposal-architecture-review-visual",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rvs/proposal-architecture-review": "workspace:*",
+    "@rvs/visual-composition": "workspace:*",
+    "@rvs/visual-grammar": "workspace:*",
+    "@rvs/visual-intelligence": "workspace:*"
+  },
+  "devDependencies": {
+    "@rvs/change-workbench": "workspace:*",
+    "@rvs/knowledge-graph": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
